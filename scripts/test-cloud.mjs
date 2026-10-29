@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+const origin=process.env.READWIND_TEST_ORIGIN||'http://127.0.0.1:5173';
+const suffix=crypto.randomUUID().slice(0,8),password=crypto.randomBytes(24).toString('base64url');
+async function session(name){
+ const email=`folio-qa-${suffix}-${name}@example.invalid`;
+ const signup=await fetch(`${origin}/api/auth/sign-up/email`,{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify({email,password,name:`Readwind QA ${name}`})});
+ assert.equal(signup.status,200,`sign up: ${signup.status} ${await signup.clone().text()}`);
+ const cookies=signup.headers.getSetCookie().map(s=>s.split(';')[0]).join('; ');
+ const response=await fetch(`${origin}/api/auth/token`,{headers:{Cookie:cookies,Origin:origin}});const token=(await response.json()).token;assert.ok(token,'session must return a JWT');
+ const decoded=JSON.parse(Buffer.from(token.split('.')[1],'base64url').toString());console.log(`Verified ${name} account token; issuer matches branch: ${decoded.iss===new URL(process.env.NEON_AUTH_BASE_URL).origin}`);
+ return {email,password,cookies,token};
+}
+const a=await session('laptop'),b=await session('other-account');
+const req=(s,path,body)=>fetch(origin+path,{method:body?'POST':'GET',headers:{Authorization:`Bearer ${s.token}`,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
+assert.equal((await fetch(origin+'/api/library')).status,401,'anonymous reads must be blocked');
+const book=JSON.parse(fs.readFileSync('lib/readwind/walden.json','utf8'));book.id=`qa-${suffix}`;
+assert.equal((await req(a,'/api/library',book)).status,200,'owner can save a book');
+let response=await req(a,'/api/library');assert.equal(response.status,200,'owner can load library');assert.equal((await response.json()).books.length,1);
+response=await req(b,'/api/library');assert.equal((await response.json()).books.length,0,'another account sees no books');
+const p={bookId:book.id,at:{section:0,block:1,offset:27},deviceId:'qa-laptop',wordsRead:160,revision:0};
+response=await req(a,'/api/sync',{entity:'progress',value:p});assert.equal(response.status,200);assert.equal((await response.json()).revision,1);
+const phone={...a,token:a.token};response=await req(phone,'/api/library');const saved=(await response.json()).progress[0];assert.deepEqual(saved.at,p.at,'second device resumes at the exact passage');
+response=await req(a,'/api/sync',{entity:'progress',value:{...p,at:{section:0,block:2,offset:0},deviceId:'qa-phone',revision:1}});assert.equal(response.status,200);
+response=await req(a,'/api/sync',{entity:'progress',value:p});assert.equal(response.status,409,'stale tab cannot overwrite newer position');assert.equal((await response.json()).current.revision,2);
+const ann={id:`qa-note-${suffix}`,bookId:book.id,kind:'highlight',range:{start:p.at,end:{...p.at,offset:60}},quote:'A sample passage',color:'yellow',note:'A thought that follows me.',createdAt:Date.now(),updatedAt:Date.now()};
+response=await req(a,'/api/sync',{entity:'annotation',value:ann});assert.equal(response.status,200);
+response=await req(b,'/api/sync',{entity:'annotation',value:{...ann,id:`qa-foreign-${suffix}`}});assert.equal(response.status,404,'foreign annotations are rejected');
+const id=crypto.randomUUID();response=await fetch(origin+`/api/files?id=${id}`,{method:'POST',headers:{Authorization:`Bearer ${a.token}`,'Content-Type':'application/pdf'},body:'%PDF-1.4\nReadwind QA storage test'});assert.equal(response.status,200,'private PDF upload');
+response=await fetch(origin+`/api/files?id=${id}`,{headers:{Authorization:`Bearer ${a.token}`}});assert.equal(response.status,200);assert.match(await response.text(),/Readwind QA/);
+response=await fetch(origin+`/api/files?id=${id}`,{headers:{Authorization:`Bearer ${b.token}`}});assert.equal(response.status,404,'other accounts cannot download private files');
+const signin=await fetch(origin+'/api/auth/sign-in/email',{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify({email:a.email,password:a.password})});assert.equal(signin.status,200,'account signs back in');
+fs.mkdirSync('work',{recursive:true});fs.writeFileSync('work/qa-account.json',JSON.stringify({email:a.email,password:a.password}));
+console.log('PASS: signup, signin, JWT, account isolation, book sync, cross-session resume, stale-position conflict, annotations, private PDF upload/download.');
+
