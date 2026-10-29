@@ -9,8 +9,8 @@ import {
 import { geometry, pageIndex } from "../lib/readwind/pagination";
 import { defaults } from "../lib/readwind/types";
 import type { Book } from "../lib/readwind/types";
-import walden from "../lib/readwind/walden.json";
-const book = walden as Book;
+import classics from "../lib/readwind/classics.json";
+const book = classics[0] as Book;
 describe("stable reading locations", () => {
   it("orders positions across sections and paragraphs", () => {
     expect(
@@ -28,12 +28,12 @@ describe("stable reading locations", () => {
     ).toBe(false);
   });
   it("preserves the print label independently of font and viewport", () => {
-    const mark = book.pageMarks.find((m) => m.label === "113")!;
-    expect(labelAt(book, mark.at)).toBe("113");
+    const mark = book.pageMarks.find((m) => m.label === "13")!;
+    expect(labelAt(book, mark.at)).toBe("13");
     for (const w of [390, 844, 1440])
       for (const size of [14, 18, 28]) {
         geometry(w, 844, { ...defaults, size }, w < 900, w > 640);
-        expect(labelAt(book, mark.at)).toBe("113");
+        expect(labelAt(book, mark.at)).toBe("13");
       }
   });
   it("uses word counts and keeps reading progress monotonic", () => {

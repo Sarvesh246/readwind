@@ -4,7 +4,9 @@ import type { Book, Anchor } from "@/lib/readwind/types";
 import { useLibrary } from "@/lib/readwind/useLibrary";
 import type { AuthClient } from "@/lib/readwind/useLibrary";
 import { Library } from "./Library";
+import { MotionConfig, motion } from "motion/react";
 import { ReadwindLockup } from "./Logo";
+import { Interactions } from "./Fx";
 import { BookReader } from "./BookReader";
 import { Notebook } from "./Notebook";
 import { Import } from "./Import";
@@ -566,15 +568,23 @@ export default function ReadwindApp() {
   }
   if (!loaded)
     return (
-      <div className="opening-screen">
-        <div className="wordmark">
-          <ReadwindLockup height={44} />
-        </div>
-        <p>Read slowly. Wind down.</p>
-      </div>
+      <MotionConfig reducedMotion="user">
+        <motion.div
+          className="opening-screen"
+          initial={{ opacity: 0, y: 10, filter: "blur(6px)" }}
+          animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+          transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <div className="wordmark">
+            <ReadwindLockup height={44} />
+          </div>
+          <p>Read slowly. Wind down.</p>
+        </motion.div>
+      </MotionConfig>
     );
   return (
-    <>
+    <MotionConfig reducedMotion="user">
+      <Interactions />
       <Workspace
         key={user?.id || "preview"}
         user={user}
@@ -591,6 +601,6 @@ export default function ReadwindApp() {
           onClose={() => setShowAuth(false)}
         />
       )}
-    </>
+    </MotionConfig>
   );
 }

@@ -5,7 +5,7 @@ import { ReadwindDB, deviceId } from "./db";
 import type { Pending } from "./db";
 import type { Book, Annotation, Anchor, Settings, Progress } from "./types";
 import { defaults } from "./types";
-import { sampleBooks, sampleAnnotations } from "./samples";
+import { loadClassics } from "./classics";
 export type { AuthClient } from "./auth";
 import type { AuthClient } from "./auth";
 export type SyncConflict = {
@@ -17,7 +17,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   const db = useMemo(() => new ReadwindDB(userId), [userId]);
   const guest = userId === "preview";
   const [status, setStatus] = useState(
-    guest ? "Sample library" : "Connecting…",
+    guest ? "Public-domain classics" : "Connecting…",
   );
   const [ready, setReady] = useState(false);
   const [conflict, setConflict] = useState<SyncConflict | null>(null);
@@ -200,11 +200,45 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     alive.current = true;
     (async () => {
       await db.open();
-      if (guest && (await db.books.count()) === 0) {
-        await db.books.bulkPut(sampleBooks);
-        await db.annotations.bulkPut(sampleAnnotations());
+      if (guest) {
+        // Earlier builds seeded one-paragraph excerpts with invented progress
+        // and highlights. Replace them with the real classics.
+        const existing = await db.books.toArray();
+        const legacy = existing.filter((b) => b.id.startsWith("sample-"));
+        if (legacy.length) {
+          const ids = legacy.map((b) => b.id);
+          await db.books.bulkDelete(ids);
+          await db.progress.bulkDelete(ids);
+          await db.annotations
+            .filter((a) => a.id.startsWith("sample-highlight-"))
+            .delete();
+        }
+        if (!existing.length || legacy.length)
+          await db.books.bulkPut(await loadClassics());
+      } else {
+        await sync();
+        // A brand-new account starts with the classics rather than an empty shelf.
+        const seeded = `readwind-seeded-${userId}`;
+        if (
+          navigator.onLine &&
+          !localStorage.getItem(seeded) &&
+          (await db.books.count()) === 0
+        ) {
+          localStorage.setItem(seeded, "1");
+          const now = Date.now();
+          for (const [i, b] of (await loadClassics()).entries()) {
+            const book = { ...b, addedAt: now - i, lastOpenedAt: now - i };
+            await db.books.put(book);
+            await db.pending.put({
+              id: `book:${book.id}`,
+              entity: "book",
+              bookId: book.id,
+              value: book,
+            });
+          }
+          void sync();
+        }
       }
-      if (!guest) await sync();
       setReady(true);
       navigator.storage?.persist().catch(() => {});
     })().catch((e) => {
@@ -235,7 +269,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         if (!alive.current) db.close();
       }, 1000);
     };
-  }, [db, sync, guest]);
+  }, [db, sync, guest, userId]);
   const saveProgress = async (
     bookId: string,
     at: Anchor,
@@ -354,10 +388,10 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     setConflict(null);
     void sync();
   };
-  const addSamples = async () => {
-    for (const b of sampleBooks)
-      await addBook({ ...b, addedAt: Date.now(), lastOpenedAt: Date.now() });
-    for (const a of sampleAnnotations()) await saveAnnotation(a);
+  const addClassics = async () => {
+    const now = Date.now();
+    for (const [i, b] of (await loadClassics()).entries())
+      await addBook({ ...b, addedAt: now - i, lastOpenedAt: now - i });
   };
   return {
     db,
@@ -377,7 +411,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     loadBlob,
     conflict,
     resolveConflict,
-    addSamples,
+    addClassics,
   };
 }
 export type Library = ReturnType<typeof useLibrary>;

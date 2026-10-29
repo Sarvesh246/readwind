@@ -953,7 +953,7 @@ export function Reader({
               <button onClick={() => setPanel("original")}>Original PDF</button>
             )}
             <span title={l.status}>
-              {l.guest ? "Sample excerpts" : l.status}
+              {l.guest ? "Public-domain classics" : l.status}
             </span>
           </div>
         )}

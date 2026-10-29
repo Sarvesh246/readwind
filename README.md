@@ -21,6 +21,10 @@ npm run build
 
 The app uses React, TypeScript, Vinext, Cloudflare Workers, Neon Postgres and Auth, private object storage, and Dexie. Source lives in `components/readwind`, `lib/readwind`, and `app/api`. Environment files and local test data are excluded from Git.
 
+## Starter shelf
+
+Visitors who aren't signed in, and brand-new accounts, start with six public-domain classics (Walden, Meditations, The Art of War, The Odyssey, Frankenstein, Pride and Prejudice). Each one is the real opening of the book, roughly 7,000 to 10,000 words, taken from Project Gutenberg. Nothing on the shelf is pre-read or pre-highlighted. To regenerate `lib/readwind/classics.json`, download the source texts and run `node scripts/build-classics.mjs <folder>`.
+
 ## Reading PDFs
 
 Imported books open in original layout by default. PDF.js renders their pages with the original fonts, dimensions, images, and spacing. The reader supports zoom, page navigation, bookmarks, text selection, highlights, notes, and downloading the original file. Only the current page or spread is rendered.

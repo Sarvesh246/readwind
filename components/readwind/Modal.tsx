@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
+import { motion } from "motion/react";
 import { Icon } from "./Icon";
 export function Modal({
   title,
@@ -30,7 +31,12 @@ export function Modal({
         if (e.target === ref.current) onClose();
       }}
     >
-      <div className="modal-content">
+      <motion.div
+        className="modal-content"
+        initial={{ opacity: 0, scale: 0.94, y: 16 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 340, damping: 26 }}
+      >
         <header className="modal-header">
           <h2>{title}</h2>
           <button
@@ -42,7 +48,7 @@ export function Modal({
           </button>
         </header>
         {children}
-      </div>
+      </motion.div>
     </dialog>
   );
 }

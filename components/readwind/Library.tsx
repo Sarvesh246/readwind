@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import type { Book } from "@/lib/readwind/types";
 import type { Library as LibraryData } from "@/lib/readwind/useLibrary";
 import { wordProgress, labelAt, start } from "@/lib/readwind/anchors";
@@ -36,6 +37,63 @@ export function Cover({
     </div>
   );
 }
+// The featured cover with two more books fanned out behind it on hover.
+function CoverFan({
+  book,
+  others,
+  loadBlob,
+}: {
+  book: Book;
+  others: Book[];
+  loadBlob: (id: string) => Promise<Blob | undefined>;
+}) {
+  return (
+    <motion.div
+      className="cover-fan"
+      initial="rest"
+      animate="rest"
+      whileHover="fan"
+    >
+      <Cover book={book} loadBlob={loadBlob} className="continue-cover" />
+      {others.slice(0, 2).map((b, i) => (
+        <motion.div
+          key={b.id}
+          className="fan-card"
+          style={{ zIndex: -1 - i, transformOrigin: "50% 100%" }}
+          variants={{
+            rest: { rotate: 0, x: 0, opacity: 0 },
+            fan: {
+              rotate: (i ? 1 : -1) * (7 + i * 5),
+              x: (i ? 1 : -1) * (22 + i * 10),
+              opacity: 1,
+            },
+          }}
+          transition={{ type: "spring", stiffness: 260, damping: 17 }}
+        >
+          <Cover book={b} loadBlob={loadBlob} className="continue-cover" />
+        </motion.div>
+      ))}
+    </motion.div>
+  );
+}
+// A real line from the opening of the book, cut at a sentence or word boundary.
+function openingLine(book: Book) {
+  const text =
+    book.sections
+      .flatMap((s) => s.blocks)
+      .find((b) => b.type === "p" && (b.text || "").length > 60)?.text || "";
+  const stop = text.slice(0, 230).search(/[.!?;:]["”’]?\s/);
+  if (stop > 50) return text.slice(0, stop + 1);
+  if (text.length <= 170) return text;
+  return `${text.slice(0, 170).replace(/\s+\S*$/, "")}…`;
+}
+const readTime = (book: Book) => {
+  const words = book.sections
+    .flatMap((s) => s.blocks)
+    .reduce((n, b) => n + (b.type === "figure" ? 0 : b.text.split(/\s+/).length), 0);
+  const minutes = Math.max(1, Math.round(words / 230));
+  return minutes < 90 ? `${minutes} min read` : `${Math.round(minutes / 6) / 10} hr read`;
+};
 export function Library({
   library: l,
   navigate,
@@ -122,6 +180,8 @@ export function Library({
       )
     : [];
   const lastHighlight = [...notes].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  const started = !!progress && (reading?.pct ?? 0) > 0;
+  const fanBooks = l.books.filter((b) => b.id !== current?.id);
   function drop(e: React.DragEvent) {
     e.preventDefault();
     setDragging(false);
@@ -211,61 +271,83 @@ export function Library({
           </section>
         )}
         {current && view === "library" && (
-          <section className="continue-card" aria-label="Continue reading">
+          <motion.section
+            className="continue-card"
+            aria-label={started ? "Continue reading" : "Start reading"}
+            initial={{ opacity: 0, y: 28 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ type: "spring", stiffness: 130, damping: 19 }}
+          >
             <button
               className="cover-button"
               aria-label={`Read ${current.title}`}
               onClick={() => navigate(`/book/${current.id}`)}
             >
-              <Cover
+              <CoverFan
                 book={current}
+                others={fanBooks}
                 loadBlob={l.loadBlob}
-                className="continue-cover"
               />
             </button>
             <div className="continue-copy">
-              <div className="eyebrow">Continue reading</div>
+              <div className="eyebrow">
+                {started ? "Continue reading" : "Start reading"}
+              </div>
               <h1>{current.title}</h1>
               <div className="chapter-label">
-                Chapter {at.section + 1} · {current.sections[at.section]?.title}
+                {started
+                  ? `Chapter ${at.section + 1} · ${current.sections[at.section]?.title}`
+                  : `${current.author} · ${current.printPageCount} pages · ${readTime(current)}`}
               </div>
-              <div className="continue-progress">
-                <div className="progress-track">
-                  <div style={{ width: `${reading!.pct * 100}%` }} />
+              {started && (
+                <div className="continue-progress">
+                  <div className="progress-track">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${reading!.pct * 100}%` }}
+                      transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1], delay: 0.25 }}
+                      style={{ transition: "none" }}
+                    />
+                  </div>
+                  <div>
+                    <span>
+                      Page {labelAt(current, at)} of {current.printPageCount}
+                    </span>
+                    <span>{reading!.minutes} min left in chapter</span>
+                  </div>
                 </div>
-                <div>
-                  <span>
-                    Page {labelAt(current, at)} of {current.printPageCount}
-                  </span>
-                  <span>{reading!.minutes} min left in chapter</span>
-                </div>
-              </div>
+              )}
               <div className="continue-actions">
                 <button
                   className="button ink"
                   onClick={() => navigate(`/book/${current.id}`)}
                 >
-                  Resume
+                  {started ? "Resume" : "Start reading"}
                 </button>
-                <button
-                  className="button"
-                  onClick={() => navigate(`/book/${current.id}/notebook`)}
-                >
-                  {notes.length} notes & highlights
-                </button>
+                {notes.length > 0 && (
+                  <button
+                    className="button"
+                    onClick={() => navigate(`/book/${current.id}/notebook`)}
+                  >
+                    {notes.length} notes & highlights
+                  </button>
+                )}
               </div>
             </div>
             <figure className="last-highlight">
               <figcaption className="eyebrow">
-                {lastHighlight
-                  ? "Your last highlight"
-                  : "A little room to think"}
+                {lastHighlight ? "Your last highlight" : "From the opening"}
               </figcaption>
-              <blockquote>
+              <blockquote className={lastHighlight ? undefined : "opening-quote"}>
                 {lastHighlight ? (
                   <mark>{lastHighlight.quote}</mark>
                 ) : (
-                  "“I went to the woods because I wished to live deliberately.”"
+                  <>
+                    “{openingLine(current)}”
+                    <cite>
+                      {current.author}, {current.title}
+                    </cite>
+                  </>
                 )}
               </blockquote>
               <div>
@@ -274,7 +356,7 @@ export function Library({
                   : "Select a passage as you read. Keep what stays with you."}
               </div>
             </figure>
-          </section>
+          </motion.section>
         )}
         <section className="shelf-section" aria-labelledby="shelf">
           <div className="shelf-heading">
@@ -296,7 +378,7 @@ export function Library({
           {l.ready && !l.books.length && (
             <div className="empty-library">
               <h2>A shelf of your own.</h2>
-              <p>Import your first PDF, or settle in with the sample books.</p>
+              <p>Import your first PDF, or start with a few classics.</p>
               <div className="inline-actions">
                 <button
                   className="button primary"
@@ -304,38 +386,54 @@ export function Library({
                 >
                   Import PDF
                 </button>
-                <button className="button" onClick={() => void l.addSamples()}>
-                  Add sample books
+                <button className="button" onClick={() => void l.addClassics()}>
+                  Add the classics
                 </button>
               </div>
             </div>
           )}
           {!l.ready && <p role="status">Opening your library…</p>}
           <div className="shelf-grid">
-            {books.map((b) => {
+            {books.map((b, i) => {
               const p = l.progress.find((p) => p.bookId === b.id),
                 info = wordProgress(b, p?.at || start);
               return (
-                <button
+                <motion.div
                   key={b.id}
-                  className="shelf-item"
-                  aria-label={`Read ${b.title}`}
-                  onClick={() => navigate(`/book/${b.id}`)}
+                  className="shelf-cell"
+                  layout="position"
+                  initial={{ opacity: 0, y: 22 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 210,
+                    damping: 22,
+                    delay: Math.min(i, 12) * 0.05,
+                  }}
                 >
-                  <Cover book={b} loadBlob={l.loadBlob} />
-                  <div className="shelf-status">
-                    <div className="shelf-progress">
-                      <div style={{ width: `${info.pct * 100}%` }} />
+                  <button
+                    className="shelf-item"
+                    aria-label={`Read ${b.title}`}
+                    onClick={() => navigate(`/book/${b.id}`)}
+                  >
+                    <Cover book={b} loadBlob={l.loadBlob} />
+                    <div className="shelf-status">
+                      <div className="shelf-progress">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: `${info.pct * 100}%` }}
+                          transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1], delay: 0.3 }}
+                          style={{ transition: "none" }}
+                        />
+                      </div>
+                      <span>
+                        {info.pct > 0
+                          ? `${Math.round(info.pct * 100)}% · ${info.minutes} min left`
+                          : `Not started · ${readTime(b)}`}
+                      </span>
                     </div>
-                    <span>
-                      {info.pct > 0
-                        ? `${Math.round(info.pct * 100)}% · ${info.minutes} min left`
-                        : b.sample
-                          ? "Sample · not started"
-                          : "Not started"}
-                    </span>
-                  </div>
-                </button>
+                  </button>
+                </motion.div>
               );
             })}
             <button className="drop-tile" onClick={() => navigate("/import")}>
@@ -354,7 +452,7 @@ export function Library({
         <footer className="library-footer">
           <span>
             {l.guest
-              ? "Sample library · sign in to keep your books on every device"
+              ? "Public-domain classics · sign in to keep your own books on every device"
               : l.status}
           </span>
           {l.guest ? (
@@ -369,12 +467,25 @@ export function Library({
           )}
         </footer>
       </main>
-      {dragging && (
-        <div className="drop-overlay">
-          <Icon name="upload" size={40} />
-          <h2>Drop your next good read.</h2>
-        </div>
-      )}
+      <AnimatePresence>
+        {dragging && (
+          <motion.div
+            className="drop-overlay"
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 300, damping: 26 }}
+          >
+            <motion.div
+              animate={{ y: [0, -8, 0] }}
+              transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+            >
+              <Icon name="upload" size={40} />
+            </motion.div>
+            <h2>Drop your next good read.</h2>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
