@@ -5,6 +5,7 @@ import type { Library as LibraryData } from "@/lib/readwind/useLibrary";
 import { wordProgress, labelAt, start } from "@/lib/readwind/anchors";
 import { BlobImage } from "./Page";
 import { Icon } from "./Icon";
+import { ReadwindLockup } from "./Logo";
 export function Cover({
   book,
   loadBlob,
@@ -148,8 +149,9 @@ export function Library({
             navigate("/");
           }}
           className="wordmark"
+          aria-label="Readwind"
         >
-          Readwind
+          <ReadwindLockup height={26} />
         </a>
         <nav aria-label="Main">
           <button

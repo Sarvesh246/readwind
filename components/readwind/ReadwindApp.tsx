@@ -4,6 +4,7 @@ import type { Book, Anchor } from "@/lib/readwind/types";
 import { useLibrary } from "@/lib/readwind/useLibrary";
 import type { AuthClient } from "@/lib/readwind/useLibrary";
 import { Library } from "./Library";
+import { ReadwindLockup } from "./Logo";
 import { BookReader } from "./BookReader";
 import { Notebook } from "./Notebook";
 import { Import } from "./Import";
@@ -566,8 +567,10 @@ export default function ReadwindApp() {
   if (!loaded)
     return (
       <div className="opening-screen">
-        <div className="wordmark">Readwind</div>
-        <p>A little room to read.</p>
+        <div className="wordmark">
+          <ReadwindLockup height={44} />
+        </div>
+        <p>Read slowly. Wind down.</p>
       </div>
     );
   return (

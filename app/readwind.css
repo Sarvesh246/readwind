@@ -243,6 +243,12 @@ legend {
     serif;
   letter-spacing: -0.01em;
   color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+}
+.wordmark img {
+  display: block;
+  width: auto;
 }
 .app-shell {
   min-height: 100vh;
