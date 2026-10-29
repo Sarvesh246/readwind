@@ -7,6 +7,7 @@ import { wordProgress, labelAt, start } from "@/lib/readwind/anchors";
 import { BlobImage } from "./Page";
 import { Icon } from "./Icon";
 import { ReadwindLockup } from "./Logo";
+import { ThemeToggleButton } from "./Theme";
 export function Cover({
   book,
   loadBlob,
@@ -242,6 +243,7 @@ export function Library({
           <Icon name="plus" size={18} />
           Import PDF
         </button>
+        <ThemeToggleButton />
         <button
           className="account-button"
           aria-label={l.guest ? "Sign in to your account" : "Your account"}

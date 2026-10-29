@@ -630,6 +630,7 @@ export function Reader({
           "--reader-ink": t.ink,
           "--reader-chip": t.chip,
           "--reader-on": t.on,
+          "--reader-accent": t.accent,
         } as CSSProperties
       }
     >

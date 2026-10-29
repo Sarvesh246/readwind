@@ -12,6 +12,7 @@ import { Notebook } from "./Notebook";
 import { Import } from "./Import";
 import { Modal } from "./Modal";
 import { Icon } from "./Icon";
+import { AppearanceControl } from "./Theme";
 import { labelAt } from "@/lib/readwind/anchors";
 type User = { id: string; name: string; email: string };
 function AuthForm({
@@ -458,6 +459,7 @@ function Workspace({
             <Icon name="cloud" />
             <span>{library.status}</span>
           </div>
+          <AppearanceControl />
           <p className="muted">
             Your books and notes belong to this account. Downloaded books stay
             available on this device while offline.

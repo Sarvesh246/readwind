@@ -221,7 +221,7 @@ export const Page = memo(function Page({
     <div
       className={`book-page ${side} ${decorative ? "decorative-page" : ""}`}
       style={{
-        background: cover ? book.cover.color : inside ? "#E9E0CB" : t.page,
+        background: cover ? book.cover.color : inside ? t.inside : t.page,
         color: t.ink,
         fontFamily: families[settings.font],
         fontSize: g.fs,

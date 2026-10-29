@@ -69,7 +69,7 @@ export function ReadwindIcon({
   );
 }
 
-/** Mark and wordmark together. The app is light-only, so only the black lockup ships. */
+/** Mark and wordmark together. Ships a light and a dark lockup; CSS picks the one for the theme. */
 export function ReadwindLockup({
   height = 40,
   tagline = false,
@@ -77,9 +77,26 @@ export function ReadwindLockup({
   height?: number;
   tagline?: boolean;
 }) {
-  const src = tagline
-    ? "/brand/readwind-lockup-tagline-black.svg"
-    : "/brand/readwind-lockup-black.svg";
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={src} alt="Readwind" height={height} />;
+  const base = tagline
+    ? "/brand/readwind-lockup-tagline"
+    : "/brand/readwind-lockup";
+  return (
+    <span className="lockup" style={{ height }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        className="lockup-light"
+        src={`${base}-black.svg`}
+        alt="Readwind"
+        height={height}
+      />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        className="lockup-dark"
+        src={`${base}-cream.svg`}
+        alt=""
+        aria-hidden="true"
+        height={height}
+      />
+    </span>
+  );
 }
