@@ -80,7 +80,15 @@ export async function rateLimit(key: string, limit: number, seconds = 60) {
   if (Number(rows[0].hits) > limit)
     throw new HttpError(429, "Too many requests. Please wait and retry.");
 }
-export function storageFetch(key: string, init?: RequestInit) {
+function bodyLength(body: BodyInit | null | undefined) {
+  if (body == null) return null;
+  if (typeof body === "string") return new TextEncoder().encode(body).byteLength;
+  if (body instanceof ArrayBuffer) return body.byteLength;
+  if (ArrayBuffer.isView(body)) return body.byteLength;
+  if (typeof Blob !== "undefined" && body instanceof Blob) return body.size;
+  return null;
+}
+export function storageFetch(key: string, init: RequestInit = {}) {
   if (
     key.split("/").length !== 2 ||
     key.split("/").some((segment) => !safeId.test(segment))
@@ -93,9 +101,17 @@ export function storageFetch(key: string, init?: RequestInit) {
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
   });
   const endpoint = process.env.AWS_ENDPOINT_URL_S3!.replace(/\/$/, "");
+  // Vercel's runtime streams outbound bodies without a Content-Length, which
+  // Neon object storage rejects with NotImplemented (501). The bytes are
+  // already materialized, so send the exact length and keep the object store
+  // on its non-chunked path.
+  const headers = new Headers(init.headers);
+  const length = bodyLength(init.body);
+  if (length !== null && !headers.has("content-length"))
+    headers.set("content-length", String(length));
   return client.fetch(
     `${endpoint}/${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`,
-    init,
+    { ...init, headers },
   );
 }
 export const bucket = "folio-books";

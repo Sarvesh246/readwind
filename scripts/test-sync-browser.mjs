@@ -11,7 +11,7 @@ let firstResolve,release,conflictOnce=true;
 const first=new Promise(r=>firstResolve=r),barrier=new Promise(r=>release=r);
 const sent=[];
 await page.route('**/api/config',r=>r.fulfill({json:{authUrl:null}}));
-await page.route('**/api/library',r=>r.fulfill({json:server}));
+await page.route('**/api/library*',r=>r.fulfill({json:server}));
 await page.route('**/api/sync',async r=>{
  const change=r.request().postDataJSON();sent.push(change);
  if(change.entity==='annotation'){
@@ -48,6 +48,11 @@ await page.evaluate(async id=>{const h=await import('/tests/fixtures/library-har
 await waitForLibrary('synced');
 assert.deepEqual(server.progress[0].at,{section:0,block:2,offset:25},'resolving a conflict retains the latest local position');
 assert.equal(sent.filter(s=>s.entity==='progress').at(-1).value.revision,4);
+const gone={...book,id:'deleted-on-another-device',title:'Deleted elsewhere',sourcePdfBlobId:'gone-blob'};
+await page.evaluate(async b=>{const h=await import('/tests/fixtures/library-harness.tsx');const l=h.current();await l.db.transaction('rw',[l.db.books,l.db.progress,l.db.annotations,l.db.blobs],async()=>{await l.db.books.put(b);await l.db.progress.put({bookId:b.id,at:{section:0,block:1,offset:0},wordsRead:12,revision:3,deviceId:'qa-old',updatedAt:Date.now()});await l.db.annotations.put({id:'gone-note',bookId:b.id,kind:'highlight',range:{start:{section:0,block:1,offset:0},end:{section:0,block:1,offset:10}},quote:'Old passage',note:'Old note',color:'yellow',createdAt:Date.now(),updatedAt:Date.now()});await l.db.blobs.put({id:'gone-blob',data:new ArrayBuffer(8),type:'application/pdf'});});await l.sync();},gone);
+await waitForLibrary('synced');
+assert.equal(await page.evaluate(async()=>{const h=await import('/tests/fixtures/library-harness.tsx');return h.current().db.books.get('deleted-on-another-device');}),undefined,'a book deleted on another device disappears here');
+assert.equal(await page.evaluate(async()=>{const h=await import('/tests/fixtures/library-harness.tsx');const l=h.current();return {p:await l.db.progress.get('deleted-on-another-device'),a:await l.db.annotations.get('gone-note'),b:await l.db.blobs.get('gone-blob')};}).then(x=>x.p||x.a||x.b),undefined,'its position, notes, and cached file are removed too');
 assert.deepEqual(errors,[]);
-console.log('PASS: edit during upload drains immediately; no false synced status; conflict resolution preserves the latest local reading anchor.');
+console.log('PASS: edit during upload drains immediately; no false synced status; conflict resolution preserves the latest local reading anchor; remote deletions reconcile locally.');
 }finally{await browser.close();}

@@ -14,21 +14,38 @@ export const GET = safeRoute(async (request: Request) => {
   const offset = Number(new URL(request.url).searchParams.get("offset") || "0");
   if (!Number.isInteger(offset) || offset < 0 || offset > 10000)
     return Response.json({ error: "Invalid page" }, { status: 400 });
+  // Ten books and one hundred notes per response keep a page bounded while
+  // letting a normal shelf arrive in one request. The cursors advance together;
+  // the annotation offset is ten times the book offset.
+  const BOOKS = 10;
+  const ANNOTATIONS = 100;
   const db = sql(id);
-  const [books, progress, annotations, settings] = await Promise.all([
-    db`SELECT data FROM folio_books WHERE owner_id=${id} ORDER BY id LIMIT 2 OFFSET ${offset}`,
-    db`SELECT book_id AS "bookId", at, revision, device_id AS "deviceId", words_read AS "wordsRead", EXTRACT(EPOCH FROM updated_at)*1000 AS "updatedAt" FROM folio_progress WHERE owner_id=${id}`,
-    db`SELECT data FROM folio_annotations WHERE owner_id=${id} ORDER BY id LIMIT 51 OFFSET ${offset * 50}`,
-    db`SELECT data FROM folio_settings WHERE owner_id=${id}`,
+  const [books, annotations, progress, settings] = await Promise.all([
+    db`SELECT data FROM folio_books WHERE owner_id=${id} ORDER BY id LIMIT ${BOOKS + 1} OFFSET ${offset}`,
+    db`SELECT data FROM folio_annotations WHERE owner_id=${id} ORDER BY id LIMIT ${ANNOTATIONS + 1} OFFSET ${offset * (ANNOTATIONS / BOOKS)}`,
+    offset === 0
+      ? db`SELECT book_id AS "bookId", at, revision, device_id AS "deviceId", words_read AS "wordsRead", EXTRACT(EPOCH FROM updated_at)*1000 AS "updatedAt" FROM folio_progress WHERE owner_id=${id}`
+      : [],
+    offset === 0
+      ? db`SELECT data FROM folio_settings WHERE owner_id=${id}`
+      : [],
   ]);
+  const nextOffset =
+    books.length > BOOKS || annotations.length > ANNOTATIONS
+      ? offset + BOOKS
+      : null;
   return Response.json(
     {
-      books: books.slice(0, 1).map((r) => r.data),
-      progress,
-      annotations: annotations.slice(0, 50).map((r) => r.data),
-      settings: settings[0]?.data || null,
-      nextOffset:
-        books.length > 1 || annotations.length > 50 ? offset + 1 : null,
+      books: books.slice(0, BOOKS).map((r) => r.data),
+      // Progress and settings only need to travel once per sync.
+      ...(offset === 0
+        ? {
+            progress,
+            settings: settings[0]?.data || null,
+          }
+        : {}),
+      annotations: annotations.slice(0, ANNOTATIONS).map((r) => r.data),
+      nextOffset,
     },
     { headers: { "Cache-Control": "no-store" } },
   );

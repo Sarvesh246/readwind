@@ -16,6 +16,8 @@ export type Pending = {
   value: unknown;
   baseRevision?: number;
   uploadFiles?: boolean;
+  /** File IDs already stored remotely for this book, so retries skip them. */
+  uploaded?: string[];
 };
 export class ReadwindDB extends Dexie {
   books!: EntityTable<Book, "id">;

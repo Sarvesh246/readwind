@@ -467,7 +467,7 @@ export function Library({
         <footer className="library-footer">
           <span>
             {l.guest
-              ? "Public-domain classics · sign in to keep your own books on every device"
+              ? "Guest shelf · saved on this device · sign in to sync"
               : l.status}
           </span>
           {l.guest ? (
