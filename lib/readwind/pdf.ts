@@ -1,8 +1,8 @@
-import type { Book, Section, PageMark } from "./types";
+import type { Book, Section, PageMark, Block } from "./types";
 import { analyzePdfPage, dominantSize, importReport, type PdfPageReport } from './pdf-layout';
 import { printedLabels, contentsChapters, interpolatePrintedLabels, type ContentsLink, pageHeading, matchesChapterTitle } from './chapters';
 import { ocrLines, ocrScore, enhanceOcrContrast } from './ocr';
-import {findPdfTables} from './pdf-tables';
+import {findPdfTables,findRuledTables,findLayoutGraphics,findGridAreas,type PdfRect} from './pdf-tables';
 import {normalizeStyledText,pdfFontStyle,type TextStyleRun} from './rich-text';
 import {bookWordEvidence,joinPrintedLine,joinPageParagraphs} from './text-cleanup';
 import {fidelityIssues,structuredBlocks,needsSourcePage,textLayerCheck,textLayerDisagrees,extractionLoss,ocrAddsContent} from './pdf-fidelity';
@@ -76,8 +76,9 @@ export async function importPDF(
     const info = (metadata?.info || {}) as Record<string, string>;
     const all: Line[][] = [],
       files: { id: string; blob: Blob }[] = [],
-      images = new Map<number, { id: string; y: number; aspectRatio:number; text?:string;fullPage?:boolean;sourcePdf?:boolean }[]>(),
-      heights: number[] = [];
+      images = new Map<number, { id: string; y: number; aspectRatio:number; text?:string;fullPage?:boolean;sourcePdf?:boolean;table?:boolean }[]>(),
+      heights: number[] = [],
+      pageGrids: PdfRect[][] = [];
     const imageOnlyOpenings=new Set<number>();
     const preservedPages=new Set<number>();
     const verificationText=new Map<number,string>();
@@ -104,6 +105,88 @@ export async function importPDF(
         .promise;
       return canvas;
     };
+    /** One pass over the page operators: painted raster images and vector rules.
+     * Rule geometry detects drawn table grids without relying on text layers. */
+    const scanOperators = (
+      ops: { fnArray: number[]; argsArray: unknown[] },
+      v: { width: number; height: number; convertToViewportPoint: (x: number, y: number) => number[] },
+    ) => {
+      const images: PdfRect[] = [],
+        paths: PdfRect[] = [],
+        stack: number[][] = [];
+      let m = [1, 0, 0, 1, 0, 0];
+      for (let oi = 0; oi < ops.fnArray.length; oi++) {
+        const op = ops.fnArray[oi],
+          args = ops.argsArray[oi];
+        if (op === pdfjs.OPS.save) stack.push([...m]);
+        else if (op === pdfjs.OPS.restore) m = stack.pop() || m;
+        else if (op === pdfjs.OPS.transform) {
+          const b = args as number[];
+          m = [
+            m[0] * b[0] + m[2] * b[1],
+            m[1] * b[0] + m[3] * b[1],
+            m[0] * b[2] + m[2] * b[3],
+            m[1] * b[2] + m[3] * b[3],
+            m[0] * b[4] + m[2] * b[5] + m[4],
+            m[1] * b[4] + m[3] * b[5] + m[5],
+          ];
+        } else if (op === pdfjs.OPS.constructPath) {
+          const mm = (args as [number, unknown, number[]] | undefined)?.[2];
+          if (!mm || !mm.length) continue;
+          const corners = [
+            [mm[0], mm[1]],
+            [mm[0], mm[3]],
+            [mm[2], mm[1]],
+            [mm[2], mm[3]],
+          ].map(([x, y]) =>
+            v.convertToViewportPoint(
+              m[0] * x + m[2] * y + m[4],
+              m[1] * x + m[3] * y + m[5],
+            ),
+          );
+          const xs = corners.map((c) => c[0]),
+            ys = corners.map((c) => c[1]);
+          if (paths.length < 4000) paths.push({
+            x: Math.min(...xs),
+            y: Math.min(...ys),
+            w: Math.max(...xs) - Math.min(...xs),
+            h: Math.max(...ys) - Math.min(...ys),
+          });
+        } else if (
+          op === pdfjs.OPS.paintImageXObject ||
+          op === pdfjs.OPS.paintInlineImageXObject
+        ) {
+          const corners = [
+            [0, 0],
+            [0, 1],
+            [1, 0],
+            [1, 1],
+          ].map(([x, y]) =>
+            v.convertToViewportPoint(
+              m[0] * x + m[2] * y + m[4],
+              m[1] * x + m[3] * y + m[5],
+            ),
+          );
+          const xs = corners.map((c) => c[0]),
+            ys = corners.map((c) => c[1]);
+          // Clip the image box to the visible page. Content painted past the
+          // page edge cannot be recovered from the page raster, and using the
+          // unclipped box would stretch the visible part across the crop.
+          const left = Math.max(0, Math.min(...xs)),
+            top = Math.max(0, Math.min(...ys)),
+            right = Math.min(v.width, Math.max(...xs)),
+            bottom = Math.min(v.height, Math.max(...ys));
+          const r = {
+            x: left,
+            y: top,
+            w: Math.max(0, right - left),
+            h: Math.max(0, bottom - top),
+          };
+          if (r.w > 24 && r.h > 24) images.push(r);
+        }
+      }
+      return { images, paths };
+    };
     const preserveSource=async(page:Awaited<ReturnType<typeof pdf.getPage>>,index:number,text:string)=>{
       let id=pdfId;const viewport=page.getViewport({scale:1});
       // Passwords are never persisted. Keep an unlocked rendering when reopening
@@ -126,11 +209,14 @@ export async function importPDF(
       heights.push(v.height);
       const items = content.items.filter(i=>"str" in i) as import("./pdf-layout").PdfTextItem[];
       const operators=await page.getOperatorList().catch(()=>null);
+      const operatorScan=operators?scanOperators(operators,v):undefined;
+      const gridAreas=operatorScan?findGridAreas(operatorScan.paths,v.width,v.height):[];
+      pageGrids.push(gridAreas);
       const styledItems=items.map(item=>{
         try{const font=page.commonObjs.get(item.fontName!) as Parameters<typeof pdfFontStyle>[0];return {...item,...pdfFontStyle(font),monospace:/courier|mono|consolas|menlo|typewriter/i.test(font.name||'')};}catch{return item;}
       });
       const analysis = analyzePdfPage(styledItems as import("./pdf-layout").PdfTextItem[], v, p-1);
-      analysis.report.issues.push(...fidelityIssues(analysis.lines,styledItems,v.width,v.height));
+      analysis.report.issues.push(...fidelityIssues(analysis.lines,styledItems,v.width,v.height,gridAreas));
       if(!items.length && v.width>v.height*1.12)analysis.report.issues.push('scan-spread');
       reports.push(analysis.report);
       const lines: Line[] = analysis.lines;
@@ -216,75 +302,41 @@ export async function importPDF(
       if (!preservedPages.has(p-1) && (items.length || imageOnlyOpening)) {
         try {
         const ops = operators || await page.getOperatorList(),
-          stack: number[][] = [],
-          regions: { x: number; y: number; w: number; h: number; lines?:import("./pdf-layout").PdfLine[]; text?:string }[] = [];
-        let m = [1, 0, 0, 1, 0, 0];
-        for (let oi = 0; oi < ops.fnArray.length; oi++) {
-          const op = ops.fnArray[oi],
-            args = ops.argsArray[oi];
-          if (op === pdfjs.OPS.save) stack.push([...m]);
-          else if (op === pdfjs.OPS.restore) m = stack.pop() || m;
-          else if (op === pdfjs.OPS.transform) {
-            const b = args as number[];
-            m = [
-              m[0] * b[0] + m[2] * b[1],
-              m[1] * b[0] + m[3] * b[1],
-              m[0] * b[2] + m[2] * b[3],
-              m[1] * b[2] + m[3] * b[3],
-              m[0] * b[4] + m[2] * b[5] + m[4],
-              m[1] * b[4] + m[3] * b[5] + m[5],
-            ];
-          } else if (
-            [
-              pdfjs.OPS.paintImageXObject,
-              pdfjs.OPS.paintInlineImageXObject,
-            ].includes(op)
-          ) {
-            const corners = [
-              [0, 0],
-              [0, 1],
-              [1, 0],
-              [1, 1],
-            ].map(([x, y]) =>
-              v.convertToViewportPoint(
-                m[0] * x + m[2] * y + m[4],
-                m[1] * x + m[3] * y + m[5],
-              ),
-            );
-            const xs = corners.map((c) => c[0]),
-              ys = corners.map((c) => c[1]);
-            // Clip the image box to the visible page. Content painted past the
-            // page edge cannot be recovered from the page raster, and using the
-            // unclipped box would stretch the visible part across the crop.
-            const left = Math.max(0, Math.min(...xs)),
-              top = Math.max(0, Math.min(...ys)),
-              right = Math.min(v.width, Math.max(...xs)),
-              bottom = Math.min(v.height, Math.max(...ys));
-            const r = {
-              x: left,
-              y: top,
-              w: Math.max(0, right - left),
-              h: Math.max(0, bottom - top),
-            };
-            if (
-              r.w > 24 &&
-              r.h > 24 &&
-              (imageOnlyOpening || !(r.w > v.width * 0.95 && r.h > v.height * 0.95))
-            )
-              {const labels=lines.filter(l=>l.x>=r.x-2 && (l.endX||l.x)<=r.x+r.w+2 && l.y>=r.y && l.y<=r.y+r.h);
-               regions.push({...r,lines:labels as import("./pdf-layout").PdfLine[],text:labels.length?labels.map(l=>l.text).join("\n"):undefined});}
-          }
-        }
+          scan = operatorScan || scanOperators(ops, v),
+          regions: { x: number; y: number; w: number; h: number; lines?:import("./pdf-layout").PdfLine[]; text?:string;table?:boolean }[] = [];
+        for (const r of scan.images)
+          if (imageOnlyOpening || !(r.w > v.width * 0.95 && r.h > v.height * 0.95)) regions.push({...r});
         const linkedIndex=(await page.getAnnotations().catch(()=>[])).filter(a=>a.dest).length>=3;
-        if(!linkedIndex && !lines.some(l=>isContentsTitle(l.text)))regions.push(...findPdfTables(lines as import("./pdf-layout").PdfLine[]).filter(table=>!regions.some(r=>{
-          const overlap=Math.max(0,Math.min(r.x+r.w,table.x+table.w)-Math.max(r.x,table.x))*Math.max(0,Math.min(r.y+r.h,table.y+table.h)-Math.max(r.y,table.y));
-          return overlap>Math.min(r.w*r.h,table.w*table.h)*.5;
-        })));
+        const contentsPage=lines.some(l=>isContentsTitle(l.text));
+        if(!linkedIndex && !contentsPage){
+          if(!imageOnlyOpening){
+            // Ruled comparison charts are one picture even when their cells wrap.
+            // They cover table headers too, so they are measured before text bands.
+            for(const graphic of findLayoutGraphics(lines as import("./pdf-layout").PdfLine[],scan.paths,v.width,v.height,gridAreas))
+              if(!regions.some(r=>{
+                const overlap=Math.max(0,Math.min(r.x+r.w,graphic.x+graphic.w)-Math.max(r.x,graphic.x))*Math.max(0,Math.min(r.y+r.h,graphic.y+graphic.h)-Math.max(r.y,graphic.y));
+                return overlap>Math.min(r.w*r.h,graphic.w*graphic.h)*.4;
+              }))regions.push({...graphic,table:true});
+            for(const table of findRuledTables(lines as import("./pdf-layout").PdfLine[],scan.paths,v.width,v.height,gridAreas))
+              if(!regions.some(r=>{
+                const overlap=Math.max(0,Math.min(r.x+r.w,table.x+table.w)-Math.max(r.x,table.x))*Math.max(0,Math.min(r.y+r.h,table.y+table.h)-Math.max(r.y,table.y));
+                return overlap>Math.min(r.w*r.h,table.w*table.h)*.5;
+              }))regions.push({...table,table:true});
+          }
+          regions.push(...findPdfTables(lines as import("./pdf-layout").PdfLine[]).filter(table=>!regions.some(r=>{
+            const overlap=Math.max(0,Math.min(r.x+r.w,table.x+table.w)-Math.max(r.x,table.x))*Math.max(0,Math.min(r.y+r.h,table.y+table.h)-Math.max(r.y,table.y));
+            return overlap>Math.min(r.w*r.h,table.w*table.h)*.5;
+          })).map(table=>({...table,table:true})));
+        }
         if (regions.length) {
           analysis.report.issues.push("illustrated");
           const full = await raster(page, 1.5);
+          const seen=new Set<string>();
           for (const r of regions) {
             if (r.w < 1 || r.h < 1) continue;
+            const key=`${Math.round(r.x)}:${Math.round(r.y)}:${Math.round(r.w)}:${Math.round(r.h)}`;
+            if(seen.has(key))continue;
+            seen.add(key);
             const crop = document.createElement("canvas");
             crop.width = Math.ceil(r.w * 1.5);
             crop.height = Math.ceil(r.h * 1.5);
@@ -310,11 +362,13 @@ export async function importPDF(
               ),
               id = crypto.randomUUID();
             files.push({ id, blob });
+            // Every line the crop shows leaves the prose, so nothing appears twice.
+            const covered=(r.lines?.length?r.lines:lines.filter(l=>l.x>=r.x-2 && (l.endX||l.x)<=r.x+r.w+2 && l.y>=r.y && l.y<=r.y+r.h));
             const previous = images.get(p - 1) || [];
-            previous.push({ id, y:r.y, aspectRatio:r.w/r.h, text:r.text,fullPage:imageOnlyOpening || undefined });
+            previous.push({ id, y:r.y, aspectRatio:r.w/r.h, text:r.text||covered.map(l=>l.text).join("\n"),fullPage:imageOnlyOpening || undefined,table:r.table });
             // Remove cell prose only after the faithful table image has been saved.
             if(imageOnlyOpening)imageOnlyOpenings.add(p-1);
-            else for(const line of r.lines || []){const at=lines.indexOf(line);if(at>=0)lines.splice(at,1);}
+            else for(const line of covered){const at=lines.indexOf(line as Line);if(at>=0)lines.splice(at,1);}
             images.set(p - 1, previous);
             figureCount++;
           }
@@ -404,6 +458,41 @@ export async function importPDF(
       const heading = toc.contentsPages.has(pi) ? (toc.contentsPages.has(pi-1)?undefined:"Contents") : toc.chapters.get(pi) || outlinePages.get(pi) ||
         (!toc.contentsPages.size && !outlinePages.size?detected?.title:undefined);
       const headingLines=detected && heading && matchesChapterTitle(detected.title,heading)?detected.lines:[];
+      // A narrow margin or sidebar column is prose, not an illustration. Lift it
+      // out of the main flow as a quote so the page can stay adjustable text.
+      const pageWidth=reports[pi].width,pageGridsHere=pageGrids[pi]||[],margin=new Set<Line>();
+      const inGrid=(line:Line)=>{
+        const end=line.endX ?? line.x+line.text.length*line.size;
+        return pageGridsHere.some(g=>line.x>=g.x-2&&end<=g.x+g.w+2&&line.y>=g.y-2&&line.y<=g.y+g.h+2);
+      };
+      if(!preservedPages.has(pi) && !reports[pi].issues.includes('columns') && !toc.entriesByPage.has(pi))
+        for(const line of kept){
+          if(line.size>median*1.35||inGrid(line))continue;
+          const end=line.endX ?? line.x+line.text.length*line.size,
+            letters=(line.text.match(/\p{L}/gu)||[]).length;
+          if(letters>=4 && line.x>pageWidth*.34 && end<pageWidth*.9 && end-line.x<pageWidth*.45 && line.text.trim().length>8)margin.add(line);
+        }
+      const quotes:{y:number;block:Block}[]=[];
+      if(margin.size){
+        const groups:Line[][]=[];
+        for(const line of [...margin].sort((a,b)=>a.y-b.y||a.x-b.x)){
+          const group=groups.at(-1),last=group?.at(-1);
+          if(group && last && line.y-last.y<=median*2.4 && Math.abs(line.x-last.x)<=median*6)group.push(line);
+          else groups.push([line]);
+        }
+        for(const group of groups){
+          let text='',styles:TextStyleRun[]=[];
+          for(const line of group){
+            const joined=joinPrintedLine(text,line.text,options.joinHyphens,wordEvidence);
+            const start=joined.text.length-line.text.length;
+            if(joined.fixed)styles=styles.map(r=>({...r,end:Math.min(r.end,start)})).filter(r=>r.end>r.start);
+            styles.push(...(line.styles||[]).map(r=>({...r,start:r.start+start,end:r.end+start})));
+            text=joined.text;
+          }
+          const cleaned=normalizeStyledText(text,styles);
+          if(cleaned.text)quotes.push({y:group[0].y-group[0].size,block:{type:'quote',text:cleaned.text,styles:cleaned.runs.length?cleaned.runs:undefined}});
+        }
+      }
       if (!section || heading) {
         section = {
           id: crypto.randomUUID(),
@@ -415,7 +504,7 @@ export async function importPDF(
         sections.push(section);
       }
       const blockAt = section.blocks.length;
-      const first=kept.find(l=>!l.header),leftEdge=Math.min(...kept.filter(l=>!l.header && l.size>=median*.9).map(l=>l.x));
+      const first=kept.find(l=>!l.header&&!margin.has(l)),leftEdge=Math.min(...kept.filter(l=>!l.header && l.size>=median*.9).map(l=>l.x));
       if(!heading && first && !first.paragraphStart && first.x<=leftEdge+median*.35)pageContinuations.add(pi);
       marks.push({
         label: pageLabel,
@@ -442,17 +531,25 @@ export async function importPDF(
         }
       }
       // Sparse image-only title pages retain their original typography instead of OCR artifacts.
-      const structured=!entries?.length && !imageOnlyOpenings.has(pi)?structuredBlocks(kept.filter(l=>!headingLines.includes(l) && l.text!==heading) as import('./pdf-layout').PdfLine[],options.textLayout==='auto'?undefined:options.textLayout):undefined;
+      let structured=!entries?.length && !imageOnlyOpenings.has(pi)?structuredBlocks(kept.filter(l=>!headingLines.includes(l) && l.text!==heading && !margin.has(l)) as import('./pdf-layout').PdfLine[],options.textLayout==='auto'?undefined:options.textLayout):undefined;
+      // Table pages read as ordinary prose around their crops, not as verse.
+      if(structured?.length && figures.some(f=>f.table))structured=undefined;
       if(structured?.length){
         // Mixed image/text pages keep source placement rather than detaching structured captions.
         if(figures.length){const source=await pdf.getPage(pi+1);await preserveSource(source,pi,kept.map(l=>l.text).join('\n'));source.cleanup();figures.splice(0,figures.length,...images.get(pi)!);}
         else{section.blocks.push(...structured);reports[pi].issues.push('structured-text');}
       }
+      type Flow={y:number;figure?:typeof figures[number];block?:Block};
+      const flow:Flow[]=[...figures.map(figure=>({y:figure.y,figure})),...quotes.map(q=>({y:q.y,block:q.block}))].sort((a,b)=>a.y-b.y);
+      const emit=(item:Flow)=>{
+        if(item.figure){const f=item.figure;section!.blocks.push({type:"figure",blobId:f.id,aspectRatio:f.aspectRatio,sourcePageIndex:pi,text:f.text,fullPage:f.fullPage,sourcePdf:f.sourcePdf});}
+        else if(item.block)section!.blocks.push(item.block);
+      };
       for (const line of entries?.length || imageOnlyOpenings.has(pi) || structured?.length ? [] : kept) {
-        while (figures[0] && figures[0].y < line.y) {
+        if(margin.has(line))continue;
+        while (flow[0] && flow[0].y < line.y) {
           flush();
-          const figure=figures.shift()!;
-          section.blocks.push({type:"figure",blobId:figure.id,aspectRatio:figure.aspectRatio,sourcePageIndex:pi,text:figure.text,fullPage:figure.fullPage,sourcePdf:figure.sourcePdf});
+          emit(flow.shift()!);
         }
         if ((line.text === heading && line.y < heights[pi]*.5) || headingLines.some(l=>l===line)) {
           flush();
@@ -476,8 +573,7 @@ export async function importPDF(
         previous = line;
       }
       flush();
-      for (const figure of figures)
-        section.blocks.push({type:"figure",blobId:figure.id,aspectRatio:figure.aspectRatio,sourcePageIndex:pi,text:figure.text,fullPage:figure.fullPage,sourcePdf:figure.sourcePdf});
+      for(const item of flow)emit(item);
       if (section.blocks.length === blockAt)
         section.blocks.push({
           type: "p",

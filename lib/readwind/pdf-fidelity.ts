@@ -5,22 +5,28 @@ export const listMarker=/^\s*(?:[•●○▪■‣⁃◦☐☑✓✔–—-]|\(
 const speaker=/^[\p{Lu}][\p{L}\p{M} .’'-]{1,35}:\s*\S/u;
 
 /** Conservative routing: preserve the source when geometry carries meaning. */
-export function fidelityIssues(lines:PdfLine[],items:PdfTextItem[],width:number,height:number):PdfIssue[]{
- const issues:PdfIssue[]=[],body=lines.filter(l=>!l.header),text=body.map(l=>l.text).join('\n');
+export function fidelityIssues(lines:PdfLine[],items:PdfTextItem[],width:number,height:number,excluded:{x:number;y:number;w:number;h:number}[]=[]):PdfIssue[]{
+ const inside=(r:{x:number;y:number;w:number;h:number},l:{x:number;endX:number;y:number;size:number})=>l.x>=r.x-2&&l.endX<=r.x+r.w+2&&l.y>=r.y-l.size&&l.y<=r.y+r.h+l.size*.5;
+ const kept=(l:PdfLine)=>!excluded.some(r=>inside(r,l));
+ const issues:PdfIssue[]=[],body=lines.filter(l=>!l.header&&kept(l)),text=body.map(l=>l.text).join('\n');
  const mono=body.filter(l=>l.monospace).length;if(mono>=2 && mono<body.length*.5)issues.push('complex-layout');
  if(mono<body.length*.5 && /[∑∫√∂∇∞≠≤≥∏⊗]|\b\w\s*[=^]\s*[-+\w(]/u.test(text))issues.push('technical-text');
- const glyphs=items.filter(i=>i.str.trim()),sizes=glyphs.map(i=>Math.hypot(i.transform[2],i.transform[3]));
+ // Only short tokens can be exponents or note references. Long runs are prose
+ // and a large initial letter (drop cap) is the first glyph of its own line.
+ const glyphs=items.filter(i=>i.str.trim()&&!excluded.some(r=>i.transform[4]>=r.x-2&&i.transform[4]<=r.x+r.w+2&&height-i.transform[5]>=r.y-2&&height-i.transform[5]<=r.y+r.h+2)),
+  sizes=glyphs.map(i=>Math.hypot(i.transform[2],i.transform[3])),short=(i:PdfTextItem)=>{const t=i.str.trim();return t.length>0&&t.length<=3&&!/\s/.test(t);};
  const bins=new Map<number,number[]>();glyphs.forEach((i,n)=>{const k=Math.floor((i.transform[4]+i.width)/24);bins.set(k,[...(bins.get(k)||[]),n]);});
- // Raised/lowered small glyphs adjacent to body text include exponents and note references.
- if(glyphs.some((i,n)=>sizes[n]>0 && [-1,0,1].flatMap(d=>bins.get(Math.floor(i.transform[4]/24)+d)||[]).some(m=>{const j=glyphs[m];return n!==m && sizes[m]>sizes[n]*1.4 && sizes[m]<sizes[n]*3 && Math.abs(i.transform[5]-j.transform[5])>sizes[m]*.18 && Math.abs(i.transform[5]-j.transform[5])<sizes[m]*.8 && Math.abs(i.transform[4]-j.transform[4]-j.width)<sizes[m]*.8;})))issues.push('technical-text');
+ // Raised/lowered small glyphs directly after body text include exponents and note references.
+ if(glyphs.some((i,n)=>short(i)&&sizes[n]>0 && [-1,0,1].flatMap(d=>bins.get(Math.floor(i.transform[4]/24)+d)||[]).some(m=>{const j=glyphs[m],end=j.transform[4]+j.width;return n!==m && sizes[m]>sizes[n]*1.4 && sizes[m]<sizes[n]*3 && Math.abs(i.transform[5]-j.transform[5])>sizes[m]*.2 && Math.abs(i.transform[5]-j.transform[5])<sizes[m]*.8 && Math.abs(i.transform[4]-end)<sizes[m]*.45;})))issues.push('technical-text');
  if(body.filter(l=>l.x<0 || l.endX>width+2 || l.y<0 || l.y>height+2).length>=2)issues.push('cropped-text');
  const words=text.match(/[\p{L}\p{N}]+/gu)||[];
  if(words.filter(w=>w.length>35).length>=3 || /([\p{L}\p{N}])\1{7}/u.test(text))issues.push('suspect-text');
- // Three persistent lanes or an inset sidebar are unsafe to flatten automatically.
+ // Three persistent lanes of prose remain unsafe to flatten automatically.
  const rows=new Map<number,PdfLine[]>();for(const l of body){const k=Math.round(l.y/4);rows.set(k,[...(rows.get(k)||[]),l]);}
  if([...rows.values()].filter(r=>r.length>=3 && r.some(l=>l.text.length>50 || l.text.split(/\s+/).length>8)).length>=3)issues.push('complex-layout');
- const inset=body.filter(l=>l.x>width*.35 && l.endX<width*.9 && l.text.length>20);
- if(inset.length>=3 && body.some(l=>l.endX-l.x>width*.65))issues.push('complex-layout');
+ // Short tokens in table cells must not look like prose columns. Text that sits
+ // in a margin or sidebar is extracted as a quote block instead of preserving
+ // the whole page, so only genuine multi-lane prose stays layout-sensitive.
  return [...new Set(issues)];
 }
 

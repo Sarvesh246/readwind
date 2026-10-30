@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import {normalizeStyledText,pdfFontStyle} from '../lib/readwind/rich-text';
-import {findPdfTables} from '../lib/readwind/pdf-tables';
+import {findPdfTables,findGridAreas,findRuledTables,findLayoutGraphics} from '../lib/readwind/pdf-tables';
 import {analyzePdfPage,type PdfLine} from '../lib/readwind/pdf-layout';
 import {contentsChapters,addChapterAtPage} from '../lib/readwind/chapters';
 import {joinPageParagraphs} from '../lib/readwind/text-cleanup';
@@ -34,6 +34,32 @@ describe('PDF fidelity across book designs',()=>{
   const prose=Array.from({length:4},(_,i)=>[line(`${i+1}.`,20,100+i*20),line('A useful instruction.',70,100+i*20)]).flat();
   expect(findPdfTables(prose)).toEqual([]);
   expect(findPdfTables(Array.from({length:4},(_,i)=>[line(`Left ${i}`,20,100+i*20),line(`Right ${i}`,300,100+i*20)]).flat())).toEqual([]);
+ });
+ it('captures a wrapped-cell table from its drawn grid without taking the prose around it',()=>{
+  const rule=(x:number,y:number,w:number,h:number)=>({x,y,w,h});
+  const rules=[rule(20,100,400,2),rule(20,140,400,2),rule(20,180,400,2),rule(20,220,400,2),rule(20,100,2,122),rule(150,100,2,122),rule(280,100,2,122),rule(420,100,2,122)];
+  const cells=[['When beginning','35 years','45 years old'],['invest, the person','is','old'],['Each person','10 years','20 years'],['$200/month','$181,469.','$118,589.'],['With an 8 percent','Voilà—','Even though he'],['rate of return','the value','invested for twice']];
+  const lines=cells.flatMap((row,r)=>row.map((text,c)=>line(text,30+c*130,110+r*20)));
+  const areas=findGridAreas(rules,595,842);
+  expect(areas).toHaveLength(1);
+  const tables=findRuledTables(lines,rules,595,842);
+  expect(tables).toHaveLength(1);
+  expect(tables[0].text).toContain('$181,469.');expect(tables[0].lines).toHaveLength(18);
+  expect(tables[0].x).toBeLessThan(30);expect(tables[0].y).toBeLessThan(110);
+  // Prose in a bordered sidebar is text, not a table.
+  const sidebar=Array.from({length:8},(_,i)=>line('A sidebar paragraph that runs on as prose rather than as table cells.',30,110+i*20));
+  expect(findRuledTables(sidebar,rules,595,842)).toEqual([]);
+ });
+ it('captures a ruled comparison chart as one picture and leaves its display title as text',()=>{
+  const rule=(x:number,y:number,w:number,h:number)=>({x,y,w,h});
+  const rules=[rule(20,40,400,2),rule(20,100,400,2),rule(20,160,400,2),rule(20,220,400,2),rule(20,300,400,2),rule(20,40,2,262),rule(150,40,2,262),rule(280,40,2,262),rule(420,40,2,262)];
+  const cells=[['','Personal finance','Food'],['','don’t track spending','don’t track calories'],['','spend more than we admit','eat more than we know'],['','debate interest rates','debate diets'],['','listen to advisers','value anecdotal advice'],['','read a few good books','read a few good blogs']];
+  const lines=[{...line('A comparison chart',30,60),size:24},...cells.flatMap((row,r)=>row.map((text,c)=>text?{...line(text,30+c*130,100+r*30),size:13}:[]).flat())];
+  const graphics=findLayoutGraphics(lines,rules,595,842);
+  expect(graphics).toHaveLength(1);
+  expect(graphics[0].y).toBeGreaterThan(70);
+  expect(graphics[0].text).toContain('Personal finance');
+  expect(graphics[0].text).not.toContain('A comparison chart');
  });
  it('recognizes headerless and continuing contents from corroborating bookmarks',()=>{
   const titles=['First journey','Second journey','Third journey','Fourth journey','Fifth journey','Sixth journey'];

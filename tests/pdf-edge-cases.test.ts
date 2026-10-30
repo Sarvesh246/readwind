@@ -47,7 +47,18 @@ describe('book import edge cases',()=>{
   const ls=Array.from({length:3},(_,i)=>[0,1,2].map(c=>line('A longer column of prose that must stay in its own reading lane.',30+c*190,120+i*18))).flat();
   expect(fidelityIssues(ls,[],650,800)).toContain('complex-layout');
   const mixed=Array.from({length:8},(_,i)=>({...line('A line of body text.',30,120+i*18),monospace:i<2}));expect(fidelityIssues(mixed,[],600,800)).toContain('complex-layout');
-  const sidebar=[line('A full-width body paragraph crossing the page before the inset begins.'),...Array.from({length:3},(_,i)=>line('A same-font inset sidebar.',300,160+i*18))];expect(fidelityIssues(sidebar,[],600,800)).toContain('complex-layout');
+ });
+ it('keeps margin and sidebar prose as text instead of preserving the whole page',()=>{
+  const sidebar=[line('A full-width body paragraph crossing the page before the inset begins.'),...Array.from({length:3},(_,i)=>line('A same-font inset sidebar.',300,160+i*18))];
+  expect(fidelityIssues(sidebar,[],600,800)).not.toContain('complex-layout');
+  const epigraph=[line('A short quotation set in the outer margin.',300,120),line('One more margin line of prose.',300,138)];
+  expect(fidelityIssues(epigraph,[],600,800).every(i=>i!=='complex-layout')).toBe(true);
+ });
+ it('does not mistake a drop cap or a display title for raised technical text',()=>{
+  const dropCap=[glyph('P',72,169.12,28.8),glyph('them valid, but most of them poorly veiled excuses for laziness or not having',72,190.01,14.4)];
+  expect(fidelityIssues([],[...dropCap],595,842)).not.toContain('technical-text');
+  // A genuinely raised footnote marker directly after body text still counts.
+  expect(fidelityIssues([],[glyph('a',30,120),glyph('2',36,115,7)],600,800)).toContain('technical-text');
  });
  it('captures aligned text-only tables',()=>{
   const ls=[['Name','Role'],['Anna','Editor'],['Ben','Writer'],['Cara','Artist']].flatMap((r,i)=>r.map((s,c)=>line(s,30+c*220,120+i*20)));
