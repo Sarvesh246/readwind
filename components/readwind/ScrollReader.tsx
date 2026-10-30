@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Book, Settings, Anchor, Annotation } from "@/lib/readwind/types";
 import { families, leading, themes } from "@/lib/readwind/types";
 import {BookFigure} from "./BookFigure";
+import {blockLayout} from '@/lib/readwind/block-layout';
 import { textRuns } from "./Page";
 import { compare, sectionStart } from "@/lib/readwind/anchors";
 import { Modal } from "./Modal";
@@ -134,7 +135,7 @@ export function ScrollReader({
             if (b.type === "figure")
               return (
                 <figure key={block}>
-                  <BookFigure id={b.blobId} loadBlob={loadBlob} sourcePageIndex={b.sourcePageIndex} onSourcePage={onSourcePage}/>
+                  <BookFigure id={b.blobId} loadBlob={loadBlob} sourcePageIndex={b.sourcePageIndex} sourcePdf={b.sourcePdf} aspectRatio={b.aspectRatio} onSourcePage={onSourcePage}/>
                 </figure>
               );
             const f = {
@@ -152,7 +153,7 @@ export function ScrollReader({
                 {textRuns(f, book, annotations, s, onAnnotation, setFootnote)}
               </h3>
             ) : (
-              <p key={block} data-paragraph={`${section}:${block}`} style={{textAlign:contentsRanges(book,section,block)?'left':undefined,textIndent:contentsRanges(book,section,block)||b.type==='quote'?'0':undefined,whiteSpace:'pre-line',marginBlock:b.type==='quote'?'.6em':undefined,marginInline:b.type==='quote'?'1em':undefined}}>
+              <p key={block} dir="auto" data-paragraph={`${section}:${block}`} style={{textAlign:contentsRanges(book,section,block)?'left':undefined,textIndent:contentsRanges(book,section,block)||b.type==='quote'?'0':undefined,whiteSpace:'pre-line',marginBlock:b.type==='quote'?'.6em':undefined,marginInline:b.type==='quote'?'1em':undefined,...blockLayout(b)}}>
                 <ContentsText book={book} fragment={f} onNavigate={onNavigate} render={part=>textRuns(part,book,annotations,s,onAnnotation,setFootnote)}/>
               </p>
             );

@@ -20,6 +20,7 @@
     "test:chapters": "node scripts/test-chapters-browser.mjs",
     "test:reading-layout": "node scripts/test-reading-layout-browser.mjs",
     "test:fidelity": "node scripts/test-book-fidelity-browser.mjs",
+    "test:edge-import": "node scripts/test-edge-case-import-browser.mjs",
     "test:pace": "node scripts/test-reading-pace-browser.mjs",
     "test:pagination": "node scripts/test-pagination-browser.mjs",
     "test:sync": "node scripts/test-sync-browser.mjs",

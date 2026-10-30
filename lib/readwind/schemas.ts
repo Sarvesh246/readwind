@@ -17,6 +17,7 @@ export const book = z
           id: z.string().max(120),
           title: z.string().max(5000),
           heading: z.boolean(),
+          level:z.number().int().min(0).max(20).optional(),
           blocks: z
             .array(
               z.discriminatedUnion("type", [
@@ -24,6 +25,7 @@ export const book = z
                   type: z.enum(["p", "h", "quote"]),
                   text: z.string().max(200000),
                   contentsEntry: z.boolean().optional(),
+                  layout:z.enum(['verse','code','list','dialogue']).optional(),
                   targetPageIndex: z.number().int().min(0).max(9999).optional(),
                   styles:z.array(z.object({start:z.number().int().min(0).max(200000),end:z.number().int().min(0).max(200000),bold:z.boolean().optional(),italic:z.boolean().optional()})).max(10000).optional(),
                   footnoteRefs: z
@@ -44,6 +46,7 @@ export const book = z
                   aspectRatio:z.number().positive().max(10000).optional(),
                   sourcePageIndex:z.number().int().min(0).max(9999).optional(),
                   fullPage:z.boolean().optional(),
+                  sourcePdf:z.boolean().optional(),
                 }),
               ]),
             )
@@ -62,6 +65,8 @@ export const book = z
         }),
       )
       .max(10000),
+    navigation:z.array(z.object({title:z.string().max(5000),level:z.number().int().min(0).max(20),pageIndex:z.number().int().min(0).max(9999)})).max(20000).optional(),
+    pageAliases:z.array(z.object({label:z.string().min(1).max(120),index:z.number().int().min(0).max(9999)})).max(20000).optional(),
     cover: z.object({
       kind: z.enum(["typeset", "pdfPage", "image"]),
       color: z
@@ -91,6 +96,8 @@ export const book = z
               width: z.number().positive(),
               height: z.number().positive(),
               ocrConfidence: z.number().min(0).max(100).optional(),
+              sourcePreserved:z.boolean().optional(),
+              verification:z.enum(['matched','disagreed','inconclusive']).optional(),
               characters: z.number().int().min(0).max(1000000),
               issues: z
                 .array(
@@ -105,9 +112,10 @@ export const book = z
                     "illustrated",
                     "low-ocr",
                     "extraction-error",
+                    "technical-text","complex-layout","duplicate-text","suspect-text","cropped-text","scan-spread","ocr-mismatch","content-loss","structured-text",
                   ]),
                 )
-                .max(11),
+                .max(32),
             }),
           )
           .max(10000),

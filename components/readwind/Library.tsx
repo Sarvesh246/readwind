@@ -101,10 +101,7 @@ function openingLine(book: Book) {
   return `${text.slice(0, 170).replace(/\s+\S*$/, "")}…`;
 }
 const readTime = (book: Book, speed = 230) => {
-  const words = book.sections
-    .flatMap((s) => s.blocks)
-    .filter(hasReadableContent)
-    .reduce((n, b) => n + (b.type === "figure" ? 0 : b.text.split(/\s+/).length), 0);
+  const words = wordProgress(book,start,speed).total;
   const minutes = Math.max(1, Math.ceil(words / speed));
   if (!words) return "Reading time unavailable";
   return minutes < 90 ? `${minutes} min read` : `${Math.round(minutes / 6) / 10} hr read`;

@@ -1031,7 +1031,7 @@ export function Reader({
             className="go-page"
             onSubmit={(e) => {
               e.preventDefault();
-              const mark = findPrintedPage(book.pageMarks, goPage);
+              const mark = findPrintedPage(book.pageMarks, goPage,book.pageAliases);
               if (mark) jump(mark.at);
               else setMessage("That printed page was not found in this book.");
             }}
@@ -1046,7 +1046,7 @@ export function Reader({
             </label>
             <button className="button primary">Go</button>
           </form>
-          <ChapterNavigation book={book} currentSection={anchor.section} onSelect={i=>jump(sectionStart(book,i))}/>
+          <ChapterNavigation book={book} currentSection={anchor.section} onSelect={(i,at)=>jump(at||sectionStart(book,i))}/>
         </Modal>
       )}
       {panel === "cover" && (

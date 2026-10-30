@@ -1,10 +1,11 @@
 import type { Book, PageMark } from './types';
 import {dominantSize} from './pdf-layout';
 import {normalizeStyledText,type TextStyleRun} from './rich-text';
+import {isContentsTitle,normalizePageLabel,printedPageToken} from './navigation-labels';
 
 export type SourceLine = { text: string; header: boolean; y: number; size: number; x?:number; endX?:number; ocr?:boolean;styles?:TextStyleRun[] };
 const key = (s: string) => s.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-const pageToken = /^(?:[1-9]\d*|[ivxlcdm]+)$/i;
+const pageToken = printedPageToken;
 
 export function interpolatePrintedLabels(labels: string[]): string[] {
   return labels.map((label, i) => {
@@ -31,7 +32,7 @@ export function printedLabels(pages: SourceLine[][], embedded?: string[] | null,
   const observed = pages.map((lines, i) => {
     const body = lines.filter(l => !l.header && l.text.length > 20);
     const bodySize = body.length ? Math.min(...body.map(l => l.size)) : 12;
-    const tokens = [...new Set(lines.filter(l => l.header && (l.y > (heights?.[i] || 800) / 2 || (l.size <= bodySize * 1.1 && body.length > 0))).map(l => l.text.trim()).filter(t => pageToken.test(t)))];
+    const tokens = [...new Set(lines.filter(l => l.header && (l.y > (heights?.[i] || 800) / 2 || (l.size <= bodySize * 1.1 && body.length > 0))).map(l => normalizePageLabel(l.text)).filter(t => pageToken.test(t)))];
     if(tokens.length===1)return tokens[0];
     const verified=inline[i].filter(token=>inline.some((other,j)=>j!==i && Math.abs(j-i)<=4 && other.some(t=>i-Number(token)===j-Number(t))));
     return verified.length===1?verified[0]:undefined;
@@ -61,8 +62,9 @@ export function printedLabels(pages: SourceLine[][], embedded?: string[] | null,
   }));
 }
 
-export function findPrintedPage(marks: PageMark[], input: string): PageMark | undefined {
-  const matches = marks.filter(m => m.label.trim().toLowerCase() === input.trim().toLowerCase());
+export function findPrintedPage(marks: PageMark[], input: string,aliases:{label:string;index:number}[]=[]): PageMark | undefined {
+  const extra=aliases.filter(a=>normalizePageLabel(a.label)===normalizePageLabel(input)).flatMap(a=>{const mark=marks.find(m=>m.index===a.index);return mark?[{...mark,label:a.label}]:[];});
+  const matches = [...marks.filter(m => normalizePageLabel(m.label) === normalizePageLabel(input)),...extra].filter((m,i,a)=>a.findIndex(other=>other.index===m.index)===i);
   return matches.length === 1 ? matches[0] : undefined;
 }
 
@@ -86,7 +88,7 @@ export function pageHeading(lines:SourceLine[], bodySize:number, height=800) {
 
 export type ContentsLink = { top:number; bottom:number; index:number; left?:number; right?:number; title?:string };
 export type ContentsEntry = {title:string; label?:string; y:number; target?:number; group?:boolean; description?:boolean;styles?:TextStyleRun[];size?:number};
-function contentsHeading(text:string){return /^(?:tableof)?contents$/i.test(text.replace(/[^\p{L}]/gu,''));}
+const contentsHeading=isContentsTitle;
 function titleKey(text:string){return key(text).replace(/^(?:(?:chapter|part|book)\s+(?:[ivxlcdm]+|\d+|one|two|three)\s*)/,'').replace(/^(preface|foreword|introduction)\s+by\s+.+$/,'$1');}
 function titleSimilarity(a:string,b:string){
   const aa=titleKey(a),bb=titleKey(b);if(aa===bb)return 1;
@@ -107,16 +109,22 @@ export function contentsChapters(pages: SourceLine[][], labels: string[], links 
   const bodySize=dominantSize(pages.flat().filter(l=>!l.header));
   const headings=pages.map((ls,i)=>pageHeading(ls,bodySize,heights?.[i]));
   let continuing=false;
-  for(let pi=0;pi<Math.min(pages.length,80);pi++){
-    const lines=pages[pi], outlineTitles=new Set([...outlines.values()].map(key));
-    const explicit=lines.some(l=>contentsHeading(l.text)) || lines.filter(l=>outlineTitles.has(key(l.text))).length>=3;
+  for(let pi=0;pi<pages.length;pi++){
+    const lines=pages[pi], outlineTitles=new Set([...outlines].filter(([target])=>target>pi).map(([,title])=>key(title)));
+    const matchedTitles=lines.filter(l=>outlineTitles.has(key(l.text)));
+    const explicit=lines.some(l=>contentsHeading(l.text)) || matchedTitles.length>=3 && matchedTitles.length/Math.max(1,lines.filter(l=>!l.header).length)>=.35;
     const rows:SourceLine[]=[];
     for(const line of [...lines].sort((a,b)=>a.y-b.y || (a.x||0)-(b.x||0))){
       const row=rows.find(r=>Math.abs(r.y-line.y)<3);
       if(row){row.text+='  '+line.text;row.endX=Math.max(row.endX||0,line.endX||0);}else rows.push({...line});
     }
     const pageLinks=links.get(pi)||[];
-    if(!explicit && !continuing && pageLinks.length<4)continue;
+    const forwardTargets=[...new Set(pageLinks.filter(l=>l.index>pi).map(l=>l.index))];
+    const corroborated=forwardTargets.filter(target=>{
+      const title=rows.filter(row=>pageLinks.some(l=>l.index===target && row.y>=l.top-3 && row.y<=l.bottom+3)).map(row=>row.text).join(' ');
+      return headings[target] && titleSimilarity(title,headings[target]!.title)>=.7;
+    }).length;
+    if(!explicit && !continuing && corroborated<3)continue;
     const entries:ContentsEntry[]=[];
     const linked=new Map<number,ContentsEntry>();
     const unlinked:SourceLine[]=[];
@@ -144,9 +152,9 @@ export function contentsChapters(pages: SourceLine[][], labels: string[], links 
       const text=cleanChapterTitle(row.text);
       if(linked.size>=2 && outlines.size){entries.push(description(row));continue;}
       if(/^(?:part|book|postscript)\b/i.test(text)){if(pending)entries.push({title:pending,y:row.y-1});pending='';entries.push({title:text,y:row.y,group:true});continue;}
-      const match=text.match(/^(.{2,300}?)\s*(?:\.{2,}|…+|\s+)([1-9IlO][\dIlOoSs]*|[ivxlcdm]+|[riIlOo0-9]{2,4})\s*$/i);
+      const match=text.match(/^(.{2,300}?)\s*(?:\.{2,}|…+|\s+)([\p{L}]{1,8}[-.:]\d{1,5}|[1-9IlO][\dIlOoSs]*|[ivxlcdm]+|[riIlOo0-9]{2,4})\s*$/iu);
       if(match && /\p{L}/u.test(match[1]) && !/^(chapter|part|book|postscript)$/i.test(match[1].trim())){
-        let label=match[2];if(/[\dOor]/.test(label))label=label.replace(/[Iilr]/g,'1').replace(/[Oo]/g,'0').replace(/[Ss]/g,'5');
+        let label=match[2];if(!/[\p{L}][-.:]/u.test(label) && /[\dOor]/.test(label))label=label.replace(/[Iilr]/g,'1').replace(/[Oo]/g,'0').replace(/[Ss]/g,'5');
         entries.push({title:cleanChapterTitle((pending?pending+' ':'')+match[1].replace(/[.\s…]+$/,'')),label,y:row.y});pending='';
       }else if(!row.header && !/^\d+$/.test(text) && !/^(?:part|book|postscript)\b/i.test(text) && text.length<180)pending=cleanChapterTitle(pending+' '+text);
     }
@@ -162,7 +170,6 @@ export function contentsChapters(pages: SourceLine[][], labels: string[], links 
       if(matched)pending='';
     }
     if(!explicit && entries.length<2){continuing=false;continue;}
-    contentsPages.add(pi);continuing=entries.length>=2;
     entries.sort((a,b)=>a.y-b.y);
     let previousY=entries[0]?.y || 0;
     const styleKey=(e:ContentsEntry)=>e.styles?.length?e.styles.every(r=>r.italic)?'italic':e.styles.every(r=>r.bold)?'bold':'mixed':'plain';
@@ -172,17 +179,18 @@ export function contentsChapters(pages: SourceLine[][], labels: string[], links 
       const offset=prev.title.length+(/[-\u00ad]$/.test(prev.title)?0:1);prev.title+=(offset>prev.title.length?' ':'')+entry.title;
       prev.styles=[...(prev.styles||[]),...(entry.styles||[]).map(r=>({...r,start:r.start+offset,end:r.end+offset}))];entries.splice(i,1);i--;
     }
+    const pageUnresolved:string[]=[];
     for(const entry of entries){
       if(entry.group || entry.description)continue;
       if(entry.target!==undefined){
-        const numbered=entry.title.match(/^(.{2,300}?)\s*(?:\.{2,}|…+|\s+)([1-9]\d*|[ivxlcdm]+)\s*$/i);
+        const numbered=entry.title.match(/^(.{2,300}?)\s*(?:\.{2,}|…+|\s+)([\p{L}]{1,8}[-.:]\d{1,5}|[1-9]\d*|[ivxlcdm]+)\s*$/iu);
         if(numbered && !/^(chapter|part|book|postscript)$/i.test(numbered[1].trim())){entry.title=numbered[1].replace(/[.\s…]+$/,'');entry.label=numbered[2];}
       }
       entry.title=cleanChapterTitle(entry.title);
       // Trusted bookmark titles repair line wrapping and damaged text maps at linked entries.
       const bookmark=pageLinks.find(l=>l.index===entry.target && l.title)?.title;
       if(bookmark && titleSimilarity(bookmark,entry.title)>.65)entry.title=cleanChapterTitle(bookmark);
-      const matches=entry.label?labels.flatMap((label,i)=>label.toLowerCase()===entry.label!.toLowerCase() && i>pi?[i]:[]):[];
+      const matches=entry.label?labels.flatMap((label,i)=>normalizePageLabel(label)===normalizePageLabel(entry.label!) && i>pi?[i]:[]):[];
       const titleMatches=pages.flatMap((ls,i)=>{
         if(i<=pi || contentsPages.has(i))return [];
         const exact=ls.some(l=>l.y<(heights?.[i]||800)*.5 && (l.y>(heights?.[i]||800)*.12 || l.size>bodySize*1.8) && !l.header && key(l.text)===key(entry.title));
@@ -190,12 +198,15 @@ export function contentsChapters(pages: SourceLine[][], labels: string[], links 
       });
       const target=entry.target ?? (matches.length===1?matches[0]:titleMatches.length===1?titleMatches[0]:undefined);
       if(target===undefined || target===pi || target<0 || target>=pages.length || (matches.length===1 && matches[0]!==target) || (titleMatches.length===1 && titleMatches[0]!==target)){
-        entry.target=undefined;unresolved.push(entry.title);continue;
+        entry.target=undefined;pageUnresolved.push(entry.title);continue;
       }
       entry.target=target;
-      if(!chapters.has(target))chapters.set(target,entry.title);
-      if(entry.label && labels[target].startsWith('PDF '))labels[target]=entry.label;
     }
+    const resolved=entries.filter(e=>!e.description && !e.group && e.target!==undefined);
+    const verified=resolved.filter(e=>titleSimilarity(e.title,outlines.get(e.target!)||headings[e.target!]?.title||'')>=.8);
+    if(!explicit && corroborated<3 && verified.length<2){continuing=false;continue;}
+    contentsPages.add(pi);continuing=entries.length>=2;unresolved.push(...pageUnresolved);
+    for(const entry of resolved){if(!chapters.has(entry.target!))chapters.set(entry.target!,entry.title);if(entry.label && labels[entry.target!].startsWith('PDF '))labels[entry.target!]=entry.label;}
     entriesByPage.set(pi,entries);
   }
   return {chapters,unresolved,contentsPages,entriesByPage};
@@ -203,7 +214,7 @@ export function contentsChapters(pages: SourceLine[][], labels: string[], links 
 
 /** Split at an existing page anchor so no source text, figures or page marks are lost. */
 export function addChapterAtPage(book: Book, label: string, title: string): Book {
-  const mark = findPrintedPage(book.pageMarks, label);
+  const mark = findPrintedPage(book.pageMarks, label,book.pageAliases);
   if (!mark) throw new Error('That printed page is missing or ambiguous. Correct its page label in the preview first.');
   if (!title.trim()) throw new Error('Enter a chapter title.');
   const b = structuredClone(book), { section: si, block: bi,offset } = mark.at;

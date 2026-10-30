@@ -3,6 +3,7 @@ import { compare, labelAt } from "./anchors";
 import { families, leading } from "./types";
 import {contentsRanges} from './reading-layout';
 import {appendStyledText} from './rich-text';
+import {blockLayout} from './block-layout';
 import { hasReadableContent } from './content';
 export type Geometry = {
   bookW: number;
@@ -111,7 +112,7 @@ export async function paginate(
   signal?: AbortSignal,
 ): Promise<ScreenPage[]> {
   const key = [
-    "reading-layout-v4",
+    "reading-layout-v5",
     book.id,
     book.revision || book.addedAt,
     g.pw,
@@ -210,9 +211,10 @@ export async function paginate(
             pg.chapterStart &&
             pg.fragments.length === 0 &&
             offset === 0 &&
-            block.type === "p" && !tocEntries;
+            block.type === "p" && !block.layout && !tocEntries;
           const toc = !!tocEntries;
           para.style.cssText = `white-space:pre-line;overflow-wrap:anywhere;margin:${block.type==='quote'?'.6em 1em':'0'};text-indent:${offset || drop || block.type !== "p" || toc ? "0" : "1.4em"};${toc ? 'text-align:left;' : ''}${block.type === "h" ? "font-weight:500;font-size:1.2em;line-height:1.3;padding:12px 0;" : ""}`;
+          Object.assign(para.style,blockLayout(block));para.dir='auto';
           function setText(end: number) {
             para.replaceChildren();
             if (block.type === "figure") {

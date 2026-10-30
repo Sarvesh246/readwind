@@ -8,7 +8,9 @@ export function findPdfTables(lines:PdfLine[]){
  const numeric=(s:string)=>/^[\s$€£¥₹()+−\-\d.,%:]+$/.test(s)&&/\d/.test(s)&&!/^\d+[.)]$/.test(s.trim());
  const flush=()=>{
   const cells=run.flatMap(r=>r.cells),numbers=cells.filter(l=>numeric(l.text));
-  if(run.length>=3 && numbers.length>=4 && numbers.length/cells.length>=.35){
+  const anchors=run[0]?.cells.map(c=>c.x)||[];
+  const aligned=run.length>=3 && anchors.length>=2 && run.every(r=>r.cells.length===anchors.length && r.cells.every((c,i)=>Math.abs(c.x-anchors[i])<=c.size)) && run[0].cells.every(c=>!/[\d.!?]/.test(c.text)) && cells.every(c=>c.text.length<=50 && c.text.split(/\s+/).length<=6);
+  if(run.length>=3 && (numbers.length>=4 && numbers.length/cells.length>=.35 || aligned)){
    const x=Math.min(...cells.map(l=>l.x)),right=Math.max(...cells.map(l=>l.endX)),top=Math.min(...cells.map(l=>l.y-l.size*1.2)),bottom=Math.max(...cells.map(l=>l.y+l.size*.4));
    tables.push({x:Math.max(0,x-4),y:Math.max(0,top-4),w:right-x+8,h:bottom-top+8,lines:cells,text:run.map(r=>r.cells.sort((a,b)=>a.x-b.x).map(l=>l.text).join('\t')).join('\n')});
   }run=[];

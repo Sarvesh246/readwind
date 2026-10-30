@@ -11,7 +11,7 @@ import { Cover } from "./Library";
 import { CoverPicker, coverIds } from "./CoverPicker";
 import { ChapterTitleInput } from "./ChapterTitleInput";
 import { PdfPreview } from "./PdfPreview";
-const ocrLanguages = [['eng','English'],['spa','Spanish'],['fra','French'],['deu','German'],['por','Portuguese'],['hin','Hindi'],['ara','Arabic'],['jpn','Japanese'],['chi_sim','Chinese (simplified)']];
+import {OcrLanguages} from "./OcrLanguages";
 export function Import({
   library: l,
   navigate,
@@ -36,6 +36,9 @@ export function Import({
       removeHeaders: true,
       joinHyphens: true,
       ocr: true,
+      verifyText:true,
+      verifyAllText:false,
+      textLayout:"auto" as "auto"|"verse"|"code"|"dialogue",
     });
   const [chapterTitle, setChapterTitle] = useState(""), [chapterPage, setChapterPage] = useState(""), [chapterError, setChapterError] = useState(""), [printedPage, setPrintedPage] = useState("");
   const [openEditors,setOpenEditors]=useState<string[]>([]);
@@ -241,11 +244,11 @@ export function Import({
             />
             <small>Text PDFs and scanned books · up to 20 MB</small>
             <div className="upload-options">
-              {Object.entries(options).map(([key, value]) => (
+              {(['removeHeaders','joinHyphens','ocr'] as const).map(key => (
                 <label key={key}>
                   <input
                     type="checkbox"
-                    checked={value}
+                    checked={options[key]}
                     disabled={busy}
                     onChange={(e) =>
                       setOptions({ ...options, [key]: e.target.checked })
@@ -261,7 +264,7 @@ export function Import({
                 </label>
               ))}
             </div>
-            {options.ocr && <label>OCR language <select disabled={busy} value={ocrLanguage} onChange={e=>setOcrLanguage(e.target.value)}>{ocrLanguages.map(([v,t])=><option key={v} value={v}>{t}</option>)}</select><small>OCR requires a language download and may need correction. The original scan is always kept.</small></label>}
+            {options.ocr && <OcrLanguages value={ocrLanguage} onChange={setOcrLanguage} disabled={busy}/>}
             {needsPassword && <form onSubmit={e=>{e.preventDefault();if(file)void parse(file);}}><label>PDF password<input type="password" autoFocus required value={password} onChange={e=>setPassword(e.target.value)}/></label><button className="button" disabled={busy}>Unlock and retry</button><p className="muted">The password is used to open this file and is never saved.</p></form>}
             {busy && (
               <div className="import-progress" role="status">
@@ -375,9 +378,11 @@ export function Import({
             <div className="pdf-quality">
               <details>
                 <summary>Recognition and cleanup options</summary>
-                <label>OCR language<select value={ocrLanguage} onChange={e=>setOcrLanguage(e.target.value)}>{ocrLanguages.map(([v,t])=><option key={v} value={v}>{t}</option>)}</select></label>
+                <OcrLanguages value={ocrLanguage} onChange={setOcrLanguage}/>
+                <label>Check selectable text against the page<select disabled={!options.ocr} value={!options.verifyText?"off":options.verifyAllText?"all":"sample"} onChange={e=>setOptions({...options,verifyText:e.target.value!=="off",verifyAllText:e.target.value==="all"})}><option value="sample">Automatic: suspicious pages and regular samples</option><option value="all">Every text page (slower)</option><option value="off">Off</option></select></label>
                 <label><input type="checkbox" checked={options.ocr} onChange={e=>setOptions({...options,ocr:e.target.checked})}/> Recognize scanned or damaged text</label>
                 <label><input type="checkbox" checked={options.removeHeaders} onChange={e=>setOptions({...options,removeHeaders:e.target.checked})}/> Remove running headers and page numbers</label>
+                <label>Text structure<select value={options.textLayout} onChange={e=>setOptions({...options,textLayout:e.target.value as typeof options.textLayout})}><option value="auto">Automatic</option><option value="verse">Preserve lines and stanzas</option><option value="dialogue">Preserve dialogue and stage directions</option><option value="code">Preserve code and indentation</option></select></label>
                 <label><input type="checkbox" checked={options.joinHyphens} onChange={e=>setOptions({...options,joinHyphens:e.target.checked})}/> Re-join words split across lines</label>
                 <p className="muted">Reprocessing uses these options and replaces your current review edits.</p>
                 <button type="button" className="button small" disabled={busy || !file} onClick={()=>{if(file)void parse(file);}}>Reprocess PDF</button>
@@ -425,7 +430,7 @@ export function Import({
                 complex page designs. You can switch modes later.
               </p>
               {result.book.importReport?.warnings.map(w=><p key={w}>{w}</p>)}
-              <details><summary>Review page quality</summary>{result.book.importReport?.pages.filter(p=>p.issues.length).map(p=><button type="button" className="pdf-chapter" key={p.index} onClick={()=>{setPreviewPage(p.index);setPrintedPage("");}}>Page {result.book.pageMarks[p.index]?.label}: {p.issues.map(issue=>pdfIssueLabels[issue]).join(", ")}{p.ocrConfidence !== undefined ? ` / OCR confidence ${Math.round(p.ocrConfidence)}%` : ""}</button>)}</details>
+              <details><summary>Review page quality</summary>{result.book.importReport?.pages.filter(p=>p.issues.length||p.verification).map(p=><button type="button" className="pdf-chapter" key={p.index} onClick={()=>{setPreviewPage(p.index);setPrintedPage("");}}>Page {result.book.pageMarks[p.index]?.label}: {p.issues.map(issue=>pdfIssueLabels[issue]).join(", ")}{p.sourcePreserved ? " / Original page retained" : ""}{p.verification ? ` / Visual check: ${p.verification}` : ""}{p.ocrConfidence !== undefined ? ` / OCR confidence ${Math.round(p.ocrConfidence)}%` : ""}</button>)}</details>
             </div>
             <fieldset className="chapter-review">
               <legend>Chapters and front matter ({result.book.sections.length})</legend>

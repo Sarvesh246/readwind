@@ -11,6 +11,7 @@ import { figureHeight, chapterLayout } from "@/lib/readwind/pagination";
 import { Modal } from "./Modal";
 import { CoverTitle } from "./CoverTitle";
 import {ContentsText} from './ContentsText';
+import {blockLayout} from '@/lib/readwind/block-layout';
 import {contentsRanges} from '@/lib/readwind/reading-layout';
 type Props = {
   page: ScreenPage | null;
@@ -183,7 +184,7 @@ export const Page = memo(function Page({
   onSourcePage,
 }: Props) {
   const [footnote, setFootnote] = useState<string | null>(null);
-  const figureSource=(f:Fragment)=>{const b=book.sections[f.section].blocks[f.block];return b.type==='figure'?b.sourcePageIndex:undefined;};
+  const figureSource=(f:Fragment)=>{const b=book.sections[f.section].blocks[f.block];return b.type==='figure'?b:undefined;};
   const t = themes[settings.paper];
   const chapter = chapterLayout(g, page?.chapterTitle || '');
   const gutter = {
@@ -278,7 +279,7 @@ export const Page = memo(function Page({
                   className="book-figure"
                   style={{ height: figureHeight(book.sections[f.section].blocks[f.block],g,page.chapterStart && i===0) }}
                 >
-                  <BookFigure id={f.blobId!} loadBlob={loadBlob} sourcePageIndex={figureSource(f)} onSourcePage={onSourcePage}/>
+                  <BookFigure id={f.blobId!} loadBlob={loadBlob} sourcePageIndex={figureSource(f)?.sourcePageIndex} sourcePdf={figureSource(f)?.sourcePdf} aspectRatio={figureSource(f)?.aspectRatio} onSourcePage={onSourcePage}/>
                 </figure>
               ) : f.type === "h" ? (
                 <h3 key={i}>
@@ -294,6 +295,7 @@ export const Page = memo(function Page({
               ) : (
                 <p
                   key={i}
+                  dir="auto"
                   data-paragraph={`${f.section}:${f.block}`}
                   style={{
                     textIndent: f.continuation || f.drop || f.type==='quote' || (contentsRanges(book,f.section,f.block)) ? "0" : "1.4em",
@@ -302,6 +304,7 @@ export const Page = memo(function Page({
                     marginTop:f.type==='quote'?'.6em':undefined,
                     marginInline:f.type==='quote'?'1em':undefined,
                     whiteSpace:'pre-line',
+                    ...blockLayout(book.sections[f.section].blocks[f.block]),
                   }}
                 >
                   <ContentsText book={book} fragment={f} onNavigate={onNavigate} render={part=>textRuns(part,book,annotations,settings,onAnnotation,setFootnote)}/>

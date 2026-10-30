@@ -1,9 +1,10 @@
 import type {Book} from './types';
+import {isContentsTitle} from './navigation-labels';
 
 export type ContentsRange={start:number;end:number;pageIndex?:number};
 const cache=new WeakMap<Book,Map<number,(ContentsRange[]|undefined)[]>>();
 const normalized=(text:string)=>text.normalize('NFKD').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
-const isContents=(title:string)=>/^(?:tableof)?contents$/.test(normalized(title));
+const isContents=isContentsTitle;
 export function isContentsSection(book:Book,section:number){return isContents(book.sections[section]?.title || '');}
 
 /** Presentation only. Original strings, block indexes and annotation offsets never change. */

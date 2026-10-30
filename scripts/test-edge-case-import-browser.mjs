@@ -1,0 +1,45 @@
+import {chromium,webkit} from '@playwright/test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {edgeCasePdf,scanEdgePdf} from '../tests/fixtures/edge-case-pdf.mjs';
+const origin=process.env.READWIND_TEST_ORIGIN||'http://127.0.0.1:5173';fs.mkdirSync('work/edge-import-qa',{recursive:true});
+for(const [engine,type]of [['chromium',chromium],['webkit',webkit]]){
+ const browser=await type.launch();try{
+  const page=await browser.newPage({viewport:{width:390,height:844},reducedMotion:'reduce'}),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.route('**/api/config',r=>r.fulfill({json:{authUrl:null}}));await page.goto(origin+'/import');
+  await page.locator('input[type=file]').first().setInputFiles({name:'edge-cases.pdf',mimeType:'application/pdf',buffer:edgeCasePdf()});await page.locator('.chapter-edit').first().waitFor({timeout:180000});
+  await page.getByRole('button',{name:/^Adjustable text/}).click();await page.getByRole('button',{name:'Create book',exact:true}).click();await page.waitForURL(/\/book\//);await page.locator('.reader').waitFor();await page.locator('.pagination-status').waitFor({state:'hidden',timeout:60000});
+  const book=await page.evaluate(async()=>{const db=await new Promise(resolve=>{const r=indexedDB.open('folio-preview');r.onsuccess=()=>resolve(r.result);});const books=await new Promise(resolve=>{const r=db.transaction('books').objectStore('books').getAll();r.onsuccess=()=>resolve(r.result);});db.close();return books.find(b=>b.sourcePdfBlobId);});
+  fs.writeFileSync(`work/edge-import-qa/${engine}-book.json`,JSON.stringify(book,null,2));
+  const roundTrip=await page.evaluate(async book=>{const {book:schema}=await import('/lib/readwind/schemas.ts');return schema.parse(book);},book);assert.deepEqual(roundTrip.sections,book.sections);assert.deepEqual(roundTrip.navigation,book.navigation);assert.deepEqual(roundTrip.importReport,book.importReport);
+  for(const layout of ['verse','code','dialogue','list'])assert.ok(book.sections.some(s=>s.blocks.some(b=>b.layout===layout)),`${engine}: ${layout}`);
+  for(const index of [6,7,8,11])assert.equal(book.importReport.pages[index].sourcePreserved,true,`${engine}: source page ${index+1}`);
+  assert.ok(book.sections.flatMap(s=>s.blocks).some(b=>b.type==='figure'&&b.text?.includes('Anna\tEditor')));
+  assert.ok(book.navigation.some(n=>n.title==='Code example'&&n.level===1));assert.equal(book.pageMarks[2].label.toLowerCase(),'a-2');assert.ok(book.footnotes.some(n=>n.marker==='7'));
+  await page.getByRole('button',{name:/^Contents(?: and go to page)?$/}).first().click();await page.getByRole('searchbox',{name:'Search chapters'}).fill('Code example');await page.getByRole('navigation',{name:'Chapters'}).getByRole('button').first().click();await page.waitForFunction(()=>[...document.querySelectorAll('[data-paragraph]')].some(e=>getComputedStyle(e).fontFamily.includes('monospace')));await page.screenshot({path:`work/edge-import-qa/${engine}-code.png`});
+  const chapter=async title=>{await page.getByRole('button',{name:/^Contents(?: and go to page)?$/}).first().click();await page.getByRole('searchbox',{name:'Search chapters'}).fill(title);await page.getByRole('navigation',{name:'Chapters'}).getByRole('button').first().click();};
+  await chapter('Equations');await page.locator('.book-figure-open .source-page-image img').first().waitFor({timeout:60000});await page.getByRole('button',{name:'Enlarge illustration or table'}).first().click();await page.getByRole('img',{name:'Enlarged book illustration or table',exact:true}).waitFor();
+  assert.equal(await page.locator('.figure-modal').evaluate(el=>{const image=el.querySelector('img').getBoundingClientRect(),button=[...el.querySelectorAll('button')].find(b=>b.textContent==='View original page').getBoundingClientRect();return image.bottom>button.top;}),false);
+  for(let i=0;i<6;i++)await page.getByRole('button',{name:'Zoom illustration in',exact:true}).click();assert.equal(await page.locator('.figure-viewport').evaluate(e=>e.scrollWidth>e.clientWidth),true);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+  await page.screenshot({path:`work/edge-import-qa/${engine}-source-equation.png`});await page.getByRole('button',{name:'View original page',exact:true}).click();await page.getByRole('img',{name:'Original PDF page 7',exact:true}).waitFor();await page.getByRole('button',{name:'Close dialog',exact:true}).click();
+  await chapter('References');await page.getByRole('button',{name:'Read footnote 7',exact:true}).first().click();await page.getByText('The original reference for the explicit bracketed note.',{exact:true}).waitFor();await page.getByRole('button',{name:'Close dialog',exact:true}).click();
+  await page.getByRole('button',{name:'Type and comfort settings',exact:true}).first().click();await page.getByRole('button',{name:'Scroll',exact:true}).click();await page.getByRole('button',{name:'Done',exact:true}).click();await chapter('Poetry');
+  assert.equal(await page.locator('.continuous-reader [data-paragraph]').filter({hasText:'The evening opens'}).evaluate(e=>getComputedStyle(e).whiteSpace),'pre-wrap');await chapter('Equations');await page.locator('.continuous-reader .source-page-image img').first().waitFor({timeout:60000});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+  const retained=await page.evaluate(async book=>{const {paginate,geometry}=await import('/lib/readwind/pagination.ts'),{defaults}=await import('/lib/readwind/types.ts');const failures=[];for(const width of [320,1440]){const g=geometry(width,844,defaults,width<900,width>640),pages=await paginate(book,g,defaults);book.sections.forEach((s,si)=>s.blocks.forEach((b,bi)=>{if(b.type==='figure')return;const text=pages.flatMap(p=>p.fragments.filter(f=>f.section===si&&f.block===bi).map(f=>f.text)).join('');if(text!==b.text)failures.push(`${width}:${si}:${bi}`);}));}return failures;},book);assert.deepEqual(retained,[]);
+  const images=await page.evaluate(()=>{
+   const make=spread=>{const canvas=document.createElement('canvas');canvas.width=spread?2448:1224;canvas.height=1584;const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.fillStyle='black';ctx.font='30px Georgia';
+    for(let col=0;col<(spread?2:1);col++)for(let row=0;row<7;row++)ctx.fillText(!spread&&row===0?'Una persona aprende con libros y disfruta de cada historia.':'The visible page describes a careful reader learning from books.',100+col*1224,220+row*60);
+    if(spread){ctx.font='40px Georgia';ctx.fillText('12',560,1530);ctx.fillText('13',1784,1530);}
+    const pixels=ctx.getImageData(0,0,canvas.width,canvas.height).data,gray=Uint8Array.from({length:canvas.width*canvas.height},(_,i)=>pixels[i*4]);let binary='';for(let i=0;i<gray.length;i+=32768)binary+=String.fromCharCode(...gray.subarray(i,i+32768));return {width:canvas.width,height:canvas.height,data:btoa(binary)};};return {hidden:make(false),spread:make(true)};
+  });
+  for(const kind of ['hidden','spread']){
+   const img=images[kind],bytes=scanEdgePdf({...img,data:Buffer.from(img.data,'base64')},{hidden:kind==='hidden',spread:kind==='spread'}).toString('base64');
+   const result=await page.evaluate(async({bytes,kind})=>{const {importPDF}=await import('/lib/readwind/pdf.ts');const r=await importPDF(new File([Uint8Array.from(atob(bytes),c=>c.charCodeAt(0))],'scan.pdf',{type:'application/pdf'}),{ocr:true,verifyAllText:true,ocrLanguage:kind==='hidden'?'eng+spa':'eng',removeHeaders:true,joinHyphens:true},()=>{});return r.book;},{bytes,kind});
+   assert.equal(result.importReport.pages[0].sourcePreserved,true);
+   if(kind==='hidden'){assert.ok(result.importReport.pages[0].issues.includes('ocr-mismatch'));assert.equal(result.importReport.pages[0].verification,'disagreed');assert.ok(result.sections.some(s=>s.blocks.some(b=>b.text?.includes('libros'))));}
+   else{assert.ok(result.importReport.pages[0].issues.includes('scan-spread'));assert.deepEqual(result.pageAliases?.map(a=>a.label),['12','13']);}
+  }
+  const locked=await page.evaluate(async b64=>{const {importPDF}=await import('/lib/readwind/pdf.ts');const r=await importPDF(new File([Uint8Array.from(atob(b64),c=>c.charCodeAt(0))],'locked.pdf',{type:'application/pdf'}),{ocr:false,password:'reader-test',removeHeaders:true,joinHyphens:true},()=>{});const b=r.book.sections.flatMap(s=>s.blocks).find(b=>b.type==='figure');return {book:r.book,sourcePdf:b.sourcePdf,type:r.files.find(f=>f.id===b.blobId).blob.type};},fs.readFileSync(new URL('../tests/fixtures/locked-layout.pdf',import.meta.url)).toString('base64'));
+  assert.equal(locked.type,'image/png');assert.equal(locked.sourcePdf,undefined);assert.equal(JSON.stringify(locked.book).includes('reader-test'),false);
+  assert.deepEqual(errors,[]);console.log(`PASS ${engine}: verse, code, drama, lists, text tables, formulas, columns, raised text, RTL, nested navigation, endnotes, page aliases and misleading text-layer verification`);
+ }finally{await browser.close();}
+}

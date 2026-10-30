@@ -7,13 +7,15 @@ export type Block =
       contentsEntry?: boolean;
       targetPageIndex?: number;
       styles?:import('./rich-text').TextStyleRun[];
+      layout?:'verse'|'code'|'list'|'dialogue';
       footnoteRefs?: { at: number; noteId: string }[];
     }
-  | { type: "figure"; blobId: string; caption?: string; text?: string; aspectRatio?:number; sourcePageIndex?:number; fullPage?:boolean };
+  | { type: "figure"; blobId: string; caption?: string; text?: string; aspectRatio?:number; sourcePageIndex?:number; fullPage?:boolean;sourcePdf?:boolean };
 export type Section = {
   id: string;
   title: string;
   heading: boolean;
+  level?:number;
   blocks: Block[];
 };
 export type PageMark = { label: string; index: number; at: Anchor };
@@ -36,6 +38,8 @@ export type Book = {
   printPageCount: number;
   sections: Section[];
   pageMarks: PageMark[];
+  navigation?:{title:string;level:number;pageIndex:number}[];
+  pageAliases?:{label:string;index:number}[];
   sourcePdfBlobId?: string;
   sample?: boolean;
   revision?: number;

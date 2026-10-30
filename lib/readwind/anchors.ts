@@ -1,5 +1,7 @@
 import type { Anchor, Book } from "./types";
 import { hasReadableContent } from './content';
+import {readingWordCount} from './word-count';
+const wordCounts=new WeakMap<object,{text:string;words:number}>();
 export function compare(a: Anchor, b: Anchor) {
   return a.section - b.section || a.block - b.block || a.offset - b.offset;
 }
@@ -41,21 +43,14 @@ export function wordProgress(book: Book, at: Anchor, wordsPerMinute = 230) {
   book.sections.forEach((s, si) =>
     s.blocks.forEach((b, bi) => {
       const t = hasReadableContent(b) ? b.text || "" : "";
-      const words = t.trim() ? t.trim().split(/\s+/).length : 0;
+      let cached=wordCounts.get(b);if(!cached || cached.text!==t){cached={text:t,words:readingWordCount(t)};wordCounts.set(b,cached);}const words=cached.words;
       total += words;
       if (si < at.section || (si === at.section && bi < at.block))
         before += words;
       else if (si === at.section && bi === at.block)
-        before += t
-          .slice(0, at.offset)
-          .trim()
-          .split(/\s+/)
-          .filter(Boolean).length;
+        before += readingWordCount(t.slice(0,at.offset));
       if (si === at.section && bi >= at.block)
-        chapterLeft += (bi === at.block ? t.slice(at.offset) : t)
-          .trim()
-          .split(/\s+/)
-          .filter(Boolean).length;
+        chapterLeft += bi===at.block?readingWordCount(t.slice(at.offset)):words;
     }),
   );
   return {
