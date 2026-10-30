@@ -2,6 +2,7 @@ import type { Anchor, Book, Settings, Block } from "./types";
 import { compare, labelAt } from "./anchors";
 import { families, leading } from "./types";
 import {contentsRanges} from './reading-layout';
+import {appendStyledText} from './rich-text';
 import { hasReadableContent } from './content';
 export type Geometry = {
   bookW: number;
@@ -85,6 +86,11 @@ export function geometry(
     lh: leading[settings.spacing],
   };
 }
+export function figureHeight(block:Block,g:Geometry,chapterStart=false){
+  const natural=block.type==='figure' && block.aspectRatio?(g.pw-2*g.padX)/block.aspectRatio:300;
+  if(block.type==='figure' && block.fullPage)return Math.min(g.textH*.97,natural);
+  return Math.min(g.textH*(chapterStart ? .55 : .85),Math.max(g.fs*3,natural));
+}
 export function pageIndex(pages: ScreenPage[], at: Anchor, spread: boolean) {
   let i = pages.findIndex(
     (p) => !p.blank && compare(at, p.start) >= 0 && compare(at, p.end) < 0,
@@ -164,11 +170,12 @@ export async function paginate(
         if (bi === sec.blocks.length) break;
         if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
         root.replaceChildren();
+        const opening=sec.blocks[bi];
         const pg: ScreenPage = {
           start: { section: si, block: bi, offset },
           end: { section: si, block: bi, offset },
           fragments: [],
-          chapterStart: first && sec.heading,
+          chapterStart: first && sec.heading && !(opening.type==='figure' && opening.fullPage),
           chapterTitle: sec.title,
           folio: "",
         };
@@ -210,13 +217,13 @@ export async function paginate(
             para.replaceChildren();
             if (block.type === "figure") {
               const figure = document.createElement("div");
-              figure.style.height = `${Math.min(g.textH * 0.65, 300)}px`;
+              figure.style.height = `${figureHeight(block,g,pg.chapterStart && pg.fragments.length===0)}px`;
               para.appendChild(figure);
               return;
             }
             if(tocEntries){
               for(const entry of tocEntries){const a=Math.max(offset,entry.start),b=Math.min(end,entry.end);if(b<=a)continue;
-                const row=document.createElement('span');row.style.cssText='display:block;margin-bottom:.55em';row.textContent=text.slice(a,b);para.appendChild(row);
+                const row=document.createElement('span');row.style.cssText='display:block;margin-bottom:.55em';appendStyledText(row,text,a,b,block.styles);para.appendChild(row);
               }
               return;
             }
@@ -236,16 +243,14 @@ export async function paginate(
                 m.at.offset > begin &&
                 m.at.offset < end,
             )) {
-              para.appendChild(
-                document.createTextNode(text.slice(begin, m.at.offset)),
-              );
+              appendStyledText(para,text,begin,m.at.offset,block.styles);
               const mark = document.createElement("span");
               mark.className = "print-marker";
               mark.textContent = m.label;
               para.appendChild(mark);
               begin = m.at.offset;
             }
-            para.appendChild(document.createTextNode(text.slice(begin, end)));
+            appendStyledText(para,text,begin,end,block.styles);
           }
           setText(text.length);
           root.appendChild(para);

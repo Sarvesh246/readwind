@@ -1,5 +1,6 @@
-export type PdfTextItem = {str:string;transform:number[];width:number;height:number;dir?:string;fontName?:string;hasEOL?:boolean};
-export type PdfLine = {text:string;x:number;y:number;size:number;page:number;header:boolean;endX:number;ocr?:boolean;paragraphStart?:boolean};
+import type {TextStyleRun} from './rich-text';
+export type PdfTextItem = {str:string;transform:number[];width:number;height:number;dir?:string;fontName?:string;hasEOL?:boolean;bold?:boolean;italic?:boolean};
+export type PdfLine = {text:string;x:number;y:number;size:number;page:number;header:boolean;endX:number;ocr?:boolean;paragraphStart?:boolean;styles?:TextStyleRun[]};
 export type PdfIssue = 'columns'|'rotated-text'|'rtl'|'vertical-text'|'scanned'|'text-mapping'|'sparse'|'illustrated'|'low-ocr'|'extraction-error';
 export const pdfIssueLabels:Record<PdfIssue,string> = {
  'columns':'Multiple columns or aligned text', 'rotated-text':'Rotated text', 'rtl':'Right-to-left writing', 'vertical-text':'Vertical writing', 'scanned':'Scanned content', 'text-mapping':'Unreliable text layer', 'sparse':'Little selectable text', 'illustrated':'Illustrations or tables', 'low-ocr':'Recognition needs review', 'extraction-error':'Some content could not be extracted',
@@ -12,7 +13,7 @@ export function dominantSize(items:{size:number;text:string}[]){const weights=ne
 /** Use viewport coordinates and geometry, never PDF stream order or font names. */
 export function analyzePdfPage(items:PdfTextItem[],viewport:{width:number;height:number;transform:number[]},page:number):{lines:PdfLine[];report:PdfPageReport;bodySize:number}{
  const issues=new Set<PdfIssue>();
- const glyphs=items.filter(i=>i.str.trim()).map(i=>{const m=matrix(viewport.transform,i.transform),size=Math.hypot(m[2],m[3])||Math.abs(i.height)||12,scale=Math.hypot(viewport.transform[0],viewport.transform[1])||1,angle=Math.atan2(m[1],m[0]);if(i.dir==='rtl')issues.add('rtl');if(i.dir==='ttb')issues.add('vertical-text');if(Math.abs(Math.sin(angle))>.15)issues.add('rotated-text');return {text:normalizePdfText(i.str),x:m[4],y:m[5],size,width:Math.abs(i.width*scale)};});
+ const glyphs=items.filter(i=>i.str.trim()).map(i=>{const m=matrix(viewport.transform,i.transform),size=Math.hypot(m[2],m[3])||Math.abs(i.height)||12,scale=Math.hypot(viewport.transform[0],viewport.transform[1])||1,angle=Math.atan2(m[1],m[0]);if(i.dir==='rtl')issues.add('rtl');if(i.dir==='ttb')issues.add('vertical-text');if(Math.abs(Math.sin(angle))>.15)issues.add('rotated-text');return {bold:i.bold,italic:i.italic,text:normalizePdfText(i.str),x:m[4],y:m[5],size,width:Math.abs(i.width*scale)};});
  const characters=glyphs.reduce((n,g)=>n+g.text.length,0);const bad=glyphs.reduce((n,g)=>n+(g.text.match(/[\uFFFD\uE000-\uF8FF]/g)?.length||0),0);
  if(bad>0&&bad/Math.max(1,characters)>.005)issues.add('text-mapping');
  if(!characters)issues.add('scanned');else if(characters<100)issues.add('sparse');
@@ -28,8 +29,8 @@ export function analyzePdfPage(items:PdfTextItem[],viewport:{width:number;height
   const gap=line?g.x-line.endX:0;
   if(!line||gap>Math.max(bodySize*2.8,viewport.width*.035)){
    if(line&&!line.header)gaps.push({x:(line.endX+g.x)/2,y:row.y});
-   line={text:g.text,x:g.x,y:row.y,size:g.size,page,header:row.y<viewport.height*.12||row.y>viewport.height*.9,endX:g.x+g.width};lines.push(line);fonts.set(line,[{text:g.text,size:g.size}]);
-  }else{const space=gap>Math.min(line.size,g.size)*.16&&!/\s$/.test(line.text)&&!/^\s/.test(g.text);line.text+=(space?' ':'')+g.text;line.endX=Math.max(line.endX,g.x+g.width);fonts.get(line)!.push({text:g.text,size:g.size});}
+   line={text:g.text,x:g.x,y:row.y,size:g.size,page,header:row.y<viewport.height*.12||row.y>viewport.height*.9,endX:g.x+g.width};if(g.bold||g.italic)line.styles=[{start:0,end:g.text.length,bold:g.bold,italic:g.italic}];lines.push(line);fonts.set(line,[{text:g.text,size:g.size}]);
+  }else{const space=gap>Math.min(line.size,g.size)*.16&&!/\s$/.test(line.text)&&!/^\s/.test(g.text);const start=line.text.length+(space?1:0);line.text+=(space?' ':'')+g.text;if(g.bold||g.italic){line.styles ||= [];const prev=line.styles.at(-1);if(prev&&prev.end===start&&prev.bold===g.bold&&prev.italic===g.italic)prev.end=line.text.length;else line.styles.push({start,end:line.text.length,bold:g.bold,italic:g.italic});}line.endX=Math.max(line.endX,g.x+g.width);fonts.get(line)!.push({text:g.text,size:g.size});}
  }}
  for(const line of lines){line.size=dominantSize(fonts.get(line)!);if(line.size>bodySize*1.15)line.header=false;}
  const gutters=new Map<number,{count:number;minY:number}>();for(const g of gaps.filter(g=>g.x>viewport.width*.2&&g.x<viewport.width*.8)){const bin=Math.round(g.x/(viewport.width*.04));const old=gutters.get(bin);gutters.set(bin,{count:(old?.count||0)+1,minY:Math.min(old?.minY??Infinity,g.y)});}

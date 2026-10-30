@@ -677,6 +677,7 @@ export function Reader({
       annotations={annotations}
       loadBlob={l.loadBlob}
       onNavigate={jump}
+      onSourcePage={index=>{setOriginalPageIndex(index);setPanel("original");}}
       onAnnotation={(a) => {
         setEditing(a);
         setNote(a.note);
@@ -758,6 +759,7 @@ export function Reader({
               anchor={anchor}
               onProgress={commitAnchor}
               onNavigate={jump}
+              onSourcePage={index=>{setOriginalPageIndex(index);setPanel("original");}}
               annotations={annotations}
               loadBlob={l.loadBlob}
               onAnnotation={(a) => {

@@ -6,9 +6,10 @@ export type Block =
       /** A contents row remains separate from prose and points to a physical source page. */
       contentsEntry?: boolean;
       targetPageIndex?: number;
+      styles?:import('./rich-text').TextStyleRun[];
       footnoteRefs?: { at: number; noteId: string }[];
     }
-  | { type: "figure"; blobId: string; caption?: string; text?: string };
+  | { type: "figure"; blobId: string; caption?: string; text?: string; aspectRatio?:number; sourcePageIndex?:number; fullPage?:boolean };
 export type Section = {
   id: string;
   title: string;

@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Book, Settings, Anchor, Annotation } from "@/lib/readwind/types";
 import { families, leading, themes } from "@/lib/readwind/types";
-import { textRuns, BlobImage } from "./Page";
+import {BookFigure} from "./BookFigure";
+import { textRuns } from "./Page";
 import { compare, sectionStart } from "@/lib/readwind/anchors";
 import { Modal } from "./Modal";
 import { hasReadableContent } from '@/lib/readwind/content';
@@ -17,6 +18,7 @@ export function ScrollReader({
   loadBlob,
   onAnnotation,
   onNavigate,
+  onSourcePage,
 }: {
   book: Book;
   settings: Settings;
@@ -26,6 +28,7 @@ export function ScrollReader({
   loadBlob: (id: string) => Promise<Blob | undefined>;
   onAnnotation: (a: Annotation) => void;
   onNavigate: (a:Anchor)=>void;
+  onSourcePage?: (index:number)=>void;
 }) {
   const reported = useRef<Anchor | null>(null);
   const chapterBlock=sectionStart(book,anchor.section).block;
@@ -131,7 +134,7 @@ export function ScrollReader({
             if (b.type === "figure")
               return (
                 <figure key={block}>
-                  <BlobImage id={b.blobId} loadBlob={loadBlob} />
+                  <BookFigure id={b.blobId} loadBlob={loadBlob} sourcePageIndex={b.sourcePageIndex} onSourcePage={onSourcePage}/>
                 </figure>
               );
             const f = {

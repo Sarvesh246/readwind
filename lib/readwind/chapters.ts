@@ -1,7 +1,8 @@
 import type { Book, PageMark } from './types';
 import {dominantSize} from './pdf-layout';
+import {normalizeStyledText,type TextStyleRun} from './rich-text';
 
-export type SourceLine = { text: string; header: boolean; y: number; size: number; x?:number; endX?:number; ocr?:boolean };
+export type SourceLine = { text: string; header: boolean; y: number; size: number; x?:number; endX?:number; ocr?:boolean;styles?:TextStyleRun[] };
 const key = (s: string) => s.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const pageToken = /^(?:[1-9]\d*|[ivxlcdm]+)$/i;
 
@@ -84,7 +85,7 @@ export function pageHeading(lines:SourceLine[], bodySize:number, height=800) {
 }
 
 export type ContentsLink = { top:number; bottom:number; index:number; left?:number; right?:number; title?:string };
-export type ContentsEntry = {title:string; label?:string; y:number; target?:number; group?:boolean};
+export type ContentsEntry = {title:string; label?:string; y:number; target?:number; group?:boolean; description?:boolean;styles?:TextStyleRun[];size?:number};
 function contentsHeading(text:string){return /^(?:tableof)?contents$/i.test(text.replace(/[^\p{L}]/gu,''));}
 function titleKey(text:string){return key(text).replace(/^(?:(?:chapter|part|book)\s+(?:[ivxlcdm]+|\d+|one|two|three)\s*)/,'').replace(/^(preface|foreword|introduction)\s+by\s+.+$/,'$1');}
 function titleSimilarity(a:string,b:string){
@@ -100,14 +101,15 @@ function titleSimilarity(a:string,b:string){
   return Math.max(tokens,1-row[bc.length]/Math.max(ac.length,bc.length));
 }
 export function matchesChapterTitle(a:string,b:string){return titleSimilarity(a,b)>=.88;}
-export function contentsChapters(pages: SourceLine[][], labels: string[], links = new Map<number, ContentsLink[]>(), heights?:number[]) {
+export function contentsChapters(pages: SourceLine[][], labels: string[], links = new Map<number, ContentsLink[]>(), heights?:number[], outlines=new Map<number,string>()) {
   const chapters = new Map<number, string>(), unresolved:string[]=[], contentsPages=new Set<number>();
   const entriesByPage=new Map<number,ContentsEntry[]>();
   const bodySize=dominantSize(pages.flat().filter(l=>!l.header));
   const headings=pages.map((ls,i)=>pageHeading(ls,bodySize,heights?.[i]));
   let continuing=false;
   for(let pi=0;pi<Math.min(pages.length,80);pi++){
-    const lines=pages[pi], explicit=lines.some(l=>contentsHeading(l.text));
+    const lines=pages[pi], outlineTitles=new Set([...outlines.values()].map(key));
+    const explicit=lines.some(l=>contentsHeading(l.text)) || lines.filter(l=>outlineTitles.has(key(l.text))).length>=3;
     const rows:SourceLine[]=[];
     for(const line of [...lines].sort((a,b)=>a.y-b.y || (a.x||0)-(b.x||0))){
       const row=rows.find(r=>Math.abs(r.y-line.y)<3);
@@ -118,6 +120,7 @@ export function contentsChapters(pages: SourceLine[][], labels: string[], links 
     const entries:ContentsEntry[]=[];
     const linked=new Map<number,ContentsEntry>();
     const unlinked:SourceLine[]=[];
+    const description=(row:SourceLine):ContentsEntry=>{const cleaned=normalizeStyledText(row.text,row.styles),title=cleanChapterTitle(cleaned.text);return {title,y:row.y,size:row.size,styles:title===cleaned.text?cleaned.runs:undefined,description:true};};
     for(const row of rows){
       if(contentsHeading(row.text))continue;
       const matches=[...new Set(pageLinks.filter(l=>row.y>=l.top-3 && row.y<=l.bottom+3 && (l.left===undefined || row.x===undefined || (row.endX||row.x)>=l.left && row.x<=(l.right??Infinity))).map(l=>l.index))];
@@ -127,9 +130,19 @@ export function contentsChapters(pages: SourceLine[][], labels: string[], links 
         else{const entry={title:row.text,y:row.y,target:index};linked.set(index,entry);entries.push(entry);}
       }else unlinked.push(row);
     }
+    for(const [target,entry] of linked){
+      const title=outlines.get(target);
+      if(!title || !key(entry.title).includes(key(title)))continue;
+      const matchedRows=rows.filter(row=>pageLinks.some(l=>l.index===target && row.y>=l.top-3 && row.y<=l.bottom+3));
+      const headingRows=matchedRows.filter(row=>key(title).includes(key(row.text)));
+      if(!headingRows.length)continue;
+      entry.title=title;entry.y=headingRows[0].y;
+      for(const row of matchedRows.filter(row=>!headingRows.includes(row)))entries.push({...description(row),group:/^(chapter|part|introduction)\b/i.test(row.text)});
+    }
     let pending='';
     for(const row of unlinked){
       const text=cleanChapterTitle(row.text);
+      if(linked.size>=2 && outlines.size){entries.push(description(row));continue;}
       if(/^(?:part|book|postscript)\b/i.test(text)){if(pending)entries.push({title:pending,y:row.y-1});pending='';entries.push({title:text,y:row.y,group:true});continue;}
       const match=text.match(/^(.{2,300}?)\s*(?:\.{2,}|…+|\s+)([1-9IlO][\dIlOoSs]*|[ivxlcdm]+|[riIlOo0-9]{2,4})\s*$/i);
       if(match && /\p{L}/u.test(match[1]) && !/^(chapter|part|book|postscript)$/i.test(match[1].trim())){
@@ -151,8 +164,16 @@ export function contentsChapters(pages: SourceLine[][], labels: string[], links 
     if(!explicit && entries.length<2){continuing=false;continue;}
     contentsPages.add(pi);continuing=entries.length>=2;
     entries.sort((a,b)=>a.y-b.y);
+    let previousY=entries[0]?.y || 0;
+    const styleKey=(e:ContentsEntry)=>e.styles?.length?e.styles.every(r=>r.italic)?'italic':e.styles.every(r=>r.bold)?'bold':'mixed':'plain';
+    for(let i=1;i<entries.length;i++){
+      const prev=entries[i-1],entry=entries[i],gap=entry.y-previousY;previousY=entry.y;
+      if(!prev.description || !entry.description || prev.group || entry.group || gap>(entry.size||bodySize)*1.5 || styleKey(prev)!==styleKey(entry) || styleKey(entry)==='mixed')continue;
+      const offset=prev.title.length+(/[-\u00ad]$/.test(prev.title)?0:1);prev.title+=(offset>prev.title.length?' ':'')+entry.title;
+      prev.styles=[...(prev.styles||[]),...(entry.styles||[]).map(r=>({...r,start:r.start+offset,end:r.end+offset}))];entries.splice(i,1);i--;
+    }
     for(const entry of entries){
-      if(entry.group)continue;
+      if(entry.group || entry.description)continue;
       if(entry.target!==undefined){
         const numbered=entry.title.match(/^(.{2,300}?)\s*(?:\.{2,}|…+|\s+)([1-9]\d*|[ivxlcdm]+)\s*$/i);
         if(numbered && !/^(chapter|part|book|postscript)$/i.test(numbered[1].trim())){entry.title=numbered[1].replace(/[.\s…]+$/,'');entry.label=numbered[2];}
@@ -185,8 +206,16 @@ export function addChapterAtPage(book: Book, label: string, title: string): Book
   const mark = findPrintedPage(book.pageMarks, label);
   if (!mark) throw new Error('That printed page is missing or ambiguous. Correct its page label in the preview first.');
   if (!title.trim()) throw new Error('Enter a chapter title.');
-  const b = structuredClone(book), { section: si, block: bi } = mark.at;
-  if (mark.at.offset !== 0) throw new Error('This page starts inside a paragraph and cannot be split safely.');
+  const b = structuredClone(book), { section: si, block: bi,offset } = mark.at;
+  if(offset){
+    const source=b.sections[si].blocks[bi];
+    if(source.type==='figure' || offset>=source.text.length)throw new Error('This page anchor cannot be split safely.');
+    const before={...source,text:source.text.slice(0,offset),styles:source.styles?.map(r=>({...r,end:Math.min(r.end,offset)})).filter(r=>r.end>r.start),footnoteRefs:source.footnoteRefs?.filter(r=>r.at<offset)};
+    const after={...source,text:source.text.slice(offset),styles:source.styles?.map(r=>({...r,start:Math.max(r.start,offset)-offset,end:r.end-offset})).filter(r=>r.end>r.start),footnoteRefs:source.footnoteRefs?.filter(r=>r.at>=offset).map(r=>({...r,at:r.at-offset}))};
+    b.sections[si].blocks.splice(bi,1,before,after);
+    b.pageMarks=b.pageMarks.map(m=>({...m,at:m.at.section!==si?m.at:m.at.block>bi?{...m.at,block:m.at.block+1}:m.at.block===bi && m.at.offset>=offset?{...m.at,block:bi+1,offset:m.at.offset-offset}:m.at}));
+    return addChapterAtPage(b,label,title);
+  }
   if (bi === 0) { b.sections[si].title = title.trim(); b.sections[si].heading = true; return b; }
   b.sections.splice(si + 1, 0, { id:crypto.randomUUID(), title:title.trim(), heading:true, blocks:b.sections[si].blocks.splice(bi) });
   b.pageMarks = b.pageMarks.map(m => ({ ...m, at:m.at.section === si && m.at.block >= bi ? { ...m.at, section:si+1, block:m.at.block-bi } : m.at.section > si ? { ...m.at, section:m.at.section+1 } : m.at }));

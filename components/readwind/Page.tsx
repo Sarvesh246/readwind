@@ -1,11 +1,13 @@
 "use client";
-import { memo, useEffect, useState } from "react";
+import { memo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ScreenPage, Fragment, Geometry } from "@/lib/readwind/pagination";
 import type { Book, Settings, Annotation, Anchor } from "@/lib/readwind/types";
 import { colors, themes, families } from "@/lib/readwind/types";
 import { compare } from "@/lib/readwind/anchors";
-import { chapterLayout } from "@/lib/readwind/pagination";
+import {BookFigure} from "./BookFigure";
+import {BlobImage} from './BlobImage';
+import { figureHeight, chapterLayout } from "@/lib/readwind/pagination";
 import { Modal } from "./Modal";
 import { CoverTitle } from "./CoverTitle";
 import {ContentsText} from './ContentsText';
@@ -23,41 +25,9 @@ type Props = {
   inside?: boolean;
   decorative?: boolean;
   onNavigate?: (at:Anchor)=>void;
+  onSourcePage?: (index:number)=>void;
 };
-export function BlobImage({
-  id,
-  loadBlob,
-  alt = "",
-  className,
-}: {
-  id: string;
-  loadBlob: Props["loadBlob"];
-  alt?: string;
-  className?: string;
-}) {
-  const [url, setUrl] = useState("");
-  useEffect(() => {
-    let alive = true,
-      url = "";
-    loadBlob(id)
-      .then((b) => {
-        if (b && alive) {
-          url = URL.createObjectURL(b);
-          setUrl(url);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [id, loadBlob]);
-  return url ? (
-    <img src={url} alt={alt} className={className} />
-  ) : (
-    <span className="image-loading">Image · connect to download</span>
-  );
-}
+export {BlobImage} from "./BlobImage";
 export function textRuns(
   f: Fragment,
   book: Book,
@@ -100,6 +70,8 @@ export function textRuns(
   marks.forEach((m) => boundaries.add(m.at.offset));
   if (f.drop) boundaries.add(f.start + 1);
   const source = book.sections[f.section].blocks[f.block];
+  const styles=source.type==='figure'?[]:source.styles || [];
+  styles.forEach(r=>{if(r.start>f.start&&r.start<f.end)boundaries.add(r.start);if(r.end>f.start&&r.end<f.end)boundaries.add(r.end);});
   const refs =
     source.type === "figure"
       ? []
@@ -122,6 +94,7 @@ export function textRuns(
       );
     const mark = marks.find((m) => m.at.offset === offset),
       raw = text.slice(offset, end);
+    const style=styles.find(r=>r.start<=offset&&r.end>=end);
     const content = a ? raw.trimEnd() : raw,
       trail = a ? raw.slice(content.length) : "";
     const bg = a
@@ -148,6 +121,8 @@ export function textRuns(
           data-highlight={a?.id}
           className={f.drop && offset === f.start ? "drop-cap" : undefined}
           style={{
+            fontWeight:style?.bold?600:undefined,
+            fontStyle:style?.italic?'italic':undefined,
             background: bg,
             color: a && (a.color === 'green' || a.color === 'pink') ? '#2A2622' : undefined,
             borderRadius: 2,
@@ -205,8 +180,10 @@ export const Page = memo(function Page({
   inside,
   decorative,
   onNavigate,
+  onSourcePage,
 }: Props) {
   const [footnote, setFootnote] = useState<string | null>(null);
+  const figureSource=(f:Fragment)=>{const b=book.sections[f.section].blocks[f.block];return b.type==='figure'?b.sourcePageIndex:undefined;};
   const t = themes[settings.paper];
   const chapter = chapterLayout(g, page?.chapterTitle || '');
   const gutter = {
@@ -299,9 +276,9 @@ export const Page = memo(function Page({
                 <figure
                   key={i}
                   className="book-figure"
-                  style={{ height: Math.min(g.textH * 0.65, 300) }}
+                  style={{ height: figureHeight(book.sections[f.section].blocks[f.block],g,page.chapterStart && i===0) }}
                 >
-                  <BlobImage id={f.blobId!} loadBlob={loadBlob} />
+                  <BookFigure id={f.blobId!} loadBlob={loadBlob} sourcePageIndex={figureSource(f)} onSourcePage={onSourcePage}/>
                 </figure>
               ) : f.type === "h" ? (
                 <h3 key={i}>

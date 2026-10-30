@@ -25,6 +25,7 @@ export const book = z
                   text: z.string().max(200000),
                   contentsEntry: z.boolean().optional(),
                   targetPageIndex: z.number().int().min(0).max(9999).optional(),
+                  styles:z.array(z.object({start:z.number().int().min(0).max(200000),end:z.number().int().min(0).max(200000),bold:z.boolean().optional(),italic:z.boolean().optional()})).max(10000).optional(),
                   footnoteRefs: z
                     .array(
                       z.object({
@@ -40,6 +41,9 @@ export const book = z
                   blobId: z.string().regex(safeId),
                   text: z.string().max(200000).optional(),
                   caption: z.string().max(200000).optional(),
+                  aspectRatio:z.number().positive().max(10000).optional(),
+                  sourcePageIndex:z.number().int().min(0).max(9999).optional(),
+                  fullPage:z.boolean().optional(),
                 }),
               ]),
             )

@@ -9,3 +9,21 @@ export function joinPrintedLine(paragraph:string,line:string,joinHyphens:boolean
   const remove=joinHyphens && (tail[2]==='\u00ad' || words.has(joined) && !words.has(compound));
   return {text:(remove?paragraph.slice(0,-1):paragraph)+line,fixed:remove};
 }
+import type {Section,PageMark} from './types';
+
+/** Rejoin only corroborated sentence continuations across physical page boundaries. */
+export function joinPageParagraphs(sections:Section[],marks:PageMark[],candidates:Set<number>,joinHyphens:boolean,words:Set<string>){
+ for(const mark of marks){
+  if(!candidates.has(mark.index))continue;
+  const {section:si,block:bi}=mark.at,blocks=sections[si].blocks,left=blocks[bi-1],right=blocks[bi];
+  if(!left || left.type!=='p' || right?.type!=='p' || left.contentsEntry || right.contentsEntry || left.text.length<80 || !/^[\p{Ll}]/u.test(right.text) || !/[\p{L},\-]\s*$/u.test(left.text))continue;
+  const joined=joinPrintedLine(left.text,right.text,joinHyphens,words),offset=joined.text.length-right.text.length;
+  left.styles=(left.styles||[]).map(r=>({...r,end:Math.min(r.end,offset)})).filter(r=>r.end>r.start).concat((right.styles||[]).map(r=>({...r,start:r.start+offset,end:r.end+offset})));
+  left.footnoteRefs=[...(left.footnoteRefs||[]),...(right.footnoteRefs||[]).map(r=>({...r,at:r.at+offset}))];
+  left.text=joined.text;blocks.splice(bi,1);
+  for(const m of marks)if(m.at.section===si){
+   if(m.at.block===bi)m.at={...m.at,block:bi-1,offset:m.at.offset+offset};
+   else if(m.at.block>bi)m.at={...m.at,block:m.at.block-1};
+  }
+ }
+}

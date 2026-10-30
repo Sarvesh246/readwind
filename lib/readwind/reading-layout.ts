@@ -10,6 +10,7 @@ export function isContentsSection(book:Book,section:number){return isContents(bo
 export function contentsRanges(book:Book,section:number,block:number):ContentsRange[]|undefined {
   const source=book.sections[section]?.blocks[block];
   if(!source || source.type==='figure' || source.type==='h')return;
+  if(source.contentsEntry===false)return;
   if(source.contentsEntry)return [{start:0,end:source.text.length,pageIndex:source.targetPageIndex}];
   if(!isContents(book.sections[section].title))return;
   let sections=cache.get(book);if(!sections){sections=new Map();cache.set(book,sections);}
