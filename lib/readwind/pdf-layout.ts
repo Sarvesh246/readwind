@@ -1,5 +1,5 @@
 export type PdfTextItem = {str:string;transform:number[];width:number;height:number;dir?:string;fontName?:string;hasEOL?:boolean};
-export type PdfLine = {text:string;x:number;y:number;size:number;page:number;header:boolean;endX:number;ocr?:boolean};
+export type PdfLine = {text:string;x:number;y:number;size:number;page:number;header:boolean;endX:number;ocr?:boolean;paragraphStart?:boolean};
 export type PdfIssue = 'columns'|'rotated-text'|'rtl'|'vertical-text'|'scanned'|'text-mapping'|'sparse'|'illustrated'|'low-ocr'|'extraction-error';
 export const pdfIssueLabels:Record<PdfIssue,string> = {
  'columns':'Multiple columns or aligned text', 'rotated-text':'Rotated text', 'rtl':'Right-to-left writing', 'vertical-text':'Vertical writing', 'scanned':'Scanned content', 'text-mapping':'Unreliable text layer', 'sparse':'Little selectable text', 'illustrated':'Illustrations or tables', 'low-ocr':'Recognition needs review', 'extraction-error':'Some content could not be extracted',

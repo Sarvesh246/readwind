@@ -8,7 +8,8 @@ import { compare } from "@/lib/readwind/anchors";
 import { chapterLayout } from "@/lib/readwind/pagination";
 import { Modal } from "./Modal";
 import { CoverTitle } from "./CoverTitle";
-import {ContentsEntry} from './ContentsEntry';
+import {ContentsText} from './ContentsText';
+import {contentsRanges} from '@/lib/readwind/reading-layout';
 type Props = {
   page: ScreenPage | null;
   book: Book;
@@ -206,7 +207,6 @@ export const Page = memo(function Page({
   onNavigate,
 }: Props) {
   const [footnote, setFootnote] = useState<string | null>(null);
-  const textBlock = (f:Fragment)=>{const block=book.sections[f.section].blocks[f.block];return block.type==='figure'?undefined:block;};
   const t = themes[settings.paper];
   const chapter = chapterLayout(g, page?.chapterTitle || '');
   const gutter = {
@@ -319,19 +319,16 @@ export const Page = memo(function Page({
                   key={i}
                   data-paragraph={`${f.section}:${f.block}`}
                   style={{
-                    textIndent: f.continuation || f.drop || (textBlock(f)?.contentsEntry) ? "0" : "1.4em",
-                    textAlign: textBlock(f)?.contentsEntry ? 'left' : undefined,
-                    marginBottom: textBlock(f)?.contentsEntry ? '.55em' : undefined,
+                    textIndent: f.continuation || f.drop || f.type==='quote' || (contentsRanges(book,f.section,f.block)) ? "0" : "1.4em",
+                    textAlign: contentsRanges(book,f.section,f.block) ? 'left' : undefined,
+                    marginBottom: f.type==='quote'?'.6em':undefined,
+                    marginTop:f.type==='quote'?'.6em':undefined,
+                    marginInline:f.type==='quote'?'1em':undefined,
+                    whiteSpace:'pre-line',
                   }}
                 >
-                  <ContentsEntry book={book} pageIndex={textBlock(f)?.targetPageIndex} onNavigate={onNavigate}>{textRuns(
-                    f,
-                    book,
-                    annotations,
-                    settings,
-                    onAnnotation,
-                    setFootnote,
-                  )}</ContentsEntry>
+                  <ContentsText book={book} fragment={f} onNavigate={onNavigate} render={part=>textRuns(part,book,annotations,settings,onAnnotation,setFootnote)}/>
+
                 </p>
               ),
             )}

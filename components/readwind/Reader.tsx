@@ -1,5 +1,6 @@
 "use client";
 import { useReadingPace } from "@/lib/readwind/useReadingPace";
+import {isContentsSection} from '@/lib/readwind/reading-layout';
 import { findPrintedPage } from "@/lib/readwind/chapters";
 import {
   useEffect,
@@ -110,7 +111,7 @@ export function Reader({
   // A chapter jump may land on the right of a spread beside the previous chapter.
   const visibleAnchor = anchor;
   const info = wordProgress(book, visibleAnchor, l.readingSpeed);
-  useReadingPace(`${l.paceOwner}:${book.id}`, info.before, !busy && !closed && !panel && !selection && !editing && !l.conflict, l.recordReading);
+  useReadingPace(`${l.paceOwner}:${book.id}`, info.before, !busy && !closed && !panel && !selection && !editing && !l.conflict && !isContentsSection(book,visibleAnchor.section), l.recordReading);
   const bookmarked = annotations.find(a => a.kind === 'bookmark' && first &&
     compare(a.range.start, first.start) >= 0 && compare(a.range.start, first.end) < 0);
   const commitAnchor = useCallback(

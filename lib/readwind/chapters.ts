@@ -99,6 +99,7 @@ function titleSimilarity(a:string,b:string){
   for(let i=1;i<=ac.length;i++){const next=[i];for(let j=1;j<=bc.length;j++)next[j]=Math.min(next[j-1]+1,row[j]+1,row[j-1]+(ac[i-1]===bc[j-1]?0:1));row=next;}
   return Math.max(tokens,1-row[bc.length]/Math.max(ac.length,bc.length));
 }
+export function matchesChapterTitle(a:string,b:string){return titleSimilarity(a,b)>=.88;}
 export function contentsChapters(pages: SourceLine[][], labels: string[], links = new Map<number, ContentsLink[]>(), heights?:number[]) {
   const chapters = new Map<number, string>(), unresolved:string[]=[], contentsPages=new Set<number>();
   const entriesByPage=new Map<number,ContentsEntry[]>();

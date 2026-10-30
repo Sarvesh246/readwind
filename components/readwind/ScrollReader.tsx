@@ -6,7 +6,8 @@ import { textRuns, BlobImage } from "./Page";
 import { compare, sectionStart } from "@/lib/readwind/anchors";
 import { Modal } from "./Modal";
 import { hasReadableContent } from '@/lib/readwind/content';
-import {ContentsEntry} from './ContentsEntry';
+import {ContentsText} from './ContentsText';
+import {contentsRanges} from '@/lib/readwind/reading-layout';
 export function ScrollReader({
   book,
   settings: s,
@@ -148,8 +149,8 @@ export function ScrollReader({
                 {textRuns(f, book, annotations, s, onAnnotation, setFootnote)}
               </h3>
             ) : (
-              <p key={block} data-paragraph={`${section}:${block}`} style={b.contentsEntry?{textAlign:'left',textIndent:0,marginBottom:'.55em'}:undefined}>
-                <ContentsEntry book={book} pageIndex={b.targetPageIndex} onNavigate={onNavigate}>{textRuns(f, book, annotations, s, onAnnotation, setFootnote)}</ContentsEntry>
+              <p key={block} data-paragraph={`${section}:${block}`} style={{textAlign:contentsRanges(book,section,block)?'left':undefined,textIndent:contentsRanges(book,section,block)||b.type==='quote'?'0':undefined,whiteSpace:'pre-line',marginBlock:b.type==='quote'?'.6em':undefined,marginInline:b.type==='quote'?'1em':undefined}}>
+                <ContentsText book={book} fragment={f} onNavigate={onNavigate} render={part=>textRuns(part,book,annotations,s,onAnnotation,setFootnote)}/>
               </p>
             );
           })}

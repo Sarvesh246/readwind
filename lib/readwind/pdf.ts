@@ -1,7 +1,8 @@
 import type { Book, Section, PageMark } from "./types";
 import { analyzePdfPage, dominantSize, importReport, type PdfPageReport } from './pdf-layout';
-import { printedLabels, contentsChapters, interpolatePrintedLabels, type ContentsLink, pageHeading } from './chapters';
+import { printedLabels, contentsChapters, interpolatePrintedLabels, type ContentsLink, pageHeading, matchesChapterTitle } from './chapters';
 import { ocrLines, ocrScore, enhanceOcrContrast } from './ocr';
+import {bookWordEvidence,joinPrintedLine} from './text-cleanup';
 export type ImportOptions = {
   removeHeaders: boolean;
   joinHyphens: boolean;
@@ -29,6 +30,7 @@ type Line = {
   page: number;
   header: boolean;
   endX?: number;
+  paragraphStart?: boolean;
 };
 export async function importPDF(
   file: File,
@@ -349,6 +351,7 @@ export async function importPDF(
     toc = contentsChapters(all, pageLabels, contentsLinks, heights);
     pageLabels = interpolatePrintedLabels(pageLabels);
     const median = dominantSize(all.flat().filter(l=>!l.header));
+    const wordEvidence=bookWordEvidence(all);
     const sections: Section[] = [],
       marks: PageMark[] = [],
       pageText: string[] = [],
@@ -392,9 +395,10 @@ export async function importPDF(
         }
         return true;
       });
-      const detected = !toc.contentsPages.size && !outlinePages.size ? pageHeading(kept,median,heights[pi]) : undefined;
+      const detected = pageHeading(kept,median,heights[pi]);
       const heading = toc.contentsPages.has(pi) ? "Contents" : toc.chapters.get(pi) ||
-        (!toc.contentsPages.size ? outlinePages.get(pi) || detected?.title : undefined);
+        (!toc.contentsPages.size ? outlinePages.get(pi) || (!outlinePages.size?detected?.title:undefined) : undefined);
+      const headingLines=detected && heading && matchesChapterTitle(detected.title,heading)?detected.lines:[];
       if (!section || heading) {
         section = {
           id: crypto.randomUUID(),
@@ -431,25 +435,18 @@ export async function importPDF(
           flush();
           section.blocks.push({ type: "figure", blobId: figures.shift()!.id });
         }
-        if ((line.text === heading && line.y < heights[pi]*.5) || detected?.lines.some(l=>l===line)) {
+        if ((line.text === heading && line.y < heights[pi]*.5) || headingLines.some(l=>l===line)) {
           flush();
           continue;
         }
         if (
           previous &&
-          (line.y < previous.y || line.y - previous.y > median * 1.9 ||
-            line.x - previous.x > median * 1.2)
+          (line.paragraphStart || line.y < previous.y || line.y - previous.y > median * 1.9 ||
+            line.x - previous.x > median * .7)
         )
           flush();
-        if (
-          options.joinHyphens &&
-          previous && line.y > previous.y && line.y - previous.y < median * 1.9 &&
-          /[\p{L}]{2}-$/u.test(paragraph) &&
-          /^\p{Ll}/u.test(line.text)
-        ) {
-          paragraph = paragraph.slice(0, -1) + line.text;
-          fixed++;
-        } else paragraph += (paragraph ? " " : "") + line.text;
+        const joined=joinPrintedLine(paragraph,line.text,options.joinHyphens,wordEvidence);
+        paragraph=joined.text;if(joined.fixed)fixed++;
         previous = line;
       }
       flush();

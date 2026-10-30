@@ -18,6 +18,7 @@
     "test:pdf": "node scripts/test-pdf-browser.mjs",
     "test:import": "node scripts/test-import-browser.mjs",
     "test:chapters": "node scripts/test-chapters-browser.mjs",
+    "test:reading-layout": "node scripts/test-reading-layout-browser.mjs",
     "test:pace": "node scripts/test-reading-pace-browser.mjs",
     "test:pagination": "node scripts/test-pagination-browser.mjs",
     "test:sync": "node scripts/test-sync-browser.mjs",

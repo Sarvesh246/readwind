@@ -3,6 +3,7 @@ import {useEffect,useRef,useState,type CSSProperties} from 'react';
 import type {PDFDocumentProxy} from 'pdfjs-dist';
 import type {Book,Annotation,Color} from '@/lib/readwind/types';
 import {useReadingPace} from "@/lib/readwind/useReadingPace";
+import {isContentsSection} from '@/lib/readwind/reading-layout';
 import {findPrintedPage} from "@/lib/readwind/chapters";
 import {themes} from '@/lib/readwind/types';
 import {compare,start,wordProgress} from '@/lib/readwind/anchors';
@@ -28,7 +29,7 @@ export function OriginalReader({book,library:l,navigate}:{book:Book;library:Libr
  const fullscreen=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{setFull(v=>!v);}};
  useEffect(()=>{if(saved&&(!navigated.current||saved.deviceId!==localStorage.getItem('folio-device'))&&!l.conflict){setIndex(Math.max(0,...book.pageMarks.filter(m=>compare(m.at,saved.at)<=0).map(m=>m.index)));}},[saved?.updatedAt,saved?.revision,l.conflict]);
  const at=(n:number)=>book.pageMarks.find(m=>m.index===n)?.at||start;
- useReadingPace(`${l.paceOwner}:${book.id}`,wordProgress(book,at(index)).before,!!pdf&&!error&&!contents&&!comfort&&!selection&&!l.conflict,l.recordReading);
+ useReadingPace(`${l.paceOwner}:${book.id}`,wordProgress(book,at(index)).before,!!pdf&&!error&&!contents&&!comfort&&!selection&&!l.conflict&&!isContentsSection(book,at(index).section),l.recordReading);
  const goto=(n:number)=>{navigated.current=true;n=Math.max(0,Math.min(book.printPageCount-1,n));setIndex(n);setSelection(null);area.current?.scrollTo(0,0);void l.saveProgress(book.id,at(n),wordProgress(book,at(n)).before);};navRef.current=goto;
  useEffect(()=>{const el=area.current!;const o=new ResizeObserver(([e])=>setWidth(e.contentRect.width));o.observe(el);return()=>o.disconnect();},[]);
  useEffect(()=>{

@@ -31,10 +31,10 @@ export function ocrScore(data: Pick<Page, 'text' | 'confidence'>) {
 
 export function ocrLines(data: Page, width: number, height: number, rasterWidth: number, rasterHeight: number, page: number): PdfLine[] {
   const sx = width / rasterWidth, sy = height / rasterHeight;
-  const lines = (data.blocks || []).flatMap(b => b.paragraphs.flatMap(p => p.lines.map(l => {
+  const lines = (data.blocks || []).flatMap(b => b.paragraphs.flatMap(p => p.lines.map((l,index) => {
     const heights=l.words?.filter(w=>w.text.trim().length>1).map(w=>({text:w.text,size:(w.bbox.y1-w.bbox.y0)*sy})) || [];
     const y = l.bbox.y1 * sy, size = heights.length ? dominantSize(heights) : Math.max(1, (l.bbox.y1-l.bbox.y0)*sy);
-    return { text:normalizePdfText(l.text).trim(), x:l.bbox.x0*sx, endX:l.bbox.x1*sx, y, size, page, ocr:true, header:y < height*.08 || l.bbox.y0*sy > height*.92 };
+    return { text:normalizePdfText(l.text).trim(), x:l.bbox.x0*sx, endX:l.bbox.x1*sx, y, size, page, ocr:true, paragraphStart:index===0, header:y < height*.08 || l.bbox.y0*sy > height*.92 };
   }))).filter(l => l.text);
   const body=dominantSize(lines);
   return lines.map(l=>({...l,header:(l.y<height*.12 || l.y>height*.9) && l.size<=body*1.15}));

@@ -1,6 +1,7 @@
 import type { Anchor, Book, Settings, Block } from "./types";
 import { compare, labelAt } from "./anchors";
 import { families, leading } from "./types";
+import {contentsRanges} from './reading-layout';
 import { hasReadableContent } from './content';
 export type Geometry = {
   bookW: number;
@@ -104,7 +105,7 @@ export async function paginate(
   signal?: AbortSignal,
 ): Promise<ScreenPage[]> {
   const key = [
-    "fonts-v3",
+    "reading-layout-v4",
     book.id,
     book.revision || book.addedAt,
     g.pw,
@@ -196,20 +197,27 @@ export async function paginate(
           const block = sec.blocks[bi],
             text = block.text || "";
           const para = document.createElement(block.type === "h" ? "h3" : "p");
+          const tocEntries=contentsRanges(book,si,bi);
           const drop =
             g.textH >= 260 &&
             pg.chapterStart &&
             pg.fragments.length === 0 &&
             offset === 0 &&
-            block.type === "p" && !block.contentsEntry;
-          const toc = block.type !== 'figure' && block.contentsEntry;
-          para.style.cssText = `margin:0 0 ${toc ? '.55em' : '0'};text-indent:${offset || drop || block.type !== "p" || toc ? "0" : "1.4em"};${toc ? 'text-align:left;' : ''}${block.type === "h" ? "font-weight:500;font-size:1.2em;line-height:1.3;padding:12px 0;" : ""}`;
+            block.type === "p" && !tocEntries;
+          const toc = !!tocEntries;
+          para.style.cssText = `white-space:pre-line;overflow-wrap:anywhere;margin:${block.type==='quote'?'.6em 1em':'0'};text-indent:${offset || drop || block.type !== "p" || toc ? "0" : "1.4em"};${toc ? 'text-align:left;' : ''}${block.type === "h" ? "font-weight:500;font-size:1.2em;line-height:1.3;padding:12px 0;" : ""}`;
           function setText(end: number) {
             para.replaceChildren();
             if (block.type === "figure") {
               const figure = document.createElement("div");
               figure.style.height = `${Math.min(g.textH * 0.65, 300)}px`;
               para.appendChild(figure);
+              return;
+            }
+            if(tocEntries){
+              for(const entry of tocEntries){const a=Math.max(offset,entry.start),b=Math.min(end,entry.end);if(b<=a)continue;
+                const row=document.createElement('span');row.style.cssText='display:block;margin-bottom:.55em';row.textContent=text.slice(a,b);para.appendChild(row);
+              }
               return;
             }
             let begin = offset;
@@ -243,6 +251,7 @@ export async function paginate(
           root.appendChild(para);
           const fits = () =>
             root.getBoundingClientRect().bottom - top <= g.textH + 0.5;
+          if(block.type==='h' && pg.fragments.length && root.getBoundingClientRect().bottom-top+g.fs*g.lh*2>g.textH){para.remove();break;}
           if (fits()) {
             pg.fragments.push({
               section: si,
@@ -295,6 +304,14 @@ export async function paginate(
             break;
           }
           let end = ends[Math.max(0, lo - 1)] || text.length;
+          // A URL or an unusually long token can span several pages at large type.
+          if(lo===0 && !pg.fragments.length){
+            const charEnds:number[]=[];let pos=offset;
+            for(const char of text.slice(offset,end)){pos+=char.length;charEnds.push(pos);}
+            let a=0,b=charEnds.length;
+            while(a<b){const mid=Math.ceil((a+b)/2);setText(charEnds[mid-1]);if(fits())a=mid;else b=mid-1;}
+            end=charEnds[Math.max(0,a-1)] || end;
+          }
           // Keep at least two lines on either side of a split when space allows.
           if (lo > 0 && end < text.length) {
             setText(text.length);

@@ -3552,6 +3552,8 @@ legend {
 .contents-entry-link { display: inline; font: inherit; line-height: inherit; text-align: left; color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: .18em; border-radius: 2px; }
 .contents-entry-link:hover { opacity: .75; }
 .contents-entry-link:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+.reading-contents-row { display: block; margin-bottom: .55em; text-align: left; text-indent: 0; }
+.page-text, .continuous-reader { overflow-wrap: anywhere; }
 .pdf-internal-link { position: absolute; z-index: 2; background: transparent; cursor: pointer; }
 .pdf-internal-link:hover { background: rgba(60,100,180,.12); }
 .pdf-internal-link:focus-visible { outline: 2px solid #406baf; outline-offset: 2px; }
