@@ -34,6 +34,12 @@ export type ScreenPage = {
   folio: string;
   blank?: boolean;
 };
+/** Long chapter titles get a smaller display size so they stay on the page. */
+export function chapterTitleSize(fs: number, title: string) {
+  const length = title.trim().length;
+  const factor = length > 60 ? 1.35 : length > 34 ? 1.55 : 1.9;
+  return Math.round(fs * factor);
+}
 export function geometry(
   aw: number,
   ah: number,
@@ -162,7 +168,7 @@ export async function paginate(
             "font:11px Inter;letter-spacing:.24em;text-transform:uppercase";
           label.textContent = book.title;
           const title = document.createElement("h2");
-          title.style.cssText = `font-size:${Math.round(g.fs * 1.9)}px;font-weight:400;font-style:italic;line-height:1.15;margin:0`;
+          title.style.cssText = `font-size:${chapterTitleSize(g.fs, sec.title)}px;font-weight:400;font-style:italic;line-height:1.15;margin:0`;
           title.textContent = sec.title;
           const rule = document.createElement("div");
           rule.style.cssText = "width:36px;height:1px";

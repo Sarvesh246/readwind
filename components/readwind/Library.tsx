@@ -5,6 +5,7 @@ import type { Book } from "@/lib/readwind/types";
 import type { Library as LibraryData } from "@/lib/readwind/useLibrary";
 import { wordProgress, labelAt, start } from "@/lib/readwind/anchors";
 import { BlobImage } from "./Page";
+import { CoverTitle } from "./CoverTitle";
 import { Icon } from "./Icon";
 import { ReadwindLockup } from "./Logo";
 import { ThemeToggleButton } from "./Theme";
@@ -12,10 +13,12 @@ export function Cover({
   book,
   loadBlob,
   className = "",
+  titleMax = 22,
 }: {
   book: Book;
   loadBlob: (id: string) => Promise<Blob | undefined>;
   className?: string;
+  titleMax?: number;
 }) {
   return (
     <div
@@ -31,7 +34,7 @@ export function Cover({
         />
       ) : (
         <>
-          <div>{book.title}</div>
+          <CoverTitle text={book.title} maxSize={titleMax} />
           <span>{book.author}</span>
         </>
       )}
@@ -55,7 +58,12 @@ function CoverFan({
       animate="rest"
       whileHover="fan"
     >
-      <Cover book={book} loadBlob={loadBlob} className="continue-cover" />
+      <Cover
+        book={book}
+        loadBlob={loadBlob}
+        className="continue-cover"
+        titleMax={34}
+      />
       {others.slice(0, 2).map((b, i) => (
         <motion.div
           key={b.id}

@@ -270,20 +270,28 @@ export function Reader({
           ),
         );
       }
-      // Animate only the leaf transform and opacity; page text stays memoized.
+      // Animate only the leaf transform; page text stays memoized. Opacity
+      // goes on the front face, never the 3D leaf: opacity on the leaf forces
+      // transform-style to flat and shows its mirrored backface.
       if (leaf.current) {
         const q = spread ? next.p : value.dir === 1 ? next.p : 1 - next.p;
         leaf.current.style.transform =
           s.turn === "Slide"
             ? `translateX(${-next.dir * next.p * 100}%)`
             : `rotateY(${(spread && value.dir === -1 ? 180 : -180) * q}deg)`;
-        leaf.current.style.opacity = String(
-          reduced
-            ? 1 - next.p
-            : !spread && !fill && q > 0.55
-              ? Math.max(0, 1 - (q - 0.55) / 0.45)
-              : 1,
-        );
+        const frontFace = leaf.current.firstElementChild as HTMLElement | null;
+        if (frontFace)
+          frontFace.style.opacity = String(
+            reduced
+              ? 1 - next.p
+              : value.kind === "page" &&
+                  s.turn !== "Slide" &&
+                  !spread &&
+                  !fill &&
+                  q > 0.55
+                ? Math.max(0, 1 - (q - 0.55) / 0.45)
+                : 1,
+          );
       }
       if (value.kind !== "page" && box.current && spread)
         box.current.style.transform = `translateX(${(-g.pw / 2) * (1 - next.p)}px)`;
@@ -575,7 +583,18 @@ export function Reader({
     ur = spread ? P(index + 1) : P(index);
   }
   const q = turn ? (spread ? turn.p : forward ? turn.p : 1 - turn.p) : 0,
-    qs = Math.sin(q * Math.PI);
+    qs = Math.sin(q * Math.PI),
+    frontOpacity = !turn
+      ? 1
+      : reduced
+        ? 1 - turn.p
+        : turn.kind === "page" &&
+            s.turn !== "Slide" &&
+            !spread &&
+            !fill &&
+            q > 0.55
+          ? Math.max(0, 1 - (q - 0.55) / 0.45)
+          : 1;
   const stacks = (n: number, dir: number) =>
     Array.from(
       { length: n },
@@ -628,6 +647,7 @@ export function Reader({
           color: t.muted,
           "--reader-page": t.page,
           "--reader-ink": t.ink,
+          "--reader-desk": t.desk,
           "--reader-chip": t.chip,
           "--reader-on": t.on,
           "--reader-accent": t.accent,
@@ -852,13 +872,9 @@ export function Reader({
                       s.turn === "Slide"
                         ? `translateX(${-turn!.dir * turn!.p * 100}%)`
                         : `rotateY(${(spread && !forward ? 180 : -180) * q}deg)`,
-                    opacity:
-                      !spread && !fill && q > 0.55
-                        ? Math.max(0, 1 - (q - 0.55) / 0.45)
-                        : 1,
                   }}
                 >
-                  <div className="leaf-face">
+                  <div className="leaf-face" style={{ opacity: frontOpacity }}>
                     {renderPage(
                       front,
                       spread ? (forward ? "right" : "left") : "single",

@@ -75,8 +75,8 @@ export async function importPDF(
       scale = Math.min(scale, Math.sqrt(12_000_000/(base.width*base.height)), 4096/Math.max(base.width,base.height));
       const v = page.getViewport({ scale }),
         canvas = document.createElement("canvas");
-      canvas.width = v.width;
-      canvas.height = v.height;
+      canvas.width = Math.ceil(v.width);
+      canvas.height = Math.ceil(v.height);
       const context = canvas.getContext("2d")!;
       await page.render({ canvasContext: context, canvas, viewport: v })
         .promise;
@@ -177,11 +177,18 @@ export async function importPDF(
             );
             const xs = corners.map((c) => c[0]),
               ys = corners.map((c) => c[1]);
+            // Clip the image box to the visible page. Content painted past the
+            // page edge cannot be recovered from the page raster, and using the
+            // unclipped box would stretch the visible part across the crop.
+            const left = Math.max(0, Math.min(...xs)),
+              top = Math.max(0, Math.min(...ys)),
+              right = Math.min(v.width, Math.max(...xs)),
+              bottom = Math.min(v.height, Math.max(...ys));
             const r = {
-              x: Math.max(0, Math.min(...xs)),
-              y: Math.max(0, Math.min(...ys)),
-              w: Math.max(...xs) - Math.min(...xs),
-              h: Math.max(...ys) - Math.min(...ys),
+              x: left,
+              y: top,
+              w: Math.max(0, right - left),
+              h: Math.max(0, bottom - top),
             };
             if (
               r.w > 24 &&
@@ -203,11 +210,15 @@ export async function importPDF(
               right = Math.max(...run.map((l) => l.endX || v.width - 40)),
               top = run[0].y - run[0].size * 1.2,
               bottom = run[run.length - 1].y + run[run.length - 1].size * 0.4;
+            const rx = Math.max(0, x - 4),
+              ry = Math.max(0, top - 4),
+              rr = Math.min(v.width, right + 4),
+              rb = Math.min(v.height, bottom + 4);
             regions.push({
-              x: Math.max(0, x - 4),
-              y: Math.max(0, top - 4),
-              w: Math.min(v.width - x, right - x + 8),
-              h: bottom - top + 8,
+              x: rx,
+              y: ry,
+              w: Math.max(0, rr - rx),
+              h: Math.max(0, rb - ry),
             });
             tableRows.push(...run);
           }
@@ -235,17 +246,22 @@ export async function importPDF(
           const full = await raster(page, 1.5);
           for (const r of regions.slice(0,8)) {
             if(figureCount>=40)break;
+            if (r.w < 1 || r.h < 1) continue;
             const crop = document.createElement("canvas");
             crop.width = Math.ceil(r.w * 1.5);
             crop.height = Math.ceil(r.h * 1.5);
+            const sx = (r.x / v.width) * full.width,
+              sy = (r.y / v.height) * full.height,
+              sw = Math.min((r.w / v.width) * full.width, full.width - sx),
+              sh = Math.min((r.h / v.height) * full.height, full.height - sy);
             crop
               .getContext("2d")!
               .drawImage(
                 full,
-                r.x * full.width/v.width,
-                r.y * full.height/v.height,
-                r.w * full.width/v.width,
-                r.h * full.height/v.height,
+                sx,
+                sy,
+                sw,
+                sh,
                 0,
                 0,
                 crop.width,

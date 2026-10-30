@@ -480,12 +480,19 @@ legend {
   overflow: hidden;
 }
 .shelf-cover > div:not(.image-loading) {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  overflow-wrap: normal;
+  text-wrap: balance;
   font:
     500 20px/1.1 Literata,
     Georgia,
     serif;
 }
 .shelf-cover > span {
+  flex: none;
+  overflow-wrap: anywhere;
   font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -501,8 +508,8 @@ legend {
   padding: 28px 20px 24px 28px;
 }
 .continue-cover > div {
-  font-size: 30px !important;
-  line-height: 1.05 !important;
+  font-size: 30px;
+  line-height: 1.05;
 }
 .continue-cover > span {
   font-size: 11px;
@@ -1144,8 +1151,12 @@ legend {
   flex-direction: column;
   align-items: center;
   gap: 14px;
+  max-width: 100%;
+  min-width: 0;
 }
 .chapter-heading > div {
+  max-width: 100%;
+  overflow-wrap: anywhere;
   font:
     11px Inter,
     sans-serif;
@@ -1154,6 +1165,9 @@ legend {
 }
 .chapter-heading > h2 {
   margin: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
   font-weight: 400;
   font-style: italic;
   line-height: 1.15;
@@ -1196,11 +1210,15 @@ legend {
   opacity: 0.9;
 }
 .cover-title {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  overflow-wrap: normal;
+  text-wrap: balance;
   margin-top: 18px;
   font:
     500 3.4em/1 Literata,
     serif;
-  overflow-wrap: anywhere;
 }
 .cover-subtitle {
   margin-top: 10px;
@@ -1283,7 +1301,9 @@ legend {
   top: 0;
   height: 100%;
   transform-style: preserve-3d;
-  will-change: transform, opacity;
+  /* Do not add opacity here: opacity forces a flat 3D context and shows the
+     mirrored back of the front page during a turn. */
+  will-change: transform;
   pointer-events: none;
 }
 .leaf-face {
@@ -1311,6 +1331,9 @@ legend {
   align-items: center;
   gap: 14px;
   font-size: 13px;
+  position: relative;
+  z-index: 3;
+  background: var(--reader-desk, var(--desk));
 }
 .footer-content {
   flex: 1;
@@ -1391,8 +1414,12 @@ legend {
   max-width: 100%;
   display: flex;
   justify-content: center;
+  align-items: center;
+  overflow: hidden;
 }
 .book-figure img {
+  width: auto;
+  height: auto;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
@@ -2001,33 +2028,43 @@ legend {
   overflow: auto;
 }
 .chapter-edit {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 2px 8px;
   min-height: 48px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line-2);
 }
 .chapter-edit > span {
+  grid-column: 1;
+  grid-row: 1;
   width: 22px;
   font-size: 13px;
   color: var(--muted-2);
 }
 .chapter-edit > input {
-  flex: 1;
-  min-width: 80px !important;
+  grid-column: 2;
+  grid-row: 1;
+  width: 100%;
+  min-width: 0 !important;
   border: 0 !important;
   background: transparent !important;
   padding: 8px !important;
+  font-size: 15px;
+  line-height: 1.35;
 }
 .chapter-edit > button {
+  grid-column: 3;
+  grid-row: 1;
   font-size: 12px;
   color: var(--accent);
   min-height: 44px;
 }
 .chapter-edit details {
-  flex-basis: 100%;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
   padding: 0 8px;
 }
 .chapter-edit summary {
@@ -2281,7 +2318,7 @@ legend {
       0 12px 28px rgba(60, 45, 25, 0.23);
   }
   .continue-cover > div {
-    font-size: 22px !important;
+    font-size: 22px;
   }
   .continue-cover > span {
     font-size: 8px;
@@ -2654,6 +2691,7 @@ legend {
 .continuous-reader p {
   margin: 0;
   text-indent: 1.4em;
+  overflow-wrap: break-word;
 }
 .continuous-reader > section + section {
   margin-top: 80px;
@@ -2661,14 +2699,19 @@ legend {
 .continuous-chapter {
   text-align: center;
   padding: 24px 0 48px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .continuous-chapter h2 {
+  max-width: 100%;
+  text-wrap: balance;
   font:
     italic 1.9em/1.2 Literata,
     serif;
   margin-top: 16px;
 }
 .continuous-chapter small {
+  max-width: 100%;
   font: 11px Inter;
   letter-spacing: 0.24em;
   text-transform: uppercase;

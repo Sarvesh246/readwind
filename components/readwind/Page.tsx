@@ -5,7 +5,9 @@ import type { ScreenPage, Fragment, Geometry } from "@/lib/readwind/pagination";
 import type { Book, Settings, Annotation, Anchor } from "@/lib/readwind/types";
 import { colors, themes, families } from "@/lib/readwind/types";
 import { compare } from "@/lib/readwind/anchors";
+import { chapterTitleSize } from "@/lib/readwind/pagination";
 import { Modal } from "./Modal";
+import { CoverTitle } from "./CoverTitle";
 type Props = {
   page: ScreenPage | null;
   book: Book;
@@ -243,7 +245,11 @@ export const Page = memo(function Page({
           ) : (
             <>
               <div className="cover-author">{book.author}</div>
-              <div className="cover-title">{book.title}</div>
+              <CoverTitle
+                text={book.title}
+                className="cover-title"
+                maxSize={64}
+              />
               {book.title === "Walden" && (
                 <div className="cover-subtitle">or, Life in the Woods</div>
               )}
@@ -280,7 +286,7 @@ export const Page = memo(function Page({
                 }}
               >
                 <div style={{ color: t.muted }}>{book.title}</div>
-                <h2 style={{ fontSize: Math.round(g.fs * 1.9) }}>
+                <h2 style={{ fontSize: chapterTitleSize(g.fs, page.chapterTitle) }}>
                   {page.chapterTitle}
                 </h2>
                 <span style={{ background: t.muted }} />
