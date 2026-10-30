@@ -2957,10 +2957,31 @@ legend {
 }
 .shelf-cell {
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   min-width: 0;
 }
 .shelf-cell > .shelf-item {
-  flex: 1;
+  flex: none;
+  width: 100%;
+}
+.shelf-cell > .shelf-delete {
+  align-self: flex-start;
+  margin-top: auto;
+  min-height: 36px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.shelf-cell > .shelf-delete:hover {
+  color: var(--danger);
+  border-color: var(--line);
+  background: var(--hover);
+  box-shadow: none;
 }
 .cover-fan > .fan-card {
   position: absolute;

@@ -445,7 +445,7 @@ export function Library({
                       </span>
                     </div>
                   </button>
-                  <button className="button" aria-label={`Delete ${b.title}`} onClick={() => {
+                  <button className="button shelf-delete" aria-label={`Delete ${b.title}`} onClick={() => {
                     if (window.confirm(`Delete “${b.title}” and its notes from your library?`)) void l.deleteBook(b.id).catch(e=>window.alert(e.message));
                   }}>Delete book</button>
                 </motion.div>
