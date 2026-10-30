@@ -1,44 +1,91 @@
 import { neon } from "@neondatabase/serverless";
-import { createRemoteJWKSet, jwtVerify } from "jose";
 import { AwsClient } from "aws4fetch";
-import { managedAuth } from "./auth-server";
-export function sql() {
+import { HttpError, safeId, sameOrigin } from "./security";
+export function sql(user?: string) {
   if (!process.env.DATABASE_URL) throw new Error("Database is not configured");
-  return neon(process.env.DATABASE_URL);
+  const db = neon(process.env.DATABASE_URL);
+  if (!user) return db;
+  // Tenant context and query execute on the same connection and transaction.
+  return ((strings: TemplateStringsArray, ...values: unknown[]) =>
+    db
+      .transaction([
+        db`SELECT set_config('readwind.owner', ${user}, true)`,
+        db(strings, ...values),
+      ])
+      .then((results) => results[1])) as typeof db;
 }
-let jwks: ReturnType<typeof createRemoteJWKSet>;
 export async function owner(request: Request) {
-  const token = request.headers
-    .get("authorization")
-    ?.match(/^Bearer (.+)$/)?.[1];
-  if (!token) {
+  // The browser uses cookies. Reject stateless bearer JWTs: they cannot provide
+  // immediate session revocation. Never trust the SDK's signed session_data cache.
+  if (request.headers.has("authorization")) return null;
+  if (request.method !== "GET" && !sameOrigin(request)) return null;
+  const cookie = request.headers
+    .get("cookie")
+    ?.split(";")
+    .map((c) => c.trim())
+    .filter((c) =>
+      /^__Secure-neon-auth(?:\.[a-zA-Z0-9_-]+)?\.session_token=/.test(c),
+    )
+    .join("; ");
+  if (!cookie || !process.env.NEON_AUTH_BASE_URL) return null;
+  const ip = request.headers.get("cf-connecting-ip");
+  if (ip) {
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(ip)))).map(b=>b.toString(16).padStart(2,"0")).join("");
+    // Limit forged/expired tokens too, before they cause upstream session lookups.
+    await rateLimit(`session:${hash}`,240);
+  }
+  try {
+    const url = new URL(
+      process.env.NEON_AUTH_BASE_URL.replace(/\/$/, "") + "/get-session",
+    );
+    url.searchParams.set("disableCookieCache", "true");
+    const response = await fetch(url, {
+      headers: {
+        cookie,
+        origin: new URL(request.url).origin,
+        "x-neon-auth-middleware": "true",
+        ...(ip ? {"x-forwarded-for":ip} : {}),
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(10000),
+      redirect: "error",
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as {
+      user?: { id?: string; emailVerified?: boolean };
+      session?: { expiresAt?: string };
+    };
+    const id = data.user?.id;
     if (
-      request.method !== "GET" &&
-      request.headers.get("origin") !== new URL(request.url).origin
+      !id ||
+      !safeId.test(id) ||
+      !data.user?.emailVerified ||
+      !data.session?.expiresAt ||
+      !Number.isFinite(Date.parse(data.session.expiresAt)) ||
+      Date.parse(data.session.expiresAt) <= Date.now()
     )
       return null;
-    try {
-      const { data } = await managedAuth().getSession();
-      return data?.user?.id || null;
-    } catch {
-      return null;
-    }
-  }
-  if (!process.env.NEON_AUTH_JWKS_URL || !process.env.NEON_AUTH_BASE_URL)
-    return null;
-  try {
-    jwks ||= createRemoteJWKSet(new URL(process.env.NEON_AUTH_JWKS_URL));
-    const { payload } = await jwtVerify(token, jwks, {
-      issuer: new URL(process.env.NEON_AUTH_BASE_URL).origin,
-      audience: new URL(process.env.NEON_AUTH_BASE_URL).origin,
-      algorithms: ["EdDSA"],
-    });
-    return payload.sub || null;
+    return id;
   } catch {
     return null;
   }
 }
+/** Durable shared rate limit, atomic across Worker isolates. Fail closed on DB errors. */
+export async function rateLimit(key: string, limit: number, seconds = 60) {
+  const rows = await sql()`INSERT INTO folio_rate_limits(key,window_start,hits)
+    VALUES(${key},now(),1) ON CONFLICT(key) DO UPDATE SET
+    hits=CASE WHEN folio_rate_limits.window_start < now()-(${seconds} * interval '1 second') THEN 1 ELSE folio_rate_limits.hits+1 END,
+    window_start=CASE WHEN folio_rate_limits.window_start < now()-(${seconds} * interval '1 second') THEN now() ELSE folio_rate_limits.window_start END
+    RETURNING hits`;
+  if (Number(rows[0].hits) > limit)
+    throw new HttpError(429, "Too many requests. Please wait and retry.");
+}
 export function storageFetch(key: string, init?: RequestInit) {
+  if (
+    key.split("/").length !== 2 ||
+    key.split("/").some((segment) => !safeId.test(segment))
+  )
+    throw new HttpError(400, "Invalid storage path.");
   const client = new AwsClient({
     service: "s3",
     region: process.env.AWS_REGION || "us-east-2",

@@ -30,7 +30,7 @@ if (readExecutionProfile() === "managed-linux") {
 const installed = await runNpmInstall([
   process.execPath,
     process.env.npm_execpath, "ci", "--prefix", projectRoot, "--workspaces=false",
-    "--include=dev", "--include=optional", "--prefer-offline", "--no-audit", "--no-fund",
+    "--include=dev", "--include=optional", "--prefer-offline", "--audit", "--ignore-scripts", "--no-fund",
 ]);
 if (installed.signal) process.kill(process.pid, installed.signal);
 if (installed.code !== 0 || installed.signal) process.exit(installed.code || 1);

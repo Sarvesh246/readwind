@@ -52,3 +52,6 @@ yarn-error.log*
 /.skipper/
 /.neon
 /reference/
+
+# OCR language data is copied from pinned npm packages during build.
+/public/ocr/lang/

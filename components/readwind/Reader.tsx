@@ -19,8 +19,11 @@ import { ScrollReader } from "./ScrollReader";
 import { Page, BlobImage } from "./Page";
 import { Icon } from "./Icon";
 import { Modal } from "./Modal";
+import { OriginalPdfPreview } from "./OriginalPdfPreview";
 import { SelectionToolbar } from "./SelectionToolbar";
-import { Comfort, Segments } from "./Comfort";
+import { Comfort } from "./Comfort";
+import { ReaderHeader } from "./ReaderHeader";
+import { Highlighter } from "lucide-react";
 import { hasReadableContent } from '@/lib/readwind/content';
 type Turn = { dir: number; p: number; kind: "page" | "open" | "close" };
 export function Reader({
@@ -73,6 +76,7 @@ export function Reader({
   } | null>(null);
   const [selectMode, setSelectMode] = useState(false),
     [originalUrl, setOriginalUrl] = useState("");
+  const [originalBlob, setOriginalBlob] = useState<Blob | null>(null);
   const curl = useRef<CurlRenderer | null>(null),
     pointerY = useRef(0.5);
   const drag = useRef<{
@@ -531,9 +535,11 @@ export function Reader({
     let alive = true,
       url = "";
     l.loadBlob(book.sourcePdfBlobId)
-      .then((blob) => {
+      .then(async (blob) => {
         if (blob && alive) {
+          if (blob.type !== "application/pdf" || (await blob.slice(0,5).text()) !== "%PDF-") throw new Error("Original file is not a PDF.");
           url = URL.createObjectURL(blob);
+          setOriginalBlob(blob);
           setOriginalUrl(url);
         }
       })
@@ -542,6 +548,7 @@ export function Reader({
       alive = false;
       URL.revokeObjectURL(url);
       setOriginalUrl("");
+      setOriginalBlob(null);
     };
   }, [panel, book.sourcePdfBlobId, l.loadBlob]);
   const P = (n: number) => pages[n] || null;
@@ -647,7 +654,7 @@ export function Reader({
       className={`reader ${phone ? "phone-reader" : ""} ${fill ? "fill-reader" : ""} ${full ? "is-full" : ""} ${selectMode ? "selecting" : ""}`}
       style={
         {
-          background: t.desk,
+          background: `color-mix(in srgb, ${t.page} 38%, ${t.desk})`,
           color: t.muted,
           "--reader-page": t.page,
           "--reader-ink": t.ink,
@@ -655,82 +662,28 @@ export function Reader({
           "--reader-chip": t.chip,
           "--reader-on": t.on,
           "--reader-accent": t.accent,
+          "--reader-muted": t.muted,
         } as CSSProperties
       }
     >
       {!full && (
-        <header
-          className={`reader-header ${phone && !chrome ? "chrome-hidden" : ""}`}
-        >
-          <button
-            className="icon-button"
-            aria-label="Back to library"
-            onClick={() => navigate("/")}
-          >
-            <Icon name="back" />
-          </button>
-          <div className="reader-title">
-            {book.title} · {book.sections[visibleAnchor.section]?.title}
-          </div>
-          <div className="layout-control">
-            <Segments
-              label="Page layout"
-              value={s.wideLayout === "spread" ? "Two pages" : "One page"}
-              options={["Two pages", "One page"]}
-              onChange={(v) =>
-                void l.saveSettings({
-                  ...s,
-                  wideLayout: v === "Two pages" ? "spread" : "single",
-                })
-              }
-            />
-          </div>
-          <nav aria-label="Reader tools">
-            {book.sourcePdfBlobId && <button className="button small" onClick={()=>void l.saveReadingMode(book,'original')}>Original layout</button>}
-            <button
-              className="icon-button desktop-tool"
-              aria-label="Contents and go to page"
-              onClick={() => setPanel("contents")}
-            >
-              <Icon name="contents" />
-            </button>
-            <button
-              className="icon-button desktop-tool"
-              aria-label="Search in book"
-              onClick={() => setPanel("search")}
-            >
-              <Icon name="search" />
-            </button>
-            <button
-              className="icon-button"
-              aria-label="Notebook"
-              onClick={() => navigate(`/book/${book.id}/notebook`)}
-            >
-              <Icon name="notebook" />
-            </button>
-            <button
-              className="icon-button aa"
-              aria-label="Type and comfort settings"
-              onClick={() => setPanel("comfort")}
-            >
-              Aa
-            </button>
-            <button
-              className="icon-button desktop-tool"
-              aria-label="Close or open the book"
-              onClick={openClose}
-            >
-              <Icon name="book" />
-            </button>
-            <button
-              className="icon-button desktop-tool"
-              aria-label="Full screen"
-              onClick={fullscreen}
-            >
-              <Icon name="full" />
-            </button>
-          </nav>
-        </header>
+        <ReaderHeader
+          book={book}
+          chapter={book.sections[visibleAnchor.section]?.title}
+          settings={s}
+          hidden={phone && !chrome}
+          closed={closed}
+          onLibrary={()=>navigate("/")}
+          onLayout={wideLayout=>void l.saveSettings({...s,wideLayout})}
+          onOriginal={()=>void l.saveReadingMode(book,"original")}
+          onOriginalPage={()=>setPanel("original")}
+          onContents={()=>setPanel("contents")}
+          onSearch={()=>setPanel("search")}
+          onNotebook={()=>navigate(`/book/${book.id}/notebook`)}
+          onComfort={()=>setPanel("comfort")}
+          onFullScreen={fullscreen}
+          onCloseBook={openClose}
+        />
       )}
       <main className="reader-main">
         <div
@@ -924,18 +877,19 @@ export function Reader({
                 <Icon name="back" size={18} />
               </button>
               <div className="footer-content">
-                <div className="reader-progress">
+                <div className="reader-progress" role="progressbar" aria-label="Reading progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(info.pct*100)}>
                   <div
                     style={{ width: `${info.pct * 100}%`, background: t.ink }}
                   />
                 </div>
                 <div className="footer-labels">
-                  <span aria-live="polite">
+                  <button className="reader-page-position" title="Go to a page" aria-label={`Go to page. Currently page ${a} of ${book.printPageCount}`} onClick={()=>setPanel("contents")}>
                     {closed
                       ? `Closed · resume at p. ${a}`
                       : `${a === b ? "p." : "pp."} ${a === b ? a : `${a}–${b}`} of ${book.printPageCount}`}
-                  </span>
-                  <span>
+                    <span className="page-position-chevron" aria-hidden="true">⌄</span>
+                  </button>
+                  <span className="reader-time-left">
                     {closed
                       ? "Tap the cover to open"
                       : `${info.minutes} min left in chapter`}
@@ -954,33 +908,35 @@ export function Reader({
           )}
         </div>
         {!closed && (
-          <div className="reader-bottom-tools">
+          <div className="reader-bottom-tools" role="toolbar" aria-label="Reading actions">
             <button onClick={bookmark} aria-label={bookmarked ? 'Remove bookmark' : 'Bookmark this passage'} aria-pressed={!!bookmarked}>
-              <Icon name="bookmark" size={16} />
+              <Icon name={bookmarked ? "check" : "bookmark"} size={17} /><span className="dock-label">{bookmarked ? "Bookmarked" : "Bookmark"}</span>
             </button>
             <button
               aria-pressed={selectMode}
               aria-label={selectMode ? "Done selecting" : "Highlight / note"}
               onClick={() => { setSelectMode((v) => !v); if (!selectMode) setMessage("Select a passage, then choose a highlight color or Note."); }}
             >
-              {selectMode ? (phone ? "Done" : "Done selecting") : (phone ? "Annotate" : "Highlight / note")}
+              <Highlighter size={17} strokeWidth={1.7} aria-hidden="true"/>
+              <span>{selectMode ? "Done selecting" : "Highlight / note"}</span>
             </button>
             {(compact || full) && (
               <>
-                <button onClick={() => setPanel("contents")}>Contents</button>
-                <button onClick={() => setPanel("search")}>Search</button>
+                <button aria-label="Contents" title="Contents and go to page" onClick={() => setPanel("contents")}><Icon name="contents" size={18}/><span className="dock-label">Contents</span></button>
+                <button aria-label="Search" title="Search in book" onClick={() => setPanel("search")}><Icon name="search" size={18}/><span className="dock-label">Search</span></button>
               </>
             )}
             {full && <>
               <button onClick={() => setPanel('comfort')} aria-label="Type and comfort settings">Aa</button>
-              <button onClick={() => navigate(`/book/${book.id}/notebook`)}>Notebook</button>
+              <button aria-label="Notebook" title="Notebook" onClick={() => navigate(`/book/${book.id}/notebook`)}><Icon name="notebook" size={18}/><span className="dock-label">Notebook</span></button>
             </>}
             {compact && !full && <button onClick={fullscreen} aria-label="Full screen"><Icon name="full" size={16}/></button>}
             {book.sourcePdfBlobId && (!phone || full) && (
-              <button onClick={() => setPanel("original")}>Original PDF</button>
+              <button aria-label="Original PDF" title="View the original PDF page" onClick={() => setPanel("original")}><Icon name="file" size={17}/><span className="dock-label">Original PDF</span></button>
             )}
-            <span title={l.status}>
-              {l.guest ? "Public-domain classics" : l.status}
+            <span className="reader-save-status" role="status" title={l.guest ? "Your progress is saved in this browser" : l.status}>
+              <Icon name={l.guest || l.status === "All changes synced" ? "check" : "cloud"} size={14}/>
+              {l.guest ? "Saved on this device" : l.status === "All changes synced" ? "All changes saved" : l.status}
             </span>
           </div>
         )}
@@ -1072,12 +1028,9 @@ export function Reader({
           className="original-modal"
           onClose={() => setPanel(null)}
         >
-          {originalUrl ? (
+          {originalUrl && originalBlob ? (
             <>
-              <iframe
-                title="Original PDF"
-                src={`${originalUrl}#page=${(book.pageMarks.find((m) => m.label === a)?.index || 0) + 1}`}
-              />
+              <OriginalPdfPreview blob={originalBlob} index={book.pageMarks.find(m=>m.label===a)?.index || 0}/>
               <a
                 className="button"
                 href={originalUrl}

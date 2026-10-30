@@ -1,51 +1,59 @@
-import { owner, storageFetch, unauthorized } from "@/lib/readwind/server";
-export async function POST(request: Request) {
+import {
+  owner,
+  storageFetch,
+  unauthorized,
+  rateLimit,
+  sql,
+} from "@/lib/readwind/server";
+import {
+  readBytes,
+  safeId,
+  safeRoute,
+  HttpError,
+} from "@/lib/readwind/security";
+import { validateFile } from "@/lib/readwind/file-validation";
+export const POST = safeRoute(async (request: Request) => {
   const user = await owner(request);
   if (!user) return unauthorized();
+  await rateLimit(`upload:${user}`, 10);
   const id = new URL(request.url).searchParams.get("id");
-  if (!id || !/^[a-zA-Z0-9_-]{1,120}$/.test(id))
-    return Response.json({ error: "Invalid file ID" }, { status: 400 });
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.length > 50 * 1024 * 1024)
-    return Response.json(
-      { error: "PDFs must be under 50 MB." },
-      { status: 413 },
-    );
-  const type =
-    request.headers.get("content-type") || "application/octet-stream";
-  if (type !== "application/pdf" && !type.startsWith("image/"))
-    return Response.json({ error: "Unsupported file type" }, { status: 415 });
+  if (!id || !safeId.test(id)) throw new HttpError(400, "Invalid file ID");
+  // 20 MB leaves headroom within the Worker's memory ceiling for signing/copies.
+  const bytes = await readBytes(request, 20 * 1024 * 1024);
+  const type = request.headers.get("content-type") || "";
+  validateFile(bytes, type);
+  // Reserve quota before S3. Reservations are conservative on upload failures.
+  // One row per owner serializes concurrent reservations across isolates.
+  const db = sql(user);
+  await db`INSERT INTO folio_files(owner_id,id,bytes) VALUES(${user},${id},${bytes.length})
+    ON CONFLICT(owner_id,id) DO UPDATE SET bytes=GREATEST(folio_files.bytes,EXCLUDED.bytes)`;
   const response = await storageFetch(`${user}/${id}`, {
     method: "PUT",
     headers: { "Content-Type": type },
-    body: bytes,
+    body: bytes as BodyInit,
   });
   if (!response.ok)
-    return Response.json(
-      { error: "File upload failed. Please retry." },
-      { status: 502 },
-    );
+    throw new HttpError(502, "File upload failed. Please retry.");
   return Response.json({ ok: true });
-}
-export async function GET(request: Request) {
+});
+export const GET = safeRoute(async (request: Request) => {
   const user = await owner(request);
   if (!user) return unauthorized();
+  await rateLimit(`download:${user}`, 120);
   const id = new URL(request.url).searchParams.get("id");
-  if (!id || !/^[a-zA-Z0-9_-]{1,120}$/.test(id))
-    return new Response(null, { status: 400 });
-  try {
-    const result = await storageFetch(`${user}/${id}`);
-    if (!result.ok)
-      return Response.json({ error: "File unavailable" }, { status: 404 });
-    return new Response(result.body, {
-      headers: {
-        "Content-Type":
-          result.headers.get("content-type") || "application/octet-stream",
-        "Cache-Control": "private, no-store",
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
-  } catch {
-    return Response.json({ error: "File unavailable" }, { status: 404 });
-  }
-}
+  if (!id || !safeId.test(id)) throw new HttpError(400, "Invalid file ID");
+  const result = await storageFetch(`${user}/${id}`);
+  if (!result.ok) throw new HttpError(404, "File unavailable");
+  // Old unsafe uploads are inert too, regardless of their stored MIME type.
+  return new Response(result.body, {
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "Content-Disposition": `attachment; filename="${id}"`,
+      "Content-Security-Policy": "sandbox; default-src 'none'",
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
+      "X-Readwind-File-Type":
+        result.headers.get("content-type") || "application/octet-stream",
+    },
+  });
+});

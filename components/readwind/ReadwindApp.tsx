@@ -1,4 +1,5 @@
 "use client";
+import { encryptBackup, readBackup } from "@/lib/readwind/backup";
 import { useEffect, useState } from "react";
 import type { Book, Anchor } from "@/lib/readwind/types";
 import { useLibrary } from "@/lib/readwind/useLibrary";
@@ -68,6 +69,8 @@ function AuthForm({
         const token = new URLSearchParams(location.search).get("token") || "";
         const r = await auth.resetPassword({ newPassword: password, token });
         if (r.error) throw new Error(r.error.message);
+        const cleanUrl = new URL(location.href); cleanUrl.searchParams.delete("token");
+        history.replaceState(null,"",cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
         setMode("signin");
         setInfo("Password updated. You can sign in now.");
         return;
@@ -96,7 +99,7 @@ function AuthForm({
         throw new Error(result.error.message || "Could not sign in.");
       }
       const session = await auth.getSession();
-      if (session.data?.user) {
+      if (session.data?.user?.emailVerified) {
         onSuccess(session.data.user as User);
       } else {
         await auth.emailOtp.sendVerificationOtp({
@@ -158,7 +161,7 @@ function AuthForm({
             <input
               required
               type="password"
-              minLength={8}
+              minLength={mode === "signin" ? 1 : 12}
               maxLength={128}
               autoComplete={
                 mode === "signin" ? "current-password" : "new-password"
@@ -290,6 +293,9 @@ function Workspace({
     }
   }, []);
   async function backup() {
+    const password = window.prompt("Choose a backup password (at least 12 characters). Keep it safe: it cannot be recovered.");
+    if (!password) return;
+    if (password.length < 12) { setNotice("Use a backup password with at least 12 characters."); return; }
     try {
       for (const b of library.books) {
         const ids = [
@@ -313,50 +319,49 @@ function Workspace({
       annotations = await library.db.annotations.toArray(),
       progress = await library.db.progress.toArray(),
       blobs = await library.db.blobs.toArray();
+    if (blobs.reduce((n,b)=>n+storedBlob(b).size,0) > 55*1024*1024) { setNotice("Attached files exceed the backup limit of 55 MB."); return; }
     const encoded = await Promise.all(
       blobs.map(async (b) => ({
         id: b.id,
         type: storedBlob(b).type,
-        data: await new Promise<string>((resolve) => {
+        data: await new Promise<string>((resolve, reject) => {
           const r = new FileReader();
           r.onload = () => resolve(r.result as string);
+          r.onerror = () => reject(new Error("Could not read a backup attachment."));
           r.readAsDataURL(storedBlob(b));
         }),
       })),
     );
-    const url = URL.createObjectURL(
-      new Blob(
-        [
-          JSON.stringify({
-            format: "folio-backup-1",
-            books,
-            annotations,
-            progress,
-            settings: library.settings,
-            blobs: encoded,
-          }),
-        ],
-        { type: "application/json" },
-      ),
-    );
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "readwind-backup.json";
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    try {
+      const url = URL.createObjectURL(
+        new Blob(
+          [
+            await encryptBackup(JSON.stringify({
+              format: "folio-backup-1",
+              books,
+              annotations,
+              progress,
+              settings: library.settings,
+              blobs: encoded,
+            }), password),
+          ],
+          { type: "application/json" },
+        ),
+      );
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "readwind-backup.json";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) { setNotice((e as Error).message); }
   }
   async function restore(f: File) {
     try {
-      const data = JSON.parse(await f.text());
-      if (data.format !== "folio-backup-1" || !Array.isArray(data.books))
-        throw new Error("This is not a Readwind backup.");
-      const files = await Promise.all(
-        (data.blobs || []).map(async (b: { id: string; data: string }) => ({
-          id: b.id,
-          blob: await (await fetch(b.data)).blob(),
-        })),
-      );
-      for (const b of data.books) await library.addBook(b, files);
+      const {data,files} = await readBackup(f, () => window.prompt("Enter the backup password."));
+      for (const b of data.books) {
+        const ids = new Set([b.sourcePdfBlobId,b.cover.blobId,...b.sections.flatMap(s=>s.blocks.map(x=>x.type === "figure" ? x.blobId : undefined))]);
+        await library.addBook(b as Book, files.filter(f=>ids.has(f.id)));
+      }
       for (const a of data.annotations || []) await library.saveAnnotation(a);
       for (const p of data.progress || [])
         await library.saveProgress(p.bookId, p.at, p.wordsRead);
@@ -462,8 +467,8 @@ function Workspace({
           </div>
           <AppearanceControl />
           <p className="muted">
-            Your books and notes belong to this account. Downloaded books stay
-            available on this device while offline.
+            Your books and notes belong to this account. Sign out removes downloaded
+            books and notes from this device. Sync first to save your latest changes.
           </p>
           <div className="conflict-options">
             <button
@@ -514,6 +519,7 @@ export default function ReadwindApp() {
   };
   useEffect(() => {
     let alive = true;
+    localStorage.removeItem("folio-offline-user");
     setPath(location.pathname);
     if (new URLSearchParams(location.search).has("reset")) setShowAuth(true);
     const loadAuth = () => fetch("/api/config")
@@ -521,23 +527,26 @@ export default function ReadwindApp() {
       .then(async (config) => {
         if (!config.authUrl) return;
         const { createReadwindAuth } = await import("@/lib/readwind/auth");
-        const client = createReadwindAuth(config.authUrl);
+        const client = createReadwindAuth();
         if (!alive) return;
         setAuth(() => client);
         const session = await client.getSession();
-        if (alive && session.data?.user) {
+        if (alive && session.data?.user?.emailVerified) {
           const u = session.data.user as User;
           setUser(u);
-          localStorage.setItem("folio-offline-user", JSON.stringify(u));
+          sessionStorage.setItem("folio-offline-user", JSON.stringify({...u, offlineUntil:Date.now()+86400000}));
+        } else if (alive && !session.error) {
+          sessionStorage.removeItem("folio-offline-user");
+          setUser(null);
         }
       })
       .catch(() => {
         if (!navigator.onLine) {
           try {
             const u = JSON.parse(
-              localStorage.getItem("folio-offline-user") || "null",
+              sessionStorage.getItem("folio-offline-user") || "null",
             );
-            if (alive) setUser(u);
+            if (alive && u?.offlineUntil > Date.now()) setUser(u);
           } catch {}
         }
       })
@@ -556,21 +565,35 @@ export default function ReadwindApp() {
     };
   }, []);
   async function signedIn(u: User) {
-    try {
+    // Guest imports cross an account boundary only after an explicit choice.
+    const { ReadwindDB } = await import("@/lib/readwind/db");
+    const preview = new ReadwindDB("preview");
+    const hasImports = await preview.books.filter(b=>!b.sample).count();
+    preview.close();
+    if (hasImports && window.confirm("Copy this device's guest books and notes into your account?")) {
       const { migratePreview } = await import("@/lib/readwind/migrate-preview");
       await migratePreview(u.id);
-    } catch {
-      console.warn("Preview imports remain saved locally.");
     }
     setUser(u);
-    localStorage.setItem("folio-offline-user", JSON.stringify(u));
+    sessionStorage.setItem("folio-offline-user", JSON.stringify({...u, offlineUntil:Date.now()+86400000}));
     setShowAuth(false);
     navigate("/");
   }
   async function signOut() {
-    await auth?.signOut();
+    const result = await auth?.signOut();
+    if (result?.error) return;
+    sessionStorage.removeItem("folio-offline-user");
     localStorage.removeItem("folio-offline-user");
+    localStorage.removeItem("folio-device");
+    const previous = user?.id;
     setUser(null);
+    if (previous) {
+      const { ReadwindDB } = await import("@/lib/readwind/db");
+      const cached = new ReadwindDB(previous);
+      await cached.transaction("rw",cached.tables,async()=>{ for (const table of cached.tables) await table.clear(); });
+      cached.close();
+      await cached.delete();
+    }
     navigate("/");
   }
   if (!loaded)

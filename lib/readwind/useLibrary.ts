@@ -1,4 +1,5 @@
 "use client";
+import { validateFile } from "./file-validation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ReadwindDB, deviceId, encodeFile, storedBlob } from "./db";
@@ -25,6 +26,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     alive = useRef(true),
     conflicted = useRef<string | null>(null);
   const syncAgain = useRef<() => void>(() => {});
+  const lifetime = useRef(new AbortController());
   const books = useLiveQuery(() => db.books.toArray(), [db], []) || [];
   const annotations =
     useLiveQuery(
@@ -37,8 +39,8 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   const settings = preferences?.value || defaults;
   const api = useCallback(
     async (path: string, init?: RequestInit) => {
-      if (!auth) throw new Error("Sign in to sync.");
-      return fetch(path, { ...init, credentials: "same-origin" });
+      if (!auth || !alive.current) throw new Error("Sign in to sync.");
+      return fetch(path, { ...init, signal:lifetime.current.signal, credentials: "same-origin" });
     },
     [auth],
   );
@@ -114,6 +116,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
           }
           if (!response.ok)
             throw new Error(data.error || "Could not sync changes.");
+          if (!alive.current) return false;
           if (change.entity === "progress") {
             await db.transaction("rw", [db.progress, db.pending], async () => {
               const current = await db.progress.get(change.bookId!);
@@ -134,6 +137,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
             });
           }
         }
+        if (!alive.current) return false;
         await db.transaction("rw", db.pending, async () => {
           const latest = await db.pending.get(change.id);
           if (
@@ -152,14 +156,19 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
           }
         });
       }
-      const response = await api("/api/library");
-      if (!response.ok) throw new Error("Could not load your library.");
-      const data = (await response.json()) as {
-        books: Book[];
-        progress: Progress[];
-        annotations: Annotation[];
-        settings: Settings | null;
-      };
+      const data: {books:Book[];progress:Progress[];annotations:Annotation[];settings:Settings|null} = {books:[],progress:[],annotations:[],settings:null};
+      let offset: number|null = 0;
+      do {
+        const response = await api(`/api/library?offset=${offset}`);
+        if (!response.ok) throw new Error("Could not load your library.");
+        const page = await response.json() as typeof data & {nextOffset:number|null};
+        data.books.push(...page.books);
+        data.annotations.push(...page.annotations);
+        data.progress = page.progress;
+        data.settings = page.settings;
+        offset = page.nextOffset;
+      } while (offset !== null);
+      if (!alive.current) return false;
       await db.transaction(
         "rw",
         [db.books, db.progress, db.annotations, db.preferences, db.pending],
@@ -208,6 +217,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   useEffect(() => { syncAgain.current = () => void sync(); }, [sync]);
   useEffect(() => {
     alive.current = true;
+    if (lifetime.current.signal.aborted) lifetime.current = new AbortController();
     (async () => {
       await db.open();
       if (guest) {
@@ -268,6 +278,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     window.addEventListener("offline", offline);
     return () => {
       alive.current = false;
+      lifetime.current.abort();
       clearInterval(id);
       window.removeEventListener("online", sync);
       window.removeEventListener("focus", wake);
@@ -372,10 +383,16 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       if (!file && !guest) {
         const r = await api(`/api/files?id=${encodeURIComponent(id)}`);
         if (!r.ok) throw new Error("File unavailable. Connect to download it.");
-        file = await encodeFile({ id, blob: await r.blob() });
+        const bytes = new Uint8Array(await r.arrayBuffer());
+        const type = r.headers.get("x-readwind-file-type") || r.headers.get("content-type") || "";
+        validateFile(bytes,type);
+        file = await encodeFile({id,blob:new Blob([bytes],{type})});
         await db.blobs.put(file);
       }
-      return file ? storedBlob(file) : undefined;
+      if (!file) return undefined;
+      const blob = storedBlob(file);
+      validateFile(new Uint8Array(await blob.slice(0,12).arrayBuffer()),blob.type);
+      return blob;
     },
     [db, guest, api],
   );
@@ -399,12 +416,28 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     setConflict(null);
     void sync();
   };
+  const deleteBook = async (id:string) => {
+    if (!guest) {
+      const response = await api(`/api/library?id=${encodeURIComponent(id)}`,{method:"DELETE"});
+      if (!response.ok) throw new Error("Could not delete this book. Connect and retry.");
+    }
+    await db.transaction("rw",[db.books,db.progress,db.annotations,db.pending],async()=>{
+      await db.books.delete(id);
+      await db.progress.delete(id);
+      await db.annotations.where("bookId").equals(id).delete();
+      await db.pending.filter(change=>change.bookId===id).delete();
+    });
+    const remaining = await db.books.toArray();
+    const used = new Set(remaining.flatMap(b=>[b.sourcePdfBlobId,b.cover.blobId,...b.sections.flatMap(s=>s.blocks.map(block=>block.type === "figure" ? block.blobId : undefined))]));
+    await db.blobs.filter(file=>!used.has(file.id)).delete();
+  };
   const addClassics = async () => {
     const now = Date.now();
     for (const [i, b] of (await loadClassics()).entries())
       await addBook({ ...b, addedAt: now - i, lastOpenedAt: now - i });
   };
   return {
+    deleteBook,
     db,
     books,
     annotations,

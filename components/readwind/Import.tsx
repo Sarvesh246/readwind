@@ -184,7 +184,7 @@ export function Import({
                 if (e.target.files?.[0]) void parse(e.target.files[0]);
               }}
             />
-            <small>Text PDFs and scanned books · up to 50 MB</small>
+            <small>Text PDFs and scanned books · up to 20 MB</small>
             <div className="upload-options">
               {Object.entries(options).map(([key, value]) => (
                 <label key={key}>

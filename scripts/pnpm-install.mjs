@@ -199,7 +199,7 @@ async function main() {
   const failure = {};
   const env = { ...process.env };
   delete env.SITES_INSTALL_REPORT_PATH;
-  const args = [...prefix, "install", "--prod=false", "--ignore-scripts=false",
+  const args = [...prefix, "install", "--prod=false", "--ignore-scripts=true",
     "--frozen-lockfile", "--prefer-offline", "--store-dir", store,
     "--cache-dir", path.join(store, "policy-cache"), "--fetch-retries=0",
     "--fetch-timeout=30000", "--network-concurrency=1", "--reporter=ndjson",

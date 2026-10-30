@@ -72,6 +72,7 @@ export async function migratePreview(userId: string) {
         }
       },
     );
+    await preview.delete();
   } finally {
     preview.close();
     account.close();

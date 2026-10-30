@@ -7,6 +7,8 @@ const eslintConfig = defineConfig([
   ...nextTs,
   globalIgnores([
     "dist/**",
+    "public/ocr/**",
+    "public/pdf.worker.min.mjs",
     ".vinext/**",
     ".wrangler/**",
     ".sites-runtime/**",

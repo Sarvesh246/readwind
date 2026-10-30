@@ -7,3 +7,8 @@ for(const [pkg,file] of [['@fontsource-variable/literata','literata-latin-standa
 fs.mkdirSync('public/ocr/core',{recursive:true});
 for(const file of fs.readdirSync('node_modules/tesseract.js-core').filter(f=>f.includes('lstm')&&(f.endsWith('.wasm')||f.endsWith('.wasm.js'))))fs.copyFileSync(`node_modules/tesseract.js-core/${file}`,`public/ocr/core/${file}`);
 console.log('PDF and OCR workers prepared.');
+
+fs.mkdirSync('public/ocr/lang',{recursive:true});
+for (const lang of ['eng','spa','fra','deu','por','hin','ara','jpn','chi_sim']) {
+  fs.copyFileSync(`node_modules/@tesseract.js-data/${lang}/4.0.0_best_int/${lang}.traineddata.gz`,`public/ocr/lang/${lang}.traineddata.gz`);
+}

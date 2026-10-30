@@ -1,13 +1,13 @@
-import { createAuthClient } from "@neondatabase/auth";
-import { BetterAuthReactAdapter } from "@neondatabase/auth/react/adapters";
-export function createReadwindAuth(_url: string) {
-  const client = createAuthClient(`${window.location.origin}/api/auth`, {
-    adapter: BetterAuthReactAdapter(),
+import { createAuthClient } from "better-auth/react";
+import { emailOTPClient } from "better-auth/client/plugins";
+export function createReadwindAuth() {
+  const client = createAuthClient({
+    baseURL: `${window.location.origin}/api/auth`,
+    plugins: [emailOTPClient()],
   });
   // Keep the SDK's dynamic method proxy outside React's state/prop inspection.
   return {
     getSession: () => client.getSession(),
-    token: () => client.token(),
     signOut: () => client.signOut(),
     signIn: {
       email: (input: { email: string; password: string }) =>

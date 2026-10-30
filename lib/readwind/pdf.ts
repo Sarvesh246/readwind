@@ -34,8 +34,8 @@ export async function importPDF(
   onProgress: (message: string, pct: number) => void,
   signal?: AbortSignal,
 ): Promise<Imported> {
-  if (file.size > 50 * 1024 * 1024)
-    throw new Error("Choose a PDF under 50 MB.");
+  if (file.size > 20 * 1024 * 1024)
+    throw new Error("Choose a PDF under 20 MB.");
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
   const task = pdfjs.getDocument({
@@ -116,6 +116,7 @@ export async function importPDF(
           ocr = await t.createWorker(options.ocrLanguage || "eng", 1, {
             workerPath: "/ocr/worker.min.js",
             corePath: "/ocr/core/",
+            langPath: "/ocr/lang/",
           });
         }
         const canvas = await raster(page, 1.6);
