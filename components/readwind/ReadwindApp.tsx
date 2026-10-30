@@ -82,32 +82,30 @@ function AuthForm({
         setInfo("Email verified. Sign in to open your shelf.");
         return;
       }
-      const result =
-        mode === "signup"
-          ? await auth.signUp.email({ name, email, password })
-          : await auth.signIn.email({ email, password });
+      const requestVerification = async (message: string) => {
+        const response = await auth.emailOtp.sendVerificationOtp({ email, type: "email-verification" });
+        if (response.error) throw new Error(response.error.message || "Could not send a verification code. Please retry.");
+        setMode("verify");
+        setInfo(message);
+      };
+      const result = mode === "signup"
+        ? await auth.signUp.email({ name, email, password })
+        : await auth.signIn.email({ email, password });
       if (result.error) {
         if (result.error.code === "EMAIL_NOT_VERIFIED") {
-          await auth.emailOtp.sendVerificationOtp({
-            email,
-            type: "email-verification",
-          });
-          setMode("verify");
-          setInfo("Enter the verification code sent to your email.");
+          await requestVerification("Enter the verification code sent to your email.");
           return;
         }
         throw new Error(result.error.message || "Could not sign in.");
       }
       const session = await auth.getSession();
+      if (session.error) throw new Error(session.error.message || "Could not confirm your sign-in session. Please retry.");
       if (session.data?.user?.emailVerified) {
         onSuccess(session.data.user as User);
+      } else if (session.data?.user || mode === "signup") {
+        await requestVerification("Check your email for a verification code.");
       } else {
-        await auth.emailOtp.sendVerificationOtp({
-          email,
-          type: "email-verification",
-        });
-        setMode("verify");
-        setInfo("Check your email for a verification code.");
+        throw new Error("Your sign-in session could not be confirmed. Please try again.");
       }
     } catch (e) {
       setError((e as Error).message || "Could not connect. Try again.");

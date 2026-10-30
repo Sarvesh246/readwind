@@ -1,3 +1,4 @@
+import { assertSchemaReady, readinessSql } from "../scripts/check-readwind-schema.mjs";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
@@ -133,5 +134,17 @@ describe("database tenant and quota enforcement", () => {
         (await tx.query("SELECT * FROM folio_annotations")).rows,
       ).toHaveLength(0);
     });
+  });
+});
+
+describe("deployment database readiness",()=>{
+  it("rejects an unmigrated database and accepts the actual migrated schema",async()=>{
+    const empty = new PGlite();
+    try {
+      const before = await empty.query(readinessSql);
+      expect(()=>assertSchemaReady(before.rows)).toThrow(/folio_rate_limits/);
+      const after = await db.query(readinessSql);
+      expect(()=>assertSchemaReady(after.rows)).not.toThrow();
+    } finally {await empty.close();}
   });
 });

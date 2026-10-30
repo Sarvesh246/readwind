@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 vi.mock("../lib/readwind/server", () => ({ rateLimit: vi.fn() }));
+import { rateLimit } from "../lib/readwind/server";
 import { GET, POST } from "../app/api/auth/[...path]/route";
 const ctx = (...path: string[]) => ({ params: Promise.resolve({ path }) });
 const post = (origin = "https://readwind.test", body = "{}") =>
@@ -15,6 +16,13 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 describe("auth proxy boundary", () => {
+  it("returns SDK-readable service errors when the database prerequisites are missing",async()=>{
+    vi.mocked(rateLimit).mockRejectedValueOnce(Object.assign(new Error("missing table"),{code:"42P01"}));
+    const response=await POST(post(),ctx("sign-in","email"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({error:"Service unavailable. Please retry.",message:"Service unavailable. Please retry."});
+  });
+
   it("blocks cross-origin POST before forwarding", async () => {
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);

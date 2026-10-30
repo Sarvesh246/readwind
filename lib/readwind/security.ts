@@ -83,7 +83,7 @@ export function safeRoute<T extends unknown[]>(
     } catch (e) {
       if (e instanceof HttpError)
         return Response.json(
-          { error: e.message },
+          { error: e.message, message: e.message },
           { status: e.status, headers: { "Cache-Control": "no-store" } },
         );
 
@@ -99,7 +99,7 @@ export function safeRoute<T extends unknown[]>(
       );
 
       return Response.json(
-        { error: "Service unavailable. Please retry." },
+        { error: "Service unavailable. Please retry.", message: "Service unavailable. Please retry." },
         { status: 503, headers: { "Cache-Control": "no-store" } },
       );
     }

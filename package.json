@@ -22,7 +22,9 @@
     "test:cloud": "node --env-file=.env.local scripts/test-cloud.mjs",
     "typecheck": "next typegen && tsc --noEmit",
     "db:migrate": "node --env-file=.env.local scripts/migrate-readwind.mjs",
-    "audit:security": "npm audit --audit-level=low"
+    "audit:security": "npm audit --audit-level=low",
+    "db:check": "node --env-file-if-exists=.env.local scripts/check-readwind-schema.mjs",
+    "test:auth": "node scripts/test-auth-browser.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
