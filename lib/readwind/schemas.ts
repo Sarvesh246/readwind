@@ -170,6 +170,11 @@ export const annotation = z.object({
     .optional(),
 });
 export const settings = z.object({
+  readingPace: z.record(z.string().regex(safeId), z.object({
+    samples:z.number().int().min(0).max(1000000000),
+    words:z.number().min(0).max(1000000000000),
+    seconds:z.number().min(0).max(7200),
+  })).refine(value=>Object.keys(value).length<=64).optional(),
   paper: z.enum(["Paper", "Sepia", "Dusk", "Night"]),
   font: z.enum(["Literata", "Source Serif", "Atkinson"]),
   size: z.number().min(14).max(28),

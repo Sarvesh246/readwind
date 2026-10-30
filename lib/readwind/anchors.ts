@@ -29,7 +29,8 @@ export function labelAt(book: Book, a: Anchor) {
   }
   return label;
 }
-export function wordProgress(book: Book, at: Anchor) {
+export function wordProgress(book: Book, at: Anchor, wordsPerMinute = 230) {
+  const speed = Number.isFinite(wordsPerMinute) && wordsPerMinute > 0 ? wordsPerMinute : 230;
   let total = 0,
     before = 0,
     chapterLeft = 0;
@@ -57,7 +58,8 @@ export function wordProgress(book: Book, at: Anchor) {
     pct: total ? before / total : 0,
     total,
     before,
-    minutes: Math.max(1, Math.ceil(chapterLeft / 230)),
+    bookMinutes: Math.ceil(Math.max(0, total - before) / speed),
+    minutes: Math.max(1, Math.ceil(chapterLeft / speed)),
   };
 }
 export const start: Anchor = { section: 0, block: 0, offset: 0 };

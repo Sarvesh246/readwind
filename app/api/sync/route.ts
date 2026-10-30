@@ -4,6 +4,7 @@ import type { Anchor, Book } from "@/lib/readwind/types";
 import { progress, annotation, settings } from "@/lib/readwind/schemas";
 import { readJson, safeRoute } from "@/lib/readwind/security";
 import { rateLimit } from "@/lib/readwind/server";
+import { persistSettings } from "@/lib/readwind/settings-sync";
 function validAnchor(book: Book, at: Anchor) {
   const block = book.sections[at.section]?.blocks[at.block];
   return !!block && at.offset <= (block.text?.length || 0);
@@ -88,7 +89,7 @@ export const POST = safeRoute(async (request: Request) => {
     const parsed = settings.safeParse(body.value);
     if (!parsed.success)
       return Response.json({ error: "Invalid settings" }, { status: 400 });
-    await db`INSERT INTO folio_settings(owner_id,data) VALUES(${user},${JSON.stringify(parsed.data)}::jsonb) ON CONFLICT(owner_id) DO UPDATE SET data=EXCLUDED.data,updated_at=now()`;
+    await persistSettings(db, user, parsed.data);
     return Response.json({ ok: true });
   }
   return Response.json({ error: "Unknown change" }, { status: 400 });

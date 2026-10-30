@@ -1,4 +1,5 @@
 "use client";
+import { useReadingPace } from "@/lib/readwind/useReadingPace";
 import { findPrintedPage } from "@/lib/readwind/chapters";
 import {
   useEffect,
@@ -105,7 +106,8 @@ export function Reader({
       ? labelAt(book, { ...last.end, offset: Math.max(0, last.end.offset - 1) })
       : a;
   const visibleAnchor = s.turn === "Scroll" ? anchor : first?.start || anchor;
-  const info = wordProgress(book, visibleAnchor);
+  const info = wordProgress(book, visibleAnchor, l.readingSpeed);
+  useReadingPace(`${l.paceOwner}:${book.id}`, info.before, !busy && !closed && !panel && !selection && !editing && !l.conflict, l.recordReading);
   const bookmarked = annotations.find(a => a.kind === 'bookmark' && first &&
     compare(a.range.start, first.start) >= 0 && compare(a.range.start, first.end) < 0);
   const commitAnchor = useCallback(

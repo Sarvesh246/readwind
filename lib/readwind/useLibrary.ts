@@ -6,6 +6,7 @@ import { ReadwindDB, deviceId, encodeFile, storedBlob } from "./db";
 import type { Pending } from "./db";
 import type { Book, Annotation, Anchor, Settings, Progress } from "./types";
 import { defaults } from "./types";
+import {addPaceSample,mergeReadingPace,readingSpeed,validPaceSample} from './reading-pace';
 import { loadClassics } from "./classics";
 export type { AuthClient } from "./auth";
 import type { AuthClient } from "./auth";
@@ -284,7 +285,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
           if (data.settings && !ids.has("settings"))
             await db.preferences.put({
               id: "reader",
-              value: { ...defaults, ...data.settings },
+              value: { ...defaults, ...data.settings, readingPace:mergeReadingPace((await db.preferences.get("reader"))?.value.readingPace,data.settings.readingPace) },
             });
           // The account is authoritative for books. Remove copies deleted on
           // another device, with their notes and position, unless this device
@@ -444,9 +445,23 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   };
   const saveSettings = async (value: Settings) => {
     await db.transaction("rw", [db.preferences, db.pending], async () => {
+      const current = await db.preferences.get("reader");
+      value = {...value,readingPace:mergeReadingPace(current?.value.readingPace,value.readingPace)};
       await db.preferences.put({ id: "reader", value });
       if (!guest)
         await putChange({ id: "settings", entity: "settings", value });
+    });
+    void sync();
+  };
+  const recordReading = async (words:number,seconds:number) => {
+    if(!validPaceSample(words,seconds))return;
+    await db.transaction("rw",[db.preferences,db.pending],async()=>{
+      const current=(await db.preferences.get("reader"))?.value || defaults;
+      const pace=addPaceSample(current.readingPace || {},deviceId(),words,seconds);
+      if(pace===current.readingPace)return;
+      const value={...current,readingPace:pace};
+      await db.preferences.put({id:"reader",value});
+      if(!guest)await putChange({id:"settings",entity:"settings",value});
     });
     void sync();
   };
@@ -578,6 +593,9 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     annotations,
     progress,
     settings,
+    paceOwner:userId,
+    readingSpeed:readingSpeed(settings.readingPace),
+    recordReading,
     status,
     ready,
     guest,

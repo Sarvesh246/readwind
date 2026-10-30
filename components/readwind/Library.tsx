@@ -99,12 +99,13 @@ function openingLine(book: Book) {
   if (text.length <= 170) return text;
   return `${text.slice(0, 170).replace(/\s+\S*$/, "")}…`;
 }
-const readTime = (book: Book) => {
+const readTime = (book: Book, speed = 230) => {
   const words = book.sections
     .flatMap((s) => s.blocks)
     .filter(hasReadableContent)
     .reduce((n, b) => n + (b.type === "figure" ? 0 : b.text.split(/\s+/).length), 0);
-  const minutes = Math.max(1, Math.round(words / 230));
+  const minutes = Math.max(1, Math.ceil(words / speed));
+  if (!words) return "Reading time unavailable";
   return minutes < 90 ? `${minutes} min read` : `${Math.round(minutes / 6) / 10} hr read`;
 };
 export function Library({
@@ -187,7 +188,7 @@ export function Library({
       ? l.progress.find((p) => p.bookId === current.id)
       : undefined,
     at = progress?.at || start;
-  const reading = current ? wordProgress(current, at) : null;
+  const reading = current ? wordProgress(current, at, l.readingSpeed) : null;
   const notes = current
     ? l.annotations.filter(
         (a) => a.bookId === current.id && a.kind === "highlight",
@@ -320,7 +321,7 @@ export function Library({
               <div className="chapter-label">
                 {started
                   ? `Chapter ${at.section + 1} · ${current.sections[at.section]?.title}`
-                  : `${current.author} · ${current.printPageCount} pages · ${readTime(current)}`}
+                  : `${current.author} · ${current.printPageCount} pages · ${readTime(current, l.readingSpeed)}`}
               </div>
               {started && (
                 <div className="continue-progress">
@@ -336,7 +337,7 @@ export function Library({
                     <span>
                       Page {labelAt(current, at)} of {current.printPageCount}
                     </span>
-                    <span>{reading!.minutes} min left in chapter</span>
+                    <span title="Estimated from your reading pace">About {reading!.bookMinutes} min left in book</span>
                   </div>
                 </div>
               )}
@@ -419,7 +420,7 @@ export function Library({
           <div className="shelf-grid">
             {books.map((b, i) => {
               const p = l.progress.find((p) => p.bookId === b.id),
-                info = wordProgress(b, p?.at || start);
+                info = wordProgress(b, p?.at || start, l.readingSpeed);
               return (
                 <motion.div
                   key={b.id}
@@ -449,10 +450,10 @@ export function Library({
                           style={{ transition: "none" }}
                         />
                       </div>
-                      <span>
+                      <span title="Full-book progress and estimated time at your reading pace">
                         {info.pct > 0
-                          ? `${Math.round(info.pct * 100)}% · ${info.minutes} min left`
-                          : `Not started · ${readTime(b)}`}
+                          ? `${Math.round(info.pct * 100)}% · ${info.bookMinutes} min left`
+                          : `Not started · ${readTime(b, l.readingSpeed)}`}
                       </span>
                     </div>
                   </button>
