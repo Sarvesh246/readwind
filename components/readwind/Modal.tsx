@@ -23,6 +23,7 @@ export function Modal({
     <dialog
       ref={ref}
       className={`readwind-modal ${className}`}
+      aria-label={title}
       onCancel={(e) => {
         e.preventDefault();
         onClose();

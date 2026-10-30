@@ -188,6 +188,7 @@ export const annotation = z.object({
     .optional(),
 });
 export const settings = z.object({
+  confirmBookDeletion:z.boolean().optional(),
   readingPace: z.record(z.string().regex(safeId), z.object({
     samples:z.number().int().min(0).max(1000000000),
     words:z.number().min(0).max(1000000000000),

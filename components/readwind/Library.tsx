@@ -7,6 +7,7 @@ import { wordProgress, labelAt, start } from "@/lib/readwind/anchors";
 import { BlobImage } from "./Page";
 import { CoverTitle } from "./CoverTitle";
 import {ResponsiveBookTitle} from './ResponsiveBookTitle';
+import {DeleteBookPrompt} from './DeleteBookPrompt';
 import { Icon } from "./Icon";
 import { ReadwindLockup } from "./Logo";
 import { ThemeToggleButton } from "./Theme";
@@ -131,6 +132,12 @@ export function Library({
     [collection, setCollection] = useState("All books"),
     [coverBook, setCoverBook] = useState<Book | null>(null),
     [dragging, setDragging] = useState(false);
+  const [deletion,setDeletion]=useState<{owner:string;book:Book}|null>(null),[deleteError,setDeleteError]=useState('');
+  const removeBook=(book:Book,dontAskAgain=false)=>{
+    setDeletion(null);setDeleteError('');
+    void l.deleteBook(book.id).catch(e=>setDeleteError((e as Error).message||'Could not delete this book. Please retry.'));
+    if(dontAskAgain)void l.saveSettings({...l.settings,confirmBookDeletion:false}).catch(()=>setDeleteError('The book was removed, but your confirmation preference could not be saved.'));
+  };
   const books = useMemo(
     () =>
       l.books
@@ -420,22 +427,28 @@ export function Library({
             </div>
           )}
           {!l.ready && <p role="status">Opening your library…</p>}
+          {deleteError&&<p className="form-error" role="alert">{deleteError}</p>}
+          {l.settings.confirmBookDeletion===false&&<button className="delete-confirm-reset" onClick={()=>void l.saveSettings({...l.settings,confirmBookDeletion:true}).catch(()=>setDeleteError('Could not update deletion confirmations.'))}>Turn on deletion confirmations</button>}
           <div className="shelf-grid">
+            <AnimatePresence initial={false} mode="popLayout">
             {books.map((b, i) => {
               const p = l.progress.find((p) => p.bookId === b.id),
                 info = wordProgress(b, p?.at || start, l.readingSpeed);
               return (
                 <motion.div
                   key={b.id}
+                  data-book-id={b.id}
                   className="shelf-cell"
                   layout="position"
                   initial={{ opacity: 0, y: 22 }}
                   animate={{ opacity: 1, y: 0 }}
+                  exit={{opacity:0,scale:.92,y:8,pointerEvents:'none',transition:{duration:.18,delay:0,ease:'easeOut'}}}
                   transition={{
                     type: "spring",
                     stiffness: 210,
                     damping: 22,
                     delay: Math.min(i, 12) * 0.05,
+                    layout:{type:'spring',stiffness:360,damping:32,delay:0},
                   }}
                 >
                   <button
@@ -473,7 +486,7 @@ export function Library({
                       className="button shelf-delete"
                       aria-label={`Delete ${b.title}`}
                       onClick={() => {
-                        if (window.confirm(`Delete “${b.title}” and its notes from your library?`)) void l.deleteBook(b.id).catch(e=>window.alert(e.message));
+                        setDeleteError('');if(l.settings.confirmBookDeletion===false)removeBook(b);else setDeletion({owner:l.paceOwner,book:b});
                       }}
                     >
                       Delete
@@ -482,6 +495,7 @@ export function Library({
                 </motion.div>
               );
             })}
+            </AnimatePresence>
             <button className="drop-tile" onClick={() => navigate("/import")}>
               <Icon name="upload" size={28} />
               <span>
@@ -520,6 +534,7 @@ export function Library({
           onClose={() => setCoverBook(null)}
         />
       )}
+      {deletion?.owner===l.paceOwner&&<DeleteBookPrompt key={deletion.book.id} title={deletion.book.title} onCancel={()=>setDeletion(null)} onDelete={skip=>removeBook(deletion.book,skip)}/>}
       <AnimatePresence>
         {dragging && (
           <motion.div

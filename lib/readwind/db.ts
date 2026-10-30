@@ -11,13 +11,14 @@ export function storedBlob(file: StoredFile): Blob {
 }
 export type Pending = {
   id: string;
-  entity: "book" | "progress" | "annotation" | "settings";
+  entity: "book" | "progress" | "annotation" | "settings" | "delete-book";
   bookId?: string;
   value: unknown;
   baseRevision?: number;
   uploadFiles?: boolean;
   /** File IDs already stored remotely for this book, so retries skip them. */
   uploaded?: string[];
+  restoreDeleted?:boolean;
 };
 export class ReadwindDB extends Dexie {
   books!: EntityTable<Book, "id">;

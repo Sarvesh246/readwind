@@ -1,7 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { AwsClient } from "aws4fetch";
 import { HttpError, safeId, sameOrigin } from "./security";
-export function sql(user?: string) {
+export function sql(user?: string,serialize?:string) {
   if (!process.env.DATABASE_URL) throw new Error("Database is not configured");
   const db = neon(process.env.DATABASE_URL);
   if (!user) return db;
@@ -10,9 +10,10 @@ export function sql(user?: string) {
     db
       .transaction([
         db`SELECT set_config('readwind.owner', ${user}, true)`,
+        ...(serialize?[db`SELECT pg_advisory_xact_lock(hashtextextended(${serialize},0))`]:[]),
         db(strings, ...values),
       ])
-      .then((results) => results[1])) as typeof db;
+      .then((results) => results[results.length-1])) as typeof db;
 }
 export async function owner(request: Request) {
   // The browser uses cookies. Reject stateless bearer JWTs: they cannot provide

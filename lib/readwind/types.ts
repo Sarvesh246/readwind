@@ -71,6 +71,7 @@ export type Progress = {
   deviceId: string;
 };
 export type Settings = {
+  confirmBookDeletion?:boolean;
   readingPace?: import('./reading-pace').ReadingPace;
   paper: "Paper" | "Sepia" | "Dusk" | "Night";
   font: "Literata" | "Source Serif" | "Atkinson";

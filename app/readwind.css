@@ -647,12 +647,20 @@ legend {
   font-weight: 500;
 }
 .shelf-grid {
+  position:relative;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 32px 28px;
   padding: 28px 0 0;
   border-top: 1px solid var(--line);
 }
+.delete-book-prompt { max-width:460px; }
+.delete-book-prompt strong { overflow-wrap:anywhere; }
+.delete-confirm-choice { display:flex; align-items:center; gap:10px; min-height:44px; margin-block:12px; font-size:14px; }
+.delete-confirm-actions { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:10px; margin-top:16px; }
+.delete-confirm-actions .button { min-height:44px; }
+.delete-confirm-button { background:var(--danger); color:var(--page); border-color:var(--danger); }
+.delete-confirm-reset { align-self:flex-start; color:var(--muted); font-size:12px; min-height:44px; text-decoration:underline; text-underline-offset:3px; }
 .shelf-item {
   display: flex;
   flex-direction: column;

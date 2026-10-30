@@ -360,7 +360,7 @@ function Workspace({
       const {data,files} = await readBackup(f, () => window.prompt("Enter the backup password."));
       for (const b of data.books) {
         const ids = new Set([b.sourcePdfBlobId,b.cover.blobId,b.pdfCoverBlobId,b.customCoverBlobId,...b.sections.flatMap(s=>s.blocks.map(x=>x.type === "figure" ? x.blobId : undefined))]);
-        await library.addBook(b as Book, files.filter(f=>ids.has(f.id)));
+        await library.addBook(b as Book, files.filter(f=>ids.has(f.id)),true);
       }
       for (const a of data.annotations || []) await library.saveAnnotation(a);
       for (const p of data.progress || [])

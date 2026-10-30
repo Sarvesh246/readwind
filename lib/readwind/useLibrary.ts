@@ -11,6 +11,7 @@ import { loadClassics } from "./classics";
 export type { AuthClient } from "./auth";
 import type { AuthClient } from "./auth";
 export type SyncConflict = {
+  owner:string;
   bookId: string;
   local: Progress;
   remote: { at: Anchor; revision: number; deviceId: string };
@@ -54,22 +55,28 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     conflicted = useRef<string | null>(null);
   const syncAgain = useRef<() => void>(() => {});
   const lifetime = useRef(new AbortController());
-  const books = useLiveQuery(() => db.books.toArray(), [db], []) || [];
-  const annotations =
+  const [optimisticDeletes,setOptimisticDeletes]=useState<{owner:string;ids:Set<string>}>({owner:db.name,ids:new Set()});
+  const storedBooks = useLiveQuery(() => db.transaction('r',[db.books,db.pending],async()=>{
+    const deleted=new Set((await db.pending.where('entity').equals('delete-book').toArray()).map(p=>p.bookId));
+    return {owner:db.name,books:(await db.books.toArray()).filter(b=>!deleted.has(b.id))};
+  }), [db]);
+  const books=useMemo(()=>storedBooks?.owner===db.name?storedBooks.books.filter(b=>optimisticDeletes.owner!==db.name || !optimisticDeletes.ids.has(b.id)):[],[storedBooks,optimisticDeletes,db]);
+  const annotationSnapshot =
     useLiveQuery(
-      () => db.annotations.filter((a) => !a.deleted).toArray(),
+      async() => ({owner:db.name,values:await db.annotations.filter((a) => !a.deleted).toArray()}),
       [db],
-      [],
-    ) || [];
-  const progress = useLiveQuery(() => db.progress.toArray(), [db], []) || [];
-  const preferences = useLiveQuery(() => db.preferences.get("reader"), [db]);
-  const settings = preferences?.value || defaults;
+    );
+  const annotations=annotationSnapshot?.owner===db.name?annotationSnapshot.values:[];
+  const progressSnapshot = useLiveQuery(async() => ({owner:db.name,values:await db.progress.toArray()}), [db]);
+  const progress=progressSnapshot?.owner===db.name?progressSnapshot.values:[];
+  const preferences = useLiveQuery(async() => ({owner:db.name,value:(await db.preferences.get("reader"))?.value}), [db]);
+  const settings = preferences?.owner===db.name?preferences.value||defaults:defaults;
   const api = useCallback(
     async (path: string, init?: RequestInit) => {
-      if (!auth || !alive.current) throw new Error("Sign in to sync.");
+      if (!auth || !alive.current || lifetime.current.signal.aborted) throw new Error("Sign in to sync.");
       return fetch(path, { ...init, signal:lifetime.current.signal, credentials: "same-origin" });
     },
-    [auth],
+    [auth,lifetime],
   );
   const cancelUpload = useCallback(
     async (id: string) => {
@@ -139,22 +146,40 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       !auth ||
       running.current ||
       !navigator.onLine ||
-      !alive.current
+      !alive.current || lifetime.current.signal.aborted
     )
       return false;
     running.current = true;
+    const signal=lifetime.current.signal,active=()=>alive.current&&!signal.aborted;
     setStatus("Syncing…");
     try {
       const pending = await db.pending.toArray();
+      const processedDeletes=new Set<string>();
       for (const change of pending.sort(
-        (a, b) => Number(b.entity === "book") - Number(a.entity === "book"),
+        (a, b) => (b.entity==='delete-book'?2:b.entity==='book'?1:0)-(a.entity==='delete-book'?2:a.entity==='book'?1:0),
       )) {
+        if(!active())return false;
+        // Checked before any await: resolving a conflict mid-loop must not let a stale change through.
         if (change.entity === 'progress' && conflicted.current) continue;
+        if(change.bookId && change.entity!=='delete-book' && await db.pending.get(`delete-book:${change.bookId}`))continue;
+        if(change.entity==='delete-book'){
+          const response=await api(`/api/library?id=${encodeURIComponent(change.bookId!)}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify(change.value)});
+          if(!response.ok && response.status!==404)throw new Error('Book removed locally · deletion will retry when sync is available.');
+          processedDeletes.add(change.id);
+          // Keep the durable marker until a fresh pull confirms absence.
+          continue;
+        }
         if (change.entity === "book") {
           const book = change.value as Book;
+          if(change.restoreDeleted){
+            const state=await api(`/api/library?deletion=${encodeURIComponent(book.id)}`);if(!state.ok)throw new Error('Could not check restoration status.');
+            if(((await state.json()) as {cleanupPending?:boolean}).cleanupPending)throw new Error('Deletion cleanup is still pending · restoration will retry.');
+          }
           const blobIds = bookFileIds(book);
           const uploaded = new Set(change.uploaded || []);
           for (const id of new Set(change.uploadFiles === false ? [] : blobIds)) {
+            if(!active())return false;
+            if(await db.pending.get(`delete-book:${book.id}`))break;
             if (uploaded.has(id)) continue;
             const file = await db.blobs.get(id);
             if (!file) throw new Error("An attached file is missing.");
@@ -165,11 +190,20 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
             change.uploaded = [...uploaded];
             await db.pending.update(change.id, { uploaded: [...uploaded] });
           }
-          const response = await api("/api/library", {
+          if(!active())return false;
+          if(await db.pending.get(`delete-book:${book.id}`))continue;
+          const response = await api(`/api/library${change.restoreDeleted?'?restore=true':''}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(book),
           });
+          if(response.status===410){
+            await db.transaction('rw',[db.books,db.progress,db.annotations,db.pending],async()=>{
+              if(await db.pending.get(`delete-book:${book.id}`))return;
+              const latest=await db.pending.get(change.id);if(latest?.restoreDeleted || latest && JSON.stringify(latest.value)!==JSON.stringify(change.value))return;
+              await db.books.delete(book.id);await db.progress.delete(book.id);await db.annotations.where('bookId').equals(book.id).delete();await db.pending.filter(p=>p.bookId===book.id).delete();
+            });continue;
+          }
           if (!response.ok) throw new Error("Could not save the book.");
         } else {
           const response = await api("/api/sync", {
@@ -185,6 +219,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
           if (response.status === 409 && data.current) {
             conflicted.current = change.id;
             setConflict({
+              owner:db.name,
               bookId: change.bookId!,
               local: change.value as Progress,
               remote: data.current,
@@ -199,7 +234,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
           }
           if (!response.ok)
             throw new Error(data.error || "Could not sync changes.");
-          if (!alive.current) return false;
+          if (!active()) return false;
           if (change.entity === "progress") {
             await db.transaction("rw", [db.progress, db.pending], async () => {
               const current = await db.progress.get(change.bookId!);
@@ -220,7 +255,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
             });
           }
         }
-        if (!alive.current) return false;
+        if (!active()) return false;
         await db.transaction("rw", db.pending, async () => {
           const latest = await db.pending.get(change.id);
           if (
@@ -247,6 +282,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       } = { books: [], progress: [], annotations: [], settings: null };
       let offset: number | null = 0;
       while (offset !== null) {
+        if(!active())return false;
         const response = await api(`/api/library?offset=${offset}`);
         if (!response.ok) throw new Error("Could not load your library.");
         const page = (await response.json()) as LibraryPage;
@@ -259,7 +295,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         // Also stops on responses that predate pagination or omit the cursor.
         offset = typeof next === "number" && next > offset ? next : null;
       }
-      if (!alive.current) return false;
+      if (!active()) return false;
       await db.transaction(
         "rw",
         [
@@ -273,9 +309,10 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         async () => {
           const changes = await db.pending.toArray(),
             ids = new Set(changes.map((p) => p.id)),
-            remoteBooks = new Set(data.books.map((b) => b.id));
+            deleting = new Set(changes.filter(p=>p.entity==='delete-book').map(p=>p.bookId)),
+            remoteBooks = new Set(data.books.filter(b=>!deleting.has(b.id)).map((b) => b.id));
           for (const b of data.books)
-            if (!ids.has(`book:${b.id}`)) await db.books.put(b);
+            if (!ids.has(`book:${b.id}`) && !deleting.has(b.id)) await db.books.put(b);
           for (const p of data.progress)
             if (!ids.has(`progress:${p.bookId}`) && remoteBooks.has(p.bookId))
               await db.progress.put({ ...p, updatedAt: Number(p.updatedAt) });
@@ -308,8 +345,9 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
           for (const a of await db.annotations.toArray())
             if (!live.has(a.bookId)) await db.annotations.delete(a.id);
           const used = new Set((await db.books.toArray()).flatMap(bookFileIds));
-          for (const file of await db.blobs.toArray())
-            if (!used.has(file.id)) await db.blobs.delete(file.id);
+          const unused=(await db.blobs.toCollection().primaryKeys()).filter(id=>!used.has(id));
+          if(unused.length)await db.blobs.bulkDelete(unused);
+          for(const change of changes.filter(p=>p.entity==='delete-book'))if(processedDeletes.has(change.id)&&!data.books.some(b=>b.id===change.bookId))await db.pending.delete(change.id);
         },
       );
       const remaining = await db.pending.count();
@@ -321,7 +359,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         );
       // Edits can be queued while a request is in flight. Drain them promptly;
       // never acknowledge a snapshot as though it included these newer edits.
-      if (remaining && !conflicted.current && alive.current)
+      if (remaining && active() && (await db.pending.toArray()).some(p=>p.entity!=='progress'||!conflicted.current))
         setTimeout(() => syncAgain.current(), 0);
       return true;
     } catch (e) {
@@ -336,7 +374,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       running.current = false;
       if (alive.current) setReady(true);
     }
-  }, [db, guest, auth, api, uploadFile]);
+  }, [db, guest, auth, api, uploadFile,lifetime]);
   useEffect(() => { syncAgain.current = () => void sync(); }, [sync]);
   useEffect(() => {
     alive.current = true;
@@ -403,6 +441,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       "rw",
       [db.progress, db.pending, db.books],
       async () => {
+        if(!await db.books.get(bookId))return;
         const current = await db.progress.get(bookId);
         const value: Progress = {
           bookId,
@@ -431,7 +470,8 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   };
   const saveAnnotation = async (a: Annotation) => {
     const value = { ...a, updatedAt: Date.now() };
-    await db.transaction("rw", [db.annotations, db.pending], async () => {
+    await db.transaction("rw", [db.books,db.annotations, db.pending], async () => {
+      if(!await db.books.get(a.bookId))return;
       await db.annotations.put(value);
       if (!guest)
         await putChange({
@@ -468,9 +508,13 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   const addBook = async (
     book: Book,
     files: { id: string; blob: Blob }[] = [],
+    restoreDeleted=false,
   ) => {
     const encoded = await Promise.all(files.map(encodeFile));
     await db.transaction("rw", [db.books, db.blobs, db.pending], async () => {
+      const deleted=await db.pending.get(`delete-book:${book.id}`);
+      restoreDeleted ||= !!deleted;
+      await db.pending.delete(`delete-book:${book.id}`);
       await db.books.put(book);
       if (encoded.length) await db.blobs.bulkPut(encoded);
       if (!guest)
@@ -479,8 +523,10 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
           entity: "book",
           bookId: book.id,
           value: book,
+          restoreDeleted,
         });
     });
+    if(alive.current)setOptimisticDeletes(old=>({owner:db.name,ids:new Set([...(old.owner===db.name?old.ids:[])].filter(id=>id!==book.id))}));
     void sync();
   };
   /**
@@ -493,6 +539,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   ) => {
     const encoded = await Promise.all(files.map(encodeFile));
     await db.transaction("rw", [db.books, db.blobs, db.pending], async () => {
+      if(!await db.books.get(book.id) || await db.pending.get(`delete-book:${book.id}`))return;
       await db.books.put(book);
       if (encoded.length) await db.blobs.bulkPut(encoded);
       if (!guest) {
@@ -518,6 +565,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   };
   const saveReadingMode = async (book: Book, readingMode: 'original'|'reflow') => {
     await db.transaction('rw', [db.books,db.pending], async()=>{
+      if(!await db.books.get(book.id) || await db.pending.get(`delete-book:${book.id}`))return;
       const value={...book,readingMode};
       await db.books.put(value);
       if(!guest){
@@ -547,7 +595,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     [db, guest, api],
   );
   const resolveConflict = async (useLocal: boolean) => {
-    if (!conflict) return;
+    if (!conflict || conflict.owner!==db.name) return;
     const c = conflict;
     if (useLocal) {
       await db.transaction('rw', [db.progress, db.pending], async () => {
@@ -567,24 +615,29 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     void sync();
   };
   const deleteBook = async (id:string) => {
-    if (!guest) {
-      const response = await api(`/api/library?id=${encodeURIComponent(id)}`,{method:"DELETE"});
-      if (!response.ok && response.status !== 404) throw new Error("Could not delete this book. Connect and retry.");
-    }
-    await db.transaction("rw",[db.books,db.progress,db.annotations,db.pending],async()=>{
+    setOptimisticDeletes(old=>({owner:db.name,ids:new Set([...(old.owner===db.name?old.ids:[]),id])}));
+    try{await db.transaction("rw",[db.books,db.progress,db.annotations,db.pending],async()=>{
+      const book=await db.books.get(id),previous=await db.pending.get(`delete-book:${id}`);
+      const files=book?bookFileIds(book):(previous?.value as {files?:string[]})?.files||[];
       await db.books.delete(id);
       await db.progress.delete(id);
       await db.annotations.where("bookId").equals(id).delete();
       await db.pending.filter(change=>change.bookId===id).delete();
-    });
-    const remaining = await db.books.toArray();
-    const used = new Set(remaining.flatMap(bookFileIds));
-    await db.blobs.filter(file=>!used.has(file.id)).delete();
+      if(!guest)await db.pending.put({id:`delete-book:${id}`,entity:'delete-book',bookId:id,value:{files:[...new Set(files)]}});
+    });}catch(error){if(alive.current)setOptimisticDeletes(old=>old.owner!==db.name?old:{owner:old.owner,ids:new Set([...old.ids].filter(value=>value!==id))});throw error;}
+    if(conflicted.current===`progress:${id}`){conflicted.current=null;setConflict(null);}
+    if(!guest&&alive.current)setStatus(navigator.onLine?'Deleting…':'Offline · deletion queued');
+    // Cleanup runs after the shelf update and uses keys, never loading large PDF blobs.
+    void db.transaction('rw',[db.books,db.blobs],async()=>{
+      const used=new Set((await db.books.toArray()).flatMap(bookFileIds));
+      const unused=(await db.blobs.toCollection().primaryKeys()).filter(key=>!used.has(key));if(unused.length)await db.blobs.bulkDelete(unused);
+    }).catch(()=>{});
+    void sync();
   };
   const addClassics = async () => {
     const now = Date.now();
     for (const [i, b] of (await loadClassics()).entries())
-      await addBook({ ...b, addedAt: now - i, lastOpenedAt: now - i });
+      await addBook({ ...b, addedAt: now - i, lastOpenedAt: now - i },[],true);
   };
   return {
     deleteBook,
@@ -607,7 +660,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     saveBook,
     saveReadingMode,
     loadBlob,
-    conflict,
+    conflict:conflict?.owner===db.name?conflict:null,
     resolveConflict,
     addClassics,
   };

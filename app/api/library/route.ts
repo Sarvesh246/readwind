@@ -7,10 +7,18 @@ import {
   HttpError,
 } from "@/lib/readwind/security";
 import { rateLimit } from "@/lib/readwind/server";
+import {markBookDeleted,finishBookCleanup,saveLiveBook} from '@/lib/readwind/book-deletion';
+import {z} from 'zod';
 export const GET = safeRoute(async (request: Request) => {
   const id = await owner(request);
   if (!id) return unauthorized();
   await rateLimit(`read:${id}`, 240);
+  const deletion=new URL(request.url).searchParams.get('deletion');
+  if(deletion){
+    if(!safeId.test(deletion))throw new HttpError(400,'Invalid book ID.');
+    const rows=await sql(id)`SELECT data->'_bookDeletions'->${deletion} AS deletion FROM folio_settings WHERE owner_id=${id}`;
+    return Response.json({deleted:!!rows[0]?.deletion,cleanupPending:!!rows[0]?.deletion?.files?.length},{headers:{'Cache-Control':'no-store'}});
+  }
   const offset = Number(new URL(request.url).searchParams.get("offset") || "0");
   if (!Number.isInteger(offset) || offset < 0 || offset > 10000)
     return Response.json({ error: "Invalid page" }, { status: 400 });
@@ -27,7 +35,7 @@ export const GET = safeRoute(async (request: Request) => {
       ? db`SELECT book_id AS "bookId", at, revision, device_id AS "deviceId", words_read AS "wordsRead", EXTRACT(EPOCH FROM updated_at)*1000 AS "updatedAt" FROM folio_progress WHERE owner_id=${id}`
       : [],
     offset === 0
-      ? db`SELECT data FROM folio_settings WHERE owner_id=${id}`
+      ? db`SELECT data-'_bookDeletions' AS data FROM folio_settings WHERE owner_id=${id}`
       : [],
   ]);
   const nextOffset =
@@ -58,9 +66,9 @@ export const POST = safeRoute(async (request: Request) => {
   if (!parsed.success)
     return Response.json({ error: "Invalid book data." }, { status: 400 });
   const b = parsed.data;
-  await sql(
-    id,
-  )`INSERT INTO folio_books(owner_id,id,data) VALUES(${id},${b.id},${JSON.stringify(b)}::jsonb) ON CONFLICT(owner_id,id) DO UPDATE SET data=EXCLUDED.data, updated_at=now()`;
+  const restore=new URL(request.url).searchParams.get('restore')==='true';
+  const rows=await saveLiveBook(sql(id,`library:${id}`),id,b,restore);
+  if(!Array.isArray(rows)||!rows.length)return Response.json({error:restore?'Deletion cleanup is still pending. Restoration will retry.':'This book has been deleted.'},{status:restore?409:410});
   return Response.json({ ok: true });
 });
 
@@ -70,7 +78,11 @@ export const DELETE = safeRoute(async (request: Request) => {
   await rateLimit(`delete:${user}`, 20);
   const id = new URL(request.url).searchParams.get("id");
   if (!id || !safeId.test(id)) throw new HttpError(400, "Invalid book ID.");
-  const db = sql(user);
+  const db = sql(user,`library:${user}`);
+  const incoming=request.body?z.object({files:z.array(z.string().regex(safeId)).max(20000).optional()}).safeParse(await readJson(request,2_000_000)):{success:true as const,data:{files:[] as string[]}};
+  if(!incoming.success)throw new HttpError(400,'Invalid deletion data.');
+  // Remove the book and cascading notes immediately; retain a retryable cleanup record.
+  const marked=await markBookDeleted(db,user,id,incoming.data.files||[]) as {deletion:{files:string[]}}[];
   const rows = await db`SELECT data FROM folio_books WHERE owner_id=${user}`;
   const refs = (data: import("@/lib/readwind/types").Book) =>
     [
@@ -82,22 +94,20 @@ export const DELETE = safeRoute(async (request: Request) => {
         s.blocks.map((b) => (b.type === "figure" ? b.blobId : undefined)),
       ),
     ].filter((v): v is string => !!v && safeId.test(v));
-  const book = rows.find((row) => row.data.id === id)?.data;
   const used = new Set(
-    rows.filter((row) => row.data.id !== id).flatMap((row) => refs(row.data)),
+    rows.flatMap((row) => refs(row.data)),
   );
-  const candidates = new Set<string>(book ? refs(book) : []);
+  const candidates = [...new Set(marked[0]?.deletion.files||[])].filter(file=>safeId.test(file)&&!used.has(file));
+  const owned=new Set((await db`SELECT id FROM folio_files WHERE owner_id=${user}`).map(row=>row.id as string));
   // Delete private objects before releasing their quota. Failed deletes are retryable.
-  for (const file of candidates) {
-    if (used.has(file)) continue;
-    const result = await storageFetch(`${user}/${file}`, { method: "DELETE" });
-    if (!result.ok && result.status !== 404)
-      throw new HttpError(
-        502,
-        "Could not delete attached files. Please retry.",
-      );
-    await db`DELETE FROM folio_files WHERE owner_id=${user} AND id=${file}`;
-  }
-  await db`DELETE FROM folio_books WHERE owner_id=${user} AND id=${id}`;
+  let next=0;
+  await Promise.all(Array.from({length:Math.min(4,candidates.length)},async()=>{
+    while(next<candidates.length){const file=candidates[next++];if(!owned.has(file))continue;
+      const result=await storageFetch(`${user}/${file}`,{method:'DELETE'});
+      if(!result.ok&&result.status!==404)throw new HttpError(502,'Book deleted. Attached-file cleanup will retry.');
+      await db`DELETE FROM folio_files WHERE owner_id=${user} AND id=${file}`;
+    }
+  }));
+  await finishBookCleanup(db,user,id);
   return Response.json({ ok: true });
 });
