@@ -6,6 +6,7 @@ import type { Library as LibraryData } from "@/lib/readwind/useLibrary";
 import { wordProgress, labelAt, start } from "@/lib/readwind/anchors";
 import { BlobImage } from "./Page";
 import { CoverTitle } from "./CoverTitle";
+import {ResponsiveBookTitle} from './ResponsiveBookTitle';
 import { Icon } from "./Icon";
 import { ReadwindLockup } from "./Logo";
 import { ThemeToggleButton } from "./Theme";
@@ -317,7 +318,7 @@ export function Library({
               <div className="eyebrow">
                 {started ? "Continue reading" : "Start reading"}
               </div>
-              <h1>{current.title}</h1>
+              <ResponsiveBookTitle text={current.title}/>
               <div className="chapter-label">
                 {started
                   ? `Chapter ${at.section + 1} · ${current.sections[at.section]?.title}`

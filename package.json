@@ -24,6 +24,7 @@
     "test:pagination": "node scripts/test-pagination-browser.mjs",
     "test:sync": "node scripts/test-sync-browser.mjs",
     "test:library": "node scripts/test-library-browser.mjs",
+    "test:book-title": "node scripts/test-book-title-browser.mjs",
     "test:cloud": "node --env-file=.env.local scripts/test-cloud.mjs",
     "typecheck": "next typegen && tsc --noEmit",
     "db:migrate": "node --env-file=.env.local scripts/migrate-readwind.mjs",
