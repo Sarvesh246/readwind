@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { ReadwindDB, deviceId } from "./db";
+import { ReadwindDB, deviceId, encodeFile, storedBlob } from "./db";
 import type { Pending } from "./db";
 import type { Book, Annotation, Anchor, Settings, Progress } from "./types";
 import { defaults } from "./types";
@@ -24,6 +24,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   const running = useRef(false),
     alive = useRef(true),
     conflicted = useRef<string | null>(null);
+  const syncAgain = useRef<() => void>(() => {});
   const books = useLiveQuery(() => db.books.toArray(), [db], []) || [];
   const annotations =
     useLiveQuery(
@@ -42,7 +43,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     [auth],
   );
   const putChange = async (change: Pending) => db.pending.put(change);
-  const sync = useCallback(async () => {
+  const sync = useCallback(async (): Promise<boolean> => {
     if (
       guest ||
       !auth ||
@@ -50,7 +51,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       !navigator.onLine ||
       !alive.current
     )
-      return;
+      return false;
     running.current = true;
     setStatus("Syncing…");
     try {
@@ -58,7 +59,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       for (const change of pending.sort(
         (a, b) => Number(b.entity === "book") - Number(a.entity === "book"),
       )) {
-        if (change.id === conflicted.current) continue;
+        if (change.entity === 'progress' && conflicted.current) continue;
         if (change.entity === "book") {
           const book = change.value as Book;
           const blobIds = [
@@ -73,12 +74,13 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
           for (const id of new Set(change.uploadFiles === false ? [] : blobIds)) {
             const file = await db.blobs.get(id);
             if (!file) throw new Error("An attached file is missing.");
+            const blob = storedBlob(file);
             const response = await api(
               `/api/files?id=${encodeURIComponent(id)}`,
               {
                 method: "POST",
-                headers: { "Content-Type": file.blob.type },
-                body: file.blob,
+                headers: { "Content-Type": blob.type },
+                body: blob,
               },
             );
             if (!response.ok)
@@ -178,12 +180,18 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
             });
         },
       );
+      const remaining = await db.pending.count();
       if (alive.current)
         setStatus(
           conflicted.current
             ? "Choose a reading position"
-            : "All changes synced",
+            : remaining ? "Saving…" : "All changes synced",
         );
+      // Edits can be queued while a request is in flight. Drain them promptly;
+      // never acknowledge a snapshot as though it included these newer edits.
+      if (remaining && !conflicted.current && alive.current)
+        setTimeout(() => syncAgain.current(), 0);
+      return true;
     } catch (e) {
       if (alive.current)
         setStatus(
@@ -191,11 +199,13 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
             ? (e as Error).message
             : "Offline · saved on this device",
         );
+      return false;
     } finally {
       running.current = false;
       if (alive.current) setReady(true);
     }
   }, [db, guest, auth, api]);
+  useEffect(() => { syncAgain.current = () => void sync(); }, [sync]);
   useEffect(() => {
     alive.current = true;
     (async () => {
@@ -216,11 +226,11 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         if (!existing.length || legacy.length)
           await db.books.bulkPut(await loadClassics());
       } else {
-        await sync();
+        const connected = await sync();
         // A brand-new account starts with the classics rather than an empty shelf.
         const seeded = `readwind-seeded-${userId}`;
         if (
-          navigator.onLine &&
+          connected && navigator.onLine &&
           !localStorage.getItem(seeded) &&
           (await db.books.count()) === 0
         ) {
@@ -331,9 +341,10 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     book: Book,
     files: { id: string; blob: Blob }[] = [],
   ) => {
+    const encoded = await Promise.all(files.map(encodeFile));
     await db.transaction("rw", [db.books, db.blobs, db.pending], async () => {
       await db.books.put(book);
-      if (files.length) await db.blobs.bulkPut(files);
+      if (encoded.length) await db.blobs.bulkPut(encoded);
       if (!guest)
         await putChange({
           id: `book:${book.id}`,
@@ -361,10 +372,10 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       if (!file && !guest) {
         const r = await api(`/api/files?id=${encodeURIComponent(id)}`);
         if (!r.ok) throw new Error("File unavailable. Connect to download it.");
-        file = { id, blob: await r.blob() };
+        file = await encodeFile({ id, blob: await r.blob() });
         await db.blobs.put(file);
       }
-      return file?.blob;
+      return file ? storedBlob(file) : undefined;
     },
     [db, guest, api],
   );
@@ -372,17 +383,17 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     if (!conflict) return;
     const c = conflict;
     if (useLocal) {
-      const value = { ...c.local, revision: c.remote.revision };
-      await db.progress.put(value);
-      await db.pending.put({
-        id: `progress:${c.bookId}`,
-        entity: "progress",
-        bookId: c.bookId,
-        value,
+      await db.transaction('rw', [db.progress, db.pending], async () => {
+        const latest = await db.progress.get(c.bookId);
+        const value = { ...(latest || c.local), revision: c.remote.revision };
+        await db.progress.put(value);
+        await db.pending.put({id: `progress:${c.bookId}`, entity: 'progress', bookId: c.bookId, value});
       });
     } else {
-      await db.pending.delete(`progress:${c.bookId}`);
-      await db.progress.put({ ...c.local, ...c.remote });
+      await db.transaction('rw', [db.progress, db.pending], async () => {
+        await db.pending.delete(`progress:${c.bookId}`);
+        await db.progress.put({ ...c.local, ...c.remote });
+      });
     }
     conflicted.current = null;
     setConflict(null);

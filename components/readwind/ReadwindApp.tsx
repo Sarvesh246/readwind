@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import type { Book, Anchor } from "@/lib/readwind/types";
 import { useLibrary } from "@/lib/readwind/useLibrary";
+import { storedBlob } from '@/lib/readwind/db';
 import type { AuthClient } from "@/lib/readwind/useLibrary";
 import { Library } from "./Library";
 import { MotionConfig, motion } from "motion/react";
@@ -315,11 +316,11 @@ function Workspace({
     const encoded = await Promise.all(
       blobs.map(async (b) => ({
         id: b.id,
-        type: b.blob.type,
+        type: storedBlob(b).type,
         data: await new Promise<string>((resolve) => {
           const r = new FileReader();
           r.onload = () => resolve(r.result as string);
-          r.readAsDataURL(b.blob);
+          r.readAsDataURL(storedBlob(b));
         }),
       })),
     );
@@ -515,7 +516,7 @@ export default function ReadwindApp() {
     let alive = true;
     setPath(location.pathname);
     if (new URLSearchParams(location.search).has("reset")) setShowAuth(true);
-    fetch("/api/config")
+    const loadAuth = () => fetch("/api/config")
       .then((r) => r.json() as Promise<{ authUrl: string | null }>)
       .then(async (config) => {
         if (!config.authUrl) return;
@@ -543,11 +544,15 @@ export default function ReadwindApp() {
       .finally(() => {
         if (alive) setLoaded(true);
       });
+    void loadAuth();
+    const reconnect = () => void loadAuth();
+    window.addEventListener("online", reconnect);
     const pop = () => setPath(location.pathname);
     window.addEventListener("popstate", pop);
     return () => {
       alive = false;
       window.removeEventListener("popstate", pop);
+      window.removeEventListener("online", reconnect);
     };
   }, []);
   async function signedIn(u: User) {

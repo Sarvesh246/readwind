@@ -448,7 +448,7 @@ export async function importPDF(
       if (section.blocks.length === blockAt)
         section.blocks.push({
           type: "p",
-          text: "[No readable text was detected on this page. See the original PDF.]",
+          text: "",
         });
       pageText.push(kept.map((l) => l.text).join("\n"));
     });

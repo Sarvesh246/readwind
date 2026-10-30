@@ -1,4 +1,4 @@
-import { ReadwindDB } from "./db";
+import { ReadwindDB, encodeFile } from "./db";
 /** Carry books imported before sign-in into the account's pending upload queue. */
 export async function migratePreview(userId: string) {
   const preview = new ReadwindDB("preview"),
@@ -24,10 +24,11 @@ export async function migratePreview(userId: string) {
         ])
         .filter(Boolean) as string[],
     );
-    const files = await preview.blobs
+    const cached = await preview.blobs
       .where("id")
       .anyOf([...fileIds])
       .toArray();
+    const files = await Promise.all(cached.map(f => 'blob' in f ? encodeFile(f) : f));
     await account.transaction(
       "rw",
       [

@@ -13,6 +13,13 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "test": "vitest run --config vitest.config.ts",
+    "test:fullscreen": "node scripts/test-fullscreen-browser.mjs",
+    "test:offline": "node scripts/test-offline-browser.mjs",
+    "test:reader": "node scripts/test-reader-browser.mjs",
+    "test:pdf": "node scripts/test-pdf-browser.mjs",
+    "test:pagination": "node scripts/test-pagination-browser.mjs",
+    "test:sync": "node scripts/test-sync-browser.mjs",
+    "test:library": "node scripts/test-library-browser.mjs",
     "test:cloud": "node --env-file=.env.local scripts/test-cloud.mjs",
     "typecheck": "tsc --noEmit",
     "db:migrate": "node --env-file=.env.local scripts/migrate-readwind.mjs"

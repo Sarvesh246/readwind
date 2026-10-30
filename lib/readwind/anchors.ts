@@ -1,4 +1,5 @@
 import type { Anchor, Book } from "./types";
+import { hasReadableContent } from './content';
 export function compare(a: Anchor, b: Anchor) {
   return a.section - b.section || a.block - b.block || a.offset - b.offset;
 }
@@ -34,7 +35,7 @@ export function wordProgress(book: Book, at: Anchor) {
     chapterLeft = 0;
   book.sections.forEach((s, si) =>
     s.blocks.forEach((b, bi) => {
-      const t = b.text || "";
+      const t = hasReadableContent(b) ? b.text || "" : "";
       const words = t.trim() ? t.trim().split(/\s+/).length : 0;
       total += words;
       if (si < at.section || (si === at.section && bi < at.block))

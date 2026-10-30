@@ -5,7 +5,7 @@ import type { ScreenPage, Fragment, Geometry } from "@/lib/readwind/pagination";
 import type { Book, Settings, Annotation, Anchor } from "@/lib/readwind/types";
 import { colors, themes, families } from "@/lib/readwind/types";
 import { compare } from "@/lib/readwind/anchors";
-import { chapterTitleSize } from "@/lib/readwind/pagination";
+import { chapterLayout } from "@/lib/readwind/pagination";
 import { Modal } from "./Modal";
 import { CoverTitle } from "./CoverTitle";
 type Props = {
@@ -19,7 +19,6 @@ type Props = {
   onAnnotation?: (a: Annotation) => void;
   cover?: boolean;
   inside?: boolean;
-  resume?: string;
   decorative?: boolean;
 };
 export function BlobImage({
@@ -147,6 +146,7 @@ export function textRuns(
           className={f.drop && offset === f.start ? "drop-cap" : undefined}
           style={{
             background: bg,
+            color: a && (a.color === 'green' || a.color === 'pink') ? '#2A2622' : undefined,
             borderRadius: 2,
             cursor: a ? "pointer" : undefined,
           }}
@@ -200,11 +200,11 @@ export const Page = memo(function Page({
   onAnnotation,
   cover,
   inside,
-  resume,
   decorative,
 }: Props) {
   const [footnote, setFootnote] = useState<string | null>(null);
   const t = themes[settings.paper];
+  const chapter = chapterLayout(g, page?.chapterTitle || '');
   const gutter = {
     left: "inset -90px 0 70px -70px rgba(40,28,14,.10), inset -18px 0 18px -16px rgba(40,28,14,.06)",
     right:
@@ -256,10 +256,6 @@ export const Page = memo(function Page({
               <div className="cover-spacer" />
             </>
           )}
-          <div className="resume-pill">
-            <span />
-            Resume at p. {resume} · tap to open
-          </div>
           <div className="bookmark-ribbon cover-ribbon" />
         </div>
       ) : inside ? null : page && !page.blank ? (
@@ -281,12 +277,13 @@ export const Page = memo(function Page({
               <div
                 className="chapter-heading"
                 style={{
-                  paddingTop: Math.round(g.fs * 3.2),
-                  paddingBottom: Math.round(g.fs * 1.4),
+                  paddingTop: chapter.paddingTop,
+                  paddingBottom: chapter.paddingBottom,
+                  gap: chapter.gap,
                 }}
               >
                 <div style={{ color: t.muted }}>{book.title}</div>
-                <h2 style={{ fontSize: chapterTitleSize(g.fs, page.chapterTitle) }}>
+                <h2 style={{ fontSize: chapter.titleSize }}>
                   {page.chapterTitle}
                 </h2>
                 <span style={{ background: t.muted }} />

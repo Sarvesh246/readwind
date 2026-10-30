@@ -1,6 +1,7 @@
 import type { Anchor, Book, Settings, Block } from "./types";
 import { compare, labelAt } from "./anchors";
 import { families, leading } from "./types";
+import { hasReadableContent } from './content';
 export type Geometry = {
   bookW: number;
   bookH: number;
@@ -39,6 +40,14 @@ export function chapterTitleSize(fs: number, title: string) {
   const length = title.trim().length;
   const factor = length > 60 ? 1.35 : length > 34 ? 1.55 : 1.9;
   return Math.round(fs * factor);
+}
+export function chapterLayout(g: Geometry, title: string) {
+  return {
+    paddingTop: Math.round(Math.min(g.fs * 3.2, g.textH * .10)),
+    paddingBottom: Math.round(Math.min(g.fs * 1.4, g.textH * .04)),
+    gap: Math.round(Math.min(14, g.textH * .04)),
+    titleSize: Math.min(chapterTitleSize(g.fs, title), Math.max(18, Math.round(g.textH * .16))),
+  };
 }
 export function geometry(
   aw: number,
@@ -95,7 +104,7 @@ export async function paginate(
   signal?: AbortSignal,
 ): Promise<ScreenPage[]> {
   const key = [
-    "fonts-v2",
+    "fonts-v3",
     book.id,
     book.revision || book.addedAt,
     g.pw,
@@ -135,6 +144,7 @@ export async function paginate(
   try {
     for (let si = 0; si < book.sections.length; si++) {
       const sec = book.sections[si];
+      if (!sec.blocks.some(hasReadableContent)) continue;
       let bi = 0,
         offset = 0,
         first = true;
@@ -149,6 +159,8 @@ export async function paginate(
           blank: true,
         });
       while (bi < sec.blocks.length) {
+        while (bi < sec.blocks.length && !hasReadableContent(sec.blocks[bi])) bi++;
+        if (bi === sec.blocks.length) break;
         if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
         root.replaceChildren();
         const pg: ScreenPage = {
@@ -160,15 +172,16 @@ export async function paginate(
           folio: "",
         };
         if (pg.chapterStart) {
+          const layout = chapterLayout(g, sec.title);
           const h = document.createElement("div");
           h.className = "chapter-heading";
-          h.style.cssText = `padding-top:${Math.round(g.fs * 3.2)}px;padding-bottom:${Math.round(g.fs * 1.4)}px;display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center`;
+          h.style.cssText = `padding-top:${layout.paddingTop}px;padding-bottom:${layout.paddingBottom}px;display:flex;flex-direction:column;align-items:center;gap:${layout.gap}px;text-align:center`;
           const label = document.createElement("div");
           label.style.cssText =
             "font:11px Inter;letter-spacing:.24em;text-transform:uppercase";
           label.textContent = book.title;
           const title = document.createElement("h2");
-          title.style.cssText = `font-size:${chapterTitleSize(g.fs, sec.title)}px;font-weight:400;font-style:italic;line-height:1.15;margin:0`;
+          title.style.cssText = `font-size:${layout.titleSize}px;font-weight:400;font-style:italic;line-height:1.15;margin:0`;
           title.textContent = sec.title;
           const rule = document.createElement("div");
           rule.style.cssText = "width:36px;height:1px";
@@ -179,10 +192,12 @@ export async function paginate(
         }
         const top = root.getBoundingClientRect().top;
         while (bi < sec.blocks.length) {
+          if (!hasReadableContent(sec.blocks[bi])) { bi++; offset = 0; continue; }
           const block = sec.blocks[bi],
             text = block.text || "";
           const para = document.createElement(block.type === "h" ? "h3" : "p");
           const drop =
+            g.textH >= 260 &&
             pg.chapterStart &&
             pg.fragments.length === 0 &&
             offset === 0 &&

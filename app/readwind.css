@@ -74,51 +74,50 @@
 }
 
 /*
- * Dark reading room. Warm charcoal and ink drawn from the Dusk and Night
- * papers, so the app chrome sits quietly beside a dark page.
+ * Neutral charcoal reading room with soft ivory text and a muted blue accent.
  */
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg-desk: #14110d;
-  --surface: #1d1915;
-  --surface-2: #241f1a;
-  --line: #322c25;
-  --line-2: #2b2621;
-  --line-strong: #453c32;
-  --chip: #2e2822;
-  --ink: #ede4d6;
+  --bg-desk: #17181c;
+  --surface: #202126;
+  --surface-2: #292a30;
+  --line: #3b3c43;
+  --line-2: #33343b;
+  --line-strong: #505159;
+  --chip: #34353c;
+  --ink: #e8e5df;
   --ui-ink: var(--ink);
-  --ink-2: #d9cfbf;
-  --muted: #b3a896;
-  --muted-2: #9c9180;
+  --ink-2: #d5d2cc;
+  --muted: #b9b6b0;
+  --muted-2: #aaa7a1;
   --accent: #9dbbe0;
   --accent-hover: #c2d6ee;
   --accent-soft: rgba(157, 187, 224, 0.14);
   --focus: #9dbbe0;
-  --forest: #8fb39a;
+  --forest: #b2c5dd;
   --ribbon: #c4615a;
   --danger: #e8908a;
   --hover: rgba(237, 228, 214, 0.06);
   --hover-strong: rgba(237, 228, 214, 0.09);
-  --field-border: #3b342c;
-  --dashed: #4a4136;
+  --field-border: #4a4b53;
+  --dashed: #55565f;
   --mark-bg: rgba(232, 198, 108, 0.22);
   --mark-ink: #f5ecd8;
-  --overlay: rgba(20, 17, 13, 0.92);
-  --modal-bg: #1d1915;
+  --overlay: rgba(23, 24, 28, 0.96);
+  --modal-bg: #202126;
   --modal-shadow: 0 28px 90px rgba(0, 0, 0, 0.62);
   --scrim: rgba(0, 0, 0, 0.62);
   --switch-knob: #f2ebdd;
-  --toolbar-bg: #2f2922;
+  --toolbar-bg: #303138;
   --toolbar-ink: #f4eee2;
-  --toolbar-line: #574e43;
+  --toolbar-line: #55565e;
   --toolbar-border: rgba(255, 255, 255, 0.09);
-  --forest-card-bg: #1e2b22;
-  --forest-card-ink: #e3ecdf;
-  --forest-card-eyebrow: #a9c2ab;
-  --forest-card-muted: #c4d3c4;
-  --forest-card-button-bg: #e3ecdf;
-  --forest-card-button-ink: #1e2b22;
+  --forest-card-bg: #2b303a;
+  --forest-card-ink: #e6e8ed;
+  --forest-card-eyebrow: #b7c9df;
+  --forest-card-muted: #cbd1dc;
+  --forest-card-button-bg: #e6e8ed;
+  --forest-card-button-ink: #2b303a;
   --cover-ring: rgba(255, 255, 255, 0.08);
   --shadow-soft: 0 8px 32px rgba(0, 0, 0, 0.55);
   --shadow-float: 0 10px 34px rgba(0, 0, 0, 0.6);
@@ -2510,6 +2509,7 @@ legend {
     gap: 18px;
   }
   .comfort-modal {
+    top: auto;
     position: fixed;
     left: 0;
     right: 0;
@@ -2552,7 +2552,8 @@ legend {
     font-size: 11px;
   }
   .comfort-done {
-    display: none;
+    display: inline-flex;
+    margin-top: 12px;
   }
   .import-steps {
     gap: 0;
@@ -2981,3 +2982,78 @@ legend {
     display: none;
   }
 }
+
+
+/* Reader chrome follows the selected paper, independently of app appearance. */
+.reader .button, .original-reader .button {
+  color: var(--reader-ink);
+  border-color: color-mix(in srgb, var(--reader-ink) 48%, transparent);
+  background: var(--reader-chip);
+}
+.reader .button:hover, .original-reader .button:hover {
+  background: color-mix(in srgb, var(--reader-ink) 14%, var(--reader-page));
+}
+.reader-main { padding-bottom: 66px; }
+.reader-bottom-tools {
+  bottom: max(6px, env(safe-area-inset-bottom));
+  min-height: 44px;
+  gap: 8px;
+  color: var(--reader-ink);
+  font-size: 12px;
+}
+.reader-bottom-tools button {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 10px;
+  justify-content: center;
+  border-radius: 8px;
+}
+.reader-bottom-tools button:hover, .reader-bottom-tools button[aria-pressed="true"] {
+  background: var(--reader-chip);
+}
+.reader.is-full .reader-main { padding: 20px 36px 66px; }
+.exit-full { z-index: 9; opacity: 1; color: var(--reader-ink); }
+.selection-ui { width: min(410px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow-y: auto; }
+.selection-toolbar { flex-wrap: wrap; justify-content: center; }
+.selection-toolbar button, .selection-toolbar a, .selection-swatches button,
+.selection-toolbar .selection-dismiss { min-width: 44px; width: auto; }
+.selection-swatches button[aria-pressed="true"] span { outline: 2px solid var(--toolbar-ink); outline-offset: 3px; }
+.selection-note textarea { color: var(--toolbar-ink); background: var(--toolbar-bg); border-color: var(--toolbar-line); }
+.reader button:focus-visible, .original-reader button:focus-visible { outline: 2px solid var(--reader-accent); outline-offset: 2px; }
+.original-reader .reader-header { color: var(--reader-ink); }
+.original-reader .reader-title { text-align: left; }
+.original-reader .pdf-controls button, .original-reader .pdf-controls a { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
+.original-reader .reader-header .icon-button[aria-pressed="true"] { background: var(--reader-chip); color: var(--reader-accent); }
+.pdf-footer { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+.pdf-footer small { opacity: 1; color: var(--muted); }
+@media (pointer: fine) {
+  .book-box .page-text { user-select: text; -webkit-user-select: text; cursor: text; }
+}
+@media (max-width: 900px) {
+  .reader-bottom-tools > span { display: none; }
+}
+@media (max-width: 639px) {
+  .phone-reader .reader-main { padding: 68px 0 62px; }
+  .phone-reader .reader-header { padding: 6px 8px; }
+  .phone-reader .reader-bottom-tools { left: 6px; right: 6px; bottom: max(4px, env(safe-area-inset-bottom)); gap: 2px; justify-content: center; }
+  .phone-reader .reader-bottom-tools button { font-size: 11px; padding: 0 8px; }
+  .phone-reader .reader-header nav .button { font-size: 11px; padding: 0 10px; }
+  .reader.is-full .reader-main { padding: 16px 10px 112px; }
+  .reader.is-full .reader-bottom-tools { flex-wrap: wrap; }
+  .original-reader .reader-header { position: static; flex-wrap: wrap; border-radius: 0; padding: 6px 8px; gap: 2px; }
+  .original-reader .reader-title { flex: 1; }
+  .original-reader .reader-header nav { flex-basis: 100%; justify-content: space-between; }
+  .original-reader .reader-header .button { flex-shrink: 0; font-size: 12px; padding: 0 10px; }
+  .original-reader .reader-header nav > button { display: inline-flex; }
+}
+@media (orientation: landscape) and (max-height: 550px) {
+  .reader .reader-main { padding-bottom: 60px; }
+  .reader.is-full .reader-main { padding: 12px 24px 60px; }
+  .original-reader .reader-header { position: static; color: var(--reader-ink); background: var(--desk); border-radius: 0; padding: 2px 8px; }
+  .original-reader .reader-header nav { display: flex; }
+  .original-reader .reader-header nav > button { display: inline-flex; }
+  .original-reader .reader-header nav > .aa { color: inherit; }
+}
+
+.original-reader .reader-title small { color: var(--muted); opacity: 1; }
+.original-reader .pdf-controls a { color: var(--reader-accent); text-decoration: underline; text-underline-offset: 3px; }

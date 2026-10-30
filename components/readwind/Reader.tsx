@@ -21,6 +21,7 @@ import { Icon } from "./Icon";
 import { Modal } from "./Modal";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { Comfort, Segments } from "./Comfort";
+import { hasReadableContent } from '@/lib/readwind/content';
 type Turn = { dir: number; p: number; kind: "page" | "open" | "close" };
 export function Reader({
   book,
@@ -38,10 +39,12 @@ export function Reader({
     leaf = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 1000, h: 700 }),
     [phone, setPhone] = useState(false),
+    [compact, setCompact] = useState(false),
     [fill, setFill] = useState(false),
     [closed, setClosed] = useState(false),
     [chrome, setChrome] = useState(true),
     [full, setFull] = useState(false);
+  const navigated = useRef(false);
   const saved = l.progress.find((p) => p.bookId === book.id);
   const [anchor, setAnchor] = useState<Anchor>(saved?.at || start),
     anchorRef = useRef(anchor),
@@ -83,20 +86,24 @@ export function Reader({
   } | null>(null);
   const spread = !phone && s.wideLayout === "spread" && s.turn !== "Scroll";
   const g = useMemo(
-    () => geometry(size.w, size.h, s, fill, spread, !full),
+    () => geometry(size.w, size.h, s, fill, spread, true),
     [size, s.size, s.spacing, fill, spread, full],
   );
   const annotations = l.annotations.filter((a) => a.bookId === book.id);
   const index = pageIndex(pages, anchor, spread),
     first = pages[index]?.blank ? pages[index + 1] : pages[index];
   const last = spread ? pages[index + 1] || first : first;
-  const a = first ? labelAt(book, first.start) : labelAt(book, anchor),
-    b = last
+  const a = s.turn === "Scroll" ? labelAt(book, anchor) : first ? labelAt(book, first.start) : labelAt(book, anchor),
+    b = s.turn === "Scroll" ? a : last
       ? labelAt(book, { ...last.end, offset: Math.max(0, last.end.offset - 1) })
       : a;
-  const info = wordProgress(book, anchor);
+  const visibleAnchor = s.turn === "Scroll" ? anchor : first?.start || anchor;
+  const info = wordProgress(book, visibleAnchor);
+  const bookmarked = annotations.find(a => a.kind === 'bookmark' && first &&
+    compare(a.range.start, first.start) >= 0 && compare(a.range.start, first.end) < 0);
   const commitAnchor = useCallback(
     (at: Anchor) => {
+      navigated.current = true;
       anchorRef.current = at;
       setAnchor(at);
       void l.saveProgress(book.id, at, wordProgress(book, at).before);
@@ -108,6 +115,7 @@ export function Reader({
       const p =
         window.innerWidth < 640 && window.innerHeight > window.innerWidth;
       setPhone(p);
+      setCompact(window.innerWidth < 900 || window.innerHeight < 550);
       setFill(window.innerWidth < 900);
       return p;
     };
@@ -151,7 +159,7 @@ export function Reader({
   useEffect(() => {
     if (
       saved &&
-      saved.deviceId !== localStorage.getItem("folio-device") &&
+      (!navigated.current || saved.deviceId !== localStorage.getItem("folio-device")) &&
       !l.conflict
     ) {
       setAnchor(saved.at);
@@ -349,6 +357,7 @@ export function Reader({
       (e.target as HTMLElement).closest("button,a,[data-highlight]")
     )
       return;
+    if (e.pointerType === 'mouse' && (e.target as HTMLElement).closest('.page-text')) return;
     const r = box.current!.getBoundingClientRect();
     drag.current = {
       x: e.clientX,
@@ -467,13 +476,7 @@ export function Reader({
     window.getSelection()?.removeAllRanges();
   };
   const bookmark = () => {
-    const existing = annotations.find(
-      (a) =>
-        a.kind === "bookmark" &&
-        first &&
-        compare(a.range.start, first.start) >= 0 &&
-        compare(a.range.start, first.end) < 0,
-    );
+    const existing = bookmarked;
     void l.saveAnnotation(
       existing
         ? { ...existing, deleted: true }
@@ -481,8 +484,8 @@ export function Reader({
             id: crypto.randomUUID(),
             bookId: book.id,
             kind: "bookmark",
-            range: { start: anchor, end: anchor },
-            quote: "Bookmarked passage",
+            range: { start: first?.start || anchor, end: first?.start || anchor },
+            quote: `Page ${a}`,
             color: "pink",
             note: "",
             createdAt: Date.now(),
@@ -509,6 +512,7 @@ export function Reader({
       out: { at: Anchor; text: string }[] = [];
     book.sections.forEach((sec, section) =>
       sec.blocks.forEach((b, block) => {
+        if (!hasReadableContent(b)) return;
         const text = b.text || "";
         let offset = text.toLowerCase().indexOf(q);
         while (offset >= 0 && out.length < 60) {
@@ -666,7 +670,7 @@ export function Reader({
             <Icon name="back" />
           </button>
           <div className="reader-title">
-            {book.title} · {book.sections[anchor.section]?.title}
+            {book.title} · {book.sections[visibleAnchor.section]?.title}
           </div>
           <div className="layout-control">
             <Segments
@@ -747,6 +751,7 @@ export function Reader({
             }
           }}
           onMouseUp={onSelect}
+          onKeyUp={onSelect}
           onTouchEnd={() => setTimeout(onSelect, 80)}
         >
           {busy && (
@@ -816,7 +821,6 @@ export function Reader({
                 >
                   {renderPage(ur, spread ? "right" : "single", {
                     cover: urCover,
-                    resume: a,
                   })}
                   <div
                     className="page-shade"
@@ -878,7 +882,7 @@ export function Reader({
                     {renderPage(
                       front,
                       spread ? (forward ? "right" : "left") : "single",
-                      { cover: frontCover, resume: a, decorative: true },
+                      { cover: frontCover, decorative: true },
                     )}
                     <div
                       className="page-shade"
@@ -906,7 +910,7 @@ export function Reader({
               )}
             </div>
           )}
-          {!full && (
+          {(
             <footer
               className="book-footer"
               style={{ width: fill ? Math.min(g.bookW, 760) - 24 : g.bookW }}
@@ -949,24 +953,30 @@ export function Reader({
             </footer>
           )}
         </div>
-        {!closed && !full && (
+        {!closed && (
           <div className="reader-bottom-tools">
-            <button onClick={bookmark} aria-label="Bookmark this passage">
+            <button onClick={bookmark} aria-label={bookmarked ? 'Remove bookmark' : 'Bookmark this passage'} aria-pressed={!!bookmarked}>
               <Icon name="bookmark" size={16} />
             </button>
             <button
               aria-pressed={selectMode}
-              onClick={() => setSelectMode((v) => !v)}
+              aria-label={selectMode ? "Done selecting" : "Highlight / note"}
+              onClick={() => { setSelectMode((v) => !v); if (!selectMode) setMessage("Select a passage, then choose a highlight color or Note."); }}
             >
-              {selectMode ? "Done selecting" : "Select text"}
+              {selectMode ? (phone ? "Done" : "Done selecting") : (phone ? "Annotate" : "Highlight / note")}
             </button>
-            {phone && (
+            {(compact || full) && (
               <>
                 <button onClick={() => setPanel("contents")}>Contents</button>
                 <button onClick={() => setPanel("search")}>Search</button>
               </>
             )}
-            {book.sourcePdfBlobId && (
+            {full && <>
+              <button onClick={() => setPanel('comfort')} aria-label="Type and comfort settings">Aa</button>
+              <button onClick={() => navigate(`/book/${book.id}/notebook`)}>Notebook</button>
+            </>}
+            {compact && !full && <button onClick={fullscreen} aria-label="Full screen"><Icon name="full" size={16}/></button>}
+            {book.sourcePdfBlobId && (!phone || full) && (
               <button onClick={() => setPanel("original")}>Original PDF</button>
             )}
             <span title={l.status}>

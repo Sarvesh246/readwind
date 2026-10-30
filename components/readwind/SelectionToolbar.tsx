@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { colors, type Color } from "@/lib/readwind/types";
 import { Icon } from "./Icon";
 export function SelectionToolbar({
@@ -26,17 +26,32 @@ export function SelectionToolbar({
   const [editing, setEditing] = useState(!!note),
     [more, setMore] = useState(false),
     [copied, setCopied] = useState(false);
-  const left = position
-    ? Math.max(12, Math.min(window.innerWidth - 366, position.x - 177))
-    : Math.max(12, (window.innerWidth - 354) / 2);
+  const ref = useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = useState({left: 12, top: 80, maxHeight: 600});
+  useLayoutEffect(() => {
+    const fit = () => {
+      const el = ref.current;
+      if (!el) return;
+      const v = window.visualViewport;
+      const width = v?.width || window.innerWidth, height = v?.height || window.innerHeight;
+      const x = v?.offsetLeft || 0, y = v?.offsetTop || 0;
+      setPlacement({left: x + Math.max(12, Math.min(width - el.offsetWidth - 12, (position?.x || width / 2) - el.offsetWidth / 2)),
+        top: y + Math.max(12, Math.min(height - el.offsetHeight - 12, position?.y || height - el.offsetHeight - 90)),
+        maxHeight: Math.max(44, height - 24)});
+    };
+    const observer = new ResizeObserver(fit);
+    if (ref.current) observer.observe(ref.current);
+    window.visualViewport?.addEventListener('resize', fit);
+    window.visualViewport?.addEventListener('scroll', fit);
+    window.addEventListener('resize', fit);
+    fit();
+    return () => { observer.disconnect(); window.visualViewport?.removeEventListener('resize', fit); window.visualViewport?.removeEventListener('scroll', fit); window.removeEventListener('resize', fit); };
+  }, [position]);
   return (
     <div
       className="selection-ui"
-      style={{
-        left,
-        top: position?.y || undefined,
-        bottom: position ? undefined : 90,
-      }}
+      ref={ref}
+      style={placement}
       onKeyDown={(e) => {
         if (e.key === "Escape") onClose();
       }}
@@ -51,6 +66,7 @@ export function SelectionToolbar({
             <button
               key={c}
               aria-label={`Highlight ${c}`}
+              aria-pressed={selectedColor === c}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => onColor(c as Color)}
             >

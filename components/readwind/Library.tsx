@@ -9,6 +9,7 @@ import { CoverTitle } from "./CoverTitle";
 import { Icon } from "./Icon";
 import { ReadwindLockup } from "./Logo";
 import { ThemeToggleButton } from "./Theme";
+import { hasReadableContent } from '@/lib/readwind/content';
 export function Cover({
   book,
   loadBlob,
@@ -90,7 +91,7 @@ function openingLine(book: Book) {
   const text =
     book.sections
       .flatMap((s) => s.blocks)
-      .find((b) => b.type === "p" && (b.text || "").length > 60)?.text || "";
+      .find((b) => b.type === "p" && hasReadableContent(b) && (b.text || "").length > 60)?.text || "";
   const stop = text.slice(0, 230).search(/[.!?;:]["”’]?\s/);
   if (stop > 50) return text.slice(0, stop + 1);
   if (text.length <= 170) return text;
@@ -99,6 +100,7 @@ function openingLine(book: Book) {
 const readTime = (book: Book) => {
   const words = book.sections
     .flatMap((s) => s.blocks)
+    .filter(hasReadableContent)
     .reduce((n, b) => n + (b.type === "figure" ? 0 : b.text.split(/\s+/).length), 0);
   const minutes = Math.max(1, Math.round(words / 230));
   return minutes < 90 ? `${minutes} min read` : `${Math.round(minutes / 6) / 10} hr read`;

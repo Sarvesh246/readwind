@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import type { Book, Settings, Anchor, Annotation } from "@/lib/readwind/types";
 import { families, leading, themes } from "@/lib/readwind/types";
 import { textRuns, BlobImage } from "./Page";
+import { compare } from "@/lib/readwind/anchors";
 import { Modal } from "./Modal";
+import { hasReadableContent } from '@/lib/readwind/content';
 export function ScrollReader({
   book,
   settings: s,
@@ -21,13 +23,15 @@ export function ScrollReader({
   loadBlob: (id: string) => Promise<Blob | undefined>;
   onAnnotation: (a: Annotation) => void;
 }) {
+  const reported = useRef<Anchor | null>(null);
   const ref = useRef<HTMLDivElement>(null),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null),
     restoring = useRef(true),
     [footnote, setFootnote] = useState<string | null>(null);
   useEffect(() => {
     const root = ref.current;
-    if (!root) return;
+    if (!root || (reported.current && compare(reported.current, anchor) === 0)) return;
+    restoring.current = true;
     const p = root.querySelector<HTMLElement>(
       `[data-paragraph="${anchor.section}:${anchor.block}"]`,
     );
@@ -58,7 +62,7 @@ export function ScrollReader({
     return () => {
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [book.id, s.size, s.spacing, s.font]);
+  }, [book.id, s.size, s.spacing, s.font, anchor]);
   function scroll() {
     if (restoring.current) return;
     if (timer.current) clearTimeout(timer.current);
@@ -92,7 +96,8 @@ export function ScrollReader({
           offset = Number(el.dataset.offset) + r.toString().length;
         }
       }
-      onProgress({ section, block, offset });
+      reported.current = { section, block, offset };
+      onProgress(reported.current);
     }, 250);
   }
   const t = themes[s.paper];
@@ -109,13 +114,14 @@ export function ScrollReader({
       }}
       onScroll={scroll}
     >
-      {book.sections.map((sec, section) => (
+      {book.sections.map((sec, section) => sec.blocks.some(hasReadableContent) && (
         <section key={sec.id}>
           <div className="continuous-chapter">
             <small>{book.title}</small>
             <h2>{sec.title}</h2>
           </div>
           {sec.blocks.map((b, block) => {
+            if (!hasReadableContent(b)) return null;
             if (b.type === "figure")
               return (
                 <figure key={block}>
