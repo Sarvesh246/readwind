@@ -3,6 +3,9 @@ export type Block =
   | {
       type: "p" | "h" | "quote";
       text: string;
+      /** A contents row remains separate from prose and points to a physical source page. */
+      contentsEntry?: boolean;
+      targetPageIndex?: number;
       footnoteRefs?: { at: number; noteId: string }[];
     }
   | { type: "figure"; blobId: string; caption?: string; text?: string };

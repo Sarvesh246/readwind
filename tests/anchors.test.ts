@@ -5,6 +5,7 @@ import {
   clampAnchor,
   labelAt,
   wordProgress,
+  sectionStart,
 } from "../lib/readwind/anchors";
 import { geometry, pageIndex } from "../lib/readwind/pagination";
 import { defaults } from "../lib/readwind/types";
@@ -48,6 +49,10 @@ describe("stable reading locations", () => {
     const a = clampAnchor(book, { section: 999, block: 999, offset: 99999 });
     expect(a.section).toBe(1);
     expect(a.offset).toBe(book.sections[1].blocks[a.block].text!.length);
+  });
+  it('starts a chapter at its first readable block after a heading-only source page',()=>{
+    const source={...book,sections:[{id:'s',title:'Chapter',heading:true,blocks:[{type:'p' as const,text:''},{type:'p' as const,text:'The chapter begins here.'}]}]};
+    expect(sectionStart(source,0)).toEqual({section:0,block:1,offset:0});
   });
   it("calculates full-book time separately from chapter time", () => {
     const short = Array(230).fill('word').join(' ');

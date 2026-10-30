@@ -126,7 +126,7 @@ export function ReaderHeader(props: Props) {
       </div>
       <nav aria-label="Reader tools">
         <button
-          className="reader-tool desktop-tool"
+          className="reader-tool chapter-tool"
           aria-label="Contents and go to page"
           title="Contents and go to page"
           onClick={props.onContents}

@@ -8,6 +8,7 @@ import { compare } from "@/lib/readwind/anchors";
 import { chapterLayout } from "@/lib/readwind/pagination";
 import { Modal } from "./Modal";
 import { CoverTitle } from "./CoverTitle";
+import {ContentsEntry} from './ContentsEntry';
 type Props = {
   page: ScreenPage | null;
   book: Book;
@@ -20,6 +21,7 @@ type Props = {
   cover?: boolean;
   inside?: boolean;
   decorative?: boolean;
+  onNavigate?: (at:Anchor)=>void;
 };
 export function BlobImage({
   id,
@@ -201,8 +203,10 @@ export const Page = memo(function Page({
   cover,
   inside,
   decorative,
+  onNavigate,
 }: Props) {
   const [footnote, setFootnote] = useState<string | null>(null);
+  const textBlock = (f:Fragment)=>{const block=book.sections[f.section].blocks[f.block];return block.type==='figure'?undefined:block;};
   const t = themes[settings.paper];
   const chapter = chapterLayout(g, page?.chapterTitle || '');
   const gutter = {
@@ -315,17 +319,19 @@ export const Page = memo(function Page({
                   key={i}
                   data-paragraph={`${f.section}:${f.block}`}
                   style={{
-                    textIndent: f.continuation || f.drop ? "0" : "1.4em",
+                    textIndent: f.continuation || f.drop || (textBlock(f)?.contentsEntry) ? "0" : "1.4em",
+                    textAlign: textBlock(f)?.contentsEntry ? 'left' : undefined,
+                    marginBottom: textBlock(f)?.contentsEntry ? '.55em' : undefined,
                   }}
                 >
-                  {textRuns(
+                  <ContentsEntry book={book} pageIndex={textBlock(f)?.targetPageIndex} onNavigate={onNavigate}>{textRuns(
                     f,
                     book,
                     annotations,
                     settings,
                     onAnnotation,
                     setFootnote,
-                  )}
+                  )}</ContentsEntry>
                 </p>
               ),
             )}

@@ -1,6 +1,6 @@
 import type { Book, Section, PageMark } from "./types";
 import { analyzePdfPage, dominantSize, importReport, type PdfPageReport } from './pdf-layout';
-import { printedLabels, contentsChapters, interpolatePrintedLabels, type ContentsLink } from './chapters';
+import { printedLabels, contentsChapters, interpolatePrintedLabels, type ContentsLink, pageHeading } from './chapters';
 import { ocrLines, ocrScore, enhanceOcrContrast } from './ocr';
 export type ImportOptions = {
   removeHeaders: boolean;
@@ -309,29 +309,6 @@ export async function importPDF(
         if (!frequency.has(key)) frequency.set(key, new Set());
         frequency.get(key)!.add(line.page);
       }
-    let pageLabels = printedLabels(all, labels, heights);
-    let toc = contentsChapters(all, [...pageLabels]);
-    const contentsLinks = new Map<number, ContentsLink[]>();
-    for (const pi of toc.contentsPages) {
-      if (signal?.aborted) throw new DOMException('Import cancelled', 'AbortError');
-      const page = await pdf.getPage(pi+1), viewport = page.getViewport({scale:1});
-      const links:ContentsLink[] = [];
-      for (const annotation of await page.getAnnotations().catch(()=>[])) {
-        try {
-          const dest = typeof annotation.dest === 'string' ? await pdf.getDestination(annotation.dest) : annotation.dest;
-          if (!Array.isArray(dest) || !annotation.rect) continue;
-          const index = typeof dest[0] === 'number' ? dest[0] : await pdf.getPageIndex(dest[0]);
-          const a = viewport.convertToViewportPoint(annotation.rect[0], annotation.rect[1]);
-          const b = viewport.convertToViewportPoint(annotation.rect[2], annotation.rect[3]);
-          links.push({index, top:Math.min(a[1],b[1]), bottom:Math.max(a[1],b[1])});
-        } catch { /* Broken links do not override visible contents and printed numbers. */ }
-      }
-      contentsLinks.set(pi, links);
-      page.cleanup();
-    }
-    toc = contentsChapters(all, pageLabels, contentsLinks);
-    pageLabels = interpolatePrintedLabels(pageLabels);
-    const median = dominantSize(all.flat().filter(l=>!l.header));
     const outlinePages = new Map<number, string>();
     const flattenOutline = (items: NonNullable<typeof outline>): NonNullable<typeof outline> => items.flatMap(item => [item, ...flattenOutline(item.items || [])]);
     for (const item of flattenOutline(outline || [])) {
@@ -349,6 +326,29 @@ export async function importPDF(
         }
       } catch {}
     }
+    let pageLabels = printedLabels(all, labels, heights);
+    let toc = contentsChapters(all, [...pageLabels], new Map(), heights);
+    const contentsLinks = new Map<number, ContentsLink[]>();
+    for (const pi of toc.contentsPages) {
+      if (signal?.aborted) throw new DOMException('Import cancelled', 'AbortError');
+      const page = await pdf.getPage(pi+1), viewport = page.getViewport({scale:1});
+      const links:ContentsLink[] = [];
+      for (const annotation of await page.getAnnotations().catch(()=>[])) {
+        try {
+          const dest = typeof annotation.dest === 'string' ? await pdf.getDestination(annotation.dest) : annotation.dest;
+          if (!Array.isArray(dest) || !annotation.rect) continue;
+          const index = typeof dest[0] === 'number' ? dest[0] : await pdf.getPageIndex(dest[0]);
+          const a = viewport.convertToViewportPoint(annotation.rect[0], annotation.rect[1]);
+          const b = viewport.convertToViewportPoint(annotation.rect[2], annotation.rect[3]);
+          links.push({index, top:Math.min(a[1],b[1]), bottom:Math.max(a[1],b[1]), left:Math.min(a[0],b[0]), right:Math.max(a[0],b[0]), title:outlinePages.get(index)});
+        } catch { /* Broken links do not override visible contents and printed numbers. */ }
+      }
+      contentsLinks.set(pi, links);
+      page.cleanup();
+    }
+    toc = contentsChapters(all, pageLabels, contentsLinks, heights);
+    pageLabels = interpolatePrintedLabels(pageLabels);
+    const median = dominantSize(all.flat().filter(l=>!l.header));
     const sections: Section[] = [],
       marks: PageMark[] = [],
       pageText: string[] = [],
@@ -392,11 +392,9 @@ export async function importPDF(
         }
         return true;
       });
-      const heading =
-        (toc.contentsPages.size ? toc.chapters.get(pi) : outlinePages.get(pi)) ||
-        (!toc.contentsPages.size && !outlinePages.size ? kept.find(
-          (l) => l.size > median * 1.3 && l.y < 250 && l.text.length < 130 && !l.header,
-        )?.text : undefined);
+      const detected = !toc.contentsPages.size && !outlinePages.size ? pageHeading(kept,median,heights[pi]) : undefined;
+      const heading = toc.contentsPages.has(pi) ? "Contents" : toc.chapters.get(pi) ||
+        (!toc.contentsPages.size ? outlinePages.get(pi) || detected?.title : undefined);
       if (!section || heading) {
         section = {
           id: crypto.randomUUID(),
@@ -424,12 +422,16 @@ export async function importPDF(
         }
       };
       const figures = [...(images.get(pi) || [])].sort((a, b) => a.y - b.y);
-      for (const line of kept) {
+      const entries = toc.entriesByPage.get(pi);
+      if (entries?.length) {
+        for (const entry of entries) section.blocks.push({type:entry.group?"h":"p",text:entry.title+(entry.label?` · ${entry.label}`:''),contentsEntry:true,targetPageIndex:entry.target});
+      }
+      for (const line of entries?.length ? [] : kept) {
         while (figures[0] && figures[0].y < line.y) {
           flush();
           section.blocks.push({ type: "figure", blobId: figures.shift()!.id });
         }
-        if (line.text === heading && line.y < 250) {
+        if ((line.text === heading && line.y < heights[pi]*.5) || detected?.lines.some(l=>l===line)) {
           flush();
           continue;
         }

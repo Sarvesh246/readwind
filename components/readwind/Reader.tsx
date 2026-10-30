@@ -15,7 +15,7 @@ import { themes, colors, families, leading } from "@/lib/readwind/types";
 import { geometry, paginate, pageIndex } from "@/lib/readwind/pagination";
 import type { CurlRenderer } from "@/lib/readwind/curl";
 import type { ScreenPage } from "@/lib/readwind/pagination";
-import { compare, labelAt, wordProgress, start } from "@/lib/readwind/anchors";
+import { compare, labelAt, wordProgress, start, sectionStart } from "@/lib/readwind/anchors";
 import type { Library } from "@/lib/readwind/useLibrary";
 import { ScrollReader } from "./ScrollReader";
 import { Page, BlobImage } from "./Page";
@@ -25,6 +25,7 @@ import { OriginalPdfPreview } from "./OriginalPdfPreview";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { Comfort } from "./Comfort";
 import { ReaderHeader } from "./ReaderHeader";
+import { ChapterNavigation } from "./ChapterNavigation";
 import { CoverEditor } from "./CoverPicker";
 import { Highlighter } from "lucide-react";
 import { hasReadableContent } from '@/lib/readwind/content';
@@ -81,6 +82,7 @@ export function Reader({
   const [selectMode, setSelectMode] = useState(false),
     [originalUrl, setOriginalUrl] = useState("");
   const [originalBlob, setOriginalBlob] = useState<Blob | null>(null);
+  const [originalPageIndex,setOriginalPageIndex]=useState<number|null>(null);
   const curl = useRef<CurlRenderer | null>(null),
     pointerY = useRef(0.5);
   const drag = useRef<{
@@ -101,11 +103,12 @@ export function Reader({
   const index = pageIndex(pages, anchor, spread),
     first = pages[index]?.blank ? pages[index + 1] : pages[index];
   const last = spread ? pages[index + 1] || first : first;
-  const a = s.turn === "Scroll" ? labelAt(book, anchor) : first ? labelAt(book, first.start) : labelAt(book, anchor),
+  const a = s.turn === "Scroll" ? labelAt(book, anchor) : first ? labelAt(book, first.chapterStart?{section:first.start.section,block:0,offset:0}:first.start) : labelAt(book, anchor),
     b = s.turn === "Scroll" ? a : last
       ? labelAt(book, { ...last.end, offset: Math.max(0, last.end.offset - 1) })
       : a;
-  const visibleAnchor = s.turn === "Scroll" ? anchor : first?.start || anchor;
+  // A chapter jump may land on the right of a spread beside the previous chapter.
+  const visibleAnchor = anchor;
   const info = wordProgress(book, visibleAnchor, l.readingSpeed);
   useReadingPace(`${l.paceOwner}:${book.id}`, info.before, !busy && !closed && !panel && !selection && !editing && !l.conflict, l.recordReading);
   const bookmarked = annotations.find(a => a.kind === 'bookmark' && first &&
@@ -511,6 +514,10 @@ export function Reader({
     );
   };
   const jump = (at: Anchor) => {
+    if(!book.sections[at.section]?.blocks.some(hasReadableContent) && book.sourcePdfBlobId){
+      setOriginalPageIndex(book.pageMarks.find(m=>m.at.section===at.section)?.index || 0);
+      setPanel('original');return;
+    }
     commitAnchor(at);
     setClosed(false);
     setPanel(null);
@@ -668,6 +675,7 @@ export function Reader({
       side={side}
       annotations={annotations}
       loadBlob={l.loadBlob}
+      onNavigate={jump}
       onAnnotation={(a) => {
         setEditing(a);
         setNote(a.note);
@@ -705,7 +713,7 @@ export function Reader({
           onLibrary={()=>navigate("/")}
           onLayout={wideLayout=>void l.saveSettings({...s,wideLayout})}
           onOriginal={()=>void l.saveReadingMode(book,"original")}
-          onOriginalPage={()=>setPanel("original")}
+          onOriginalPage={()=>{setOriginalPageIndex(null);setPanel("original");}}
           onContents={()=>setPanel("contents")}
           onSearch={()=>setPanel("search")}
           onNotebook={()=>navigate(`/book/${book.id}/notebook`)}
@@ -748,6 +756,7 @@ export function Reader({
               settings={s}
               anchor={anchor}
               onProgress={commitAnchor}
+              onNavigate={jump}
               annotations={annotations}
               loadBlob={l.loadBlob}
               onAnnotation={(a) => {
@@ -982,7 +991,7 @@ export function Reader({
             </>}
             {compact && !full && <button onClick={fullscreen} aria-label="Full screen"><Icon name="full" size={16}/></button>}
             {book.sourcePdfBlobId && (!phone || full) && (
-              <button aria-label="Original PDF" title="View the original PDF page" onClick={() => setPanel("original")}><Icon name="file" size={17}/><span className="dock-label">Original PDF</span></button>
+              <button aria-label="Original PDF" title="View the original PDF page" onClick={() => {setOriginalPageIndex(null);setPanel("original");}}><Icon name="file" size={17}/><span className="dock-label">Original PDF</span></button>
             )}
             <span className="reader-save-status" role="status" title={l.guest ? "Your progress is saved in this browser" : l.status}>
               <Icon name={l.guest || l.status === "All changes synced" ? "check" : "cloud"} size={14}/>
@@ -1034,19 +1043,7 @@ export function Reader({
             </label>
             <button className="button primary">Go</button>
           </form>
-          <div className="contents-list">
-            {book.sections.map((section, i) => (
-              <button
-                key={section.id}
-                onClick={() => jump({ section: i, block: 0, offset: 0 })}
-              >
-                <span>{section.title}</span>
-                <small>
-                  p. {labelAt(book, { section: i, block: 0, offset: 0 })}
-                </small>
-              </button>
-            ))}
-          </div>
+          <ChapterNavigation book={book} currentSection={anchor.section} onSelect={i=>jump(sectionStart(book,i))}/>
         </Modal>
       )}
       {panel === "cover" && (
@@ -1081,7 +1078,7 @@ export function Reader({
         >
           {originalUrl && originalBlob ? (
             <>
-              <OriginalPdfPreview blob={originalBlob} index={book.pageMarks.find(m=>m.label===a)?.index || 0}/>
+              <OriginalPdfPreview blob={originalBlob} index={originalPageIndex ?? book.pageMarks.find(m=>m.label===a)?.index ?? 0}/>
               <a
                 className="button"
                 href={originalUrl}

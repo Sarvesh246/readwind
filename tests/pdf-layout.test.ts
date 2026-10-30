@@ -5,6 +5,10 @@ const item=(str:string,x:number,y:number,size=12,width=str.length*6):PdfTextItem
 describe('PDF layout analysis',()=>{
  it('reassembles fragmented characters without adding spaces inside words',()=>{expect(analyzePdfPage([item('H',30,80,12,7),item('e',37,80,12,6),item('llo',43,80,12,16),item('world',66,80)],view,0).lines[0].text).toBe('Hello world');});
  it('sorts stream fragments geometrically',()=>{expect(analyzePdfPage([item('second',30,100),item('first',30,80)],view,0).lines.map(l=>l.text)).toEqual(['first','second']);});
+ it('does not let an enlarged initial classify a body line as a heading',()=>{
+  const result=analyzePdfPage([item('M',30,130,36,25),item('y relationship with the world began quietly.',56,130,12,260)],view,0);
+  expect(result.lines[0].size).toBe(12);
+ });
  it('detects columns and reads each column top to bottom',()=>{const items=[0,1,2,3].flatMap(n=>[item(`Right ${n}`,340,100+n*20,12,80),item(`Left ${n}`,40,100+n*20,12,80)]);const r=analyzePdfPage(items,view,0);expect(r.report.issues).toContain('columns');expect(r.lines.map(l=>l.text)).toEqual(['Left 0','Left 1','Left 2','Left 3','Right 0','Right 1','Right 2','Right 3']);});
  it('normalizes ligatures and discretionary hyphens',()=>{expect(normalizePdfText('ﬁne ﬂowers soft\u00adhyphen')).toBe('fine flowers softhyphen');});
  it('weights body size by content rather than numerous tiny labels',()=>{expect(dominantSize([{size:18,text:'A long paragraph of body text'},...Array.from({length:10},()=>({size:6,text:'1'}))])).toBe(18);});

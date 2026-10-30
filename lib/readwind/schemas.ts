@@ -23,6 +23,8 @@ export const book = z
                 z.object({
                   type: z.enum(["p", "h", "quote"]),
                   text: z.string().max(200000),
+                  contentsEntry: z.boolean().optional(),
+                  targetPageIndex: z.number().int().min(0).max(9999).optional(),
                   footnoteRefs: z
                     .array(
                       z.object({
@@ -131,6 +133,9 @@ export const book = z
       )
         ctx.addIssue({ code: "custom", message: "Invalid page anchor" });
     }
+    for(const section of book.sections) for(const block of section.blocks)
+      if(block.type!=='figure' && block.targetPageIndex!==undefined && block.targetPageIndex>=book.printPageCount)
+        ctx.addIssue({code:'custom',message:'Invalid contents destination'});
   });
 export const progress = z.object({
   bookId: z.string().regex(safeId),

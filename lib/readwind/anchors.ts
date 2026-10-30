@@ -29,6 +29,10 @@ export function labelAt(book: Book, a: Anchor) {
   }
   return label;
 }
+export function sectionStart(book:Book, section:number):Anchor {
+  const block=book.sections[section]?.blocks.findIndex(hasReadableContent) ?? -1;
+  return {section,block:Math.max(0,block),offset:0};
+}
 export function wordProgress(book: Book, at: Anchor, wordsPerMinute = 230) {
   const speed = Number.isFinite(wordsPerMinute) && wordsPerMinute > 0 ? wordsPerMinute : 230;
   let total = 0,

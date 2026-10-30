@@ -201,8 +201,9 @@ export async function paginate(
             pg.chapterStart &&
             pg.fragments.length === 0 &&
             offset === 0 &&
-            block.type === "p";
-          para.style.cssText = `margin:0;text-indent:${offset || drop || block.type !== "p" ? "0" : "1.4em"};${block.type === "h" ? "font-weight:500;font-size:1.2em;line-height:1.3;padding:12px 0;" : ""}`;
+            block.type === "p" && !block.contentsEntry;
+          const toc = block.type !== 'figure' && block.contentsEntry;
+          para.style.cssText = `margin:0 0 ${toc ? '.55em' : '0'};text-indent:${offset || drop || block.type !== "p" || toc ? "0" : "1.4em"};${toc ? 'text-align:left;' : ''}${block.type === "h" ? "font-weight:500;font-size:1.2em;line-height:1.3;padding:12px 0;" : ""}`;
           function setText(end: number) {
             para.replaceChildren();
             if (block.type === "figure") {
@@ -356,7 +357,7 @@ export async function paginate(
         const last = pg.fragments.at(-1);
         if (!last) break;
         pg.end = { section: si, block: last.block, offset: last.end };
-        const a = labelAt(book, pg.start),
+        const a = labelAt(book, pg.chapterStart?{section:si,block:0,offset:0}:pg.start),
           b = labelAt(book, {
             ...pg.end,
             offset: Math.max(0, pg.end.offset - 1),

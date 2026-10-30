@@ -28,10 +28,10 @@ for(const [name,type] of [['chromium',chromium],['webkit',webkit]]){
     const scan=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=1224;c.height=1584;const ctx=c.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,c.width,c.height);ctx.fillStyle='black';ctx.font='32px Georgia';['A scanned page with a small selectable footer.','Recognition must recover the actual book content.','Every sentence should stay readable and complete.'].forEach((s,i)=>ctx.fillText(s,100,220+i*60));const data=ctx.getImageData(0,0,c.width,c.height).data;const gray=Uint8Array.from({length:c.width*c.height},(_,i)=>data[i*4]);let binary="";for(let i=0;i<gray.length;i+=32768)binary+=String.fromCharCode(...gray.subarray(i,i+32768));return btoa(binary);});
     await page.locator('input[type=file]').first().setInputFiles({name:'reliable-book.pdf',mimeType:'application/pdf',buffer:fixture(Buffer.from(scan,"base64"))});
     await page.locator('.chapter-edit').first().waitFor({timeout:180000});
-    assert.equal(await page.locator('.chapter-edit').count(),3);
-    await page.getByRole('textbox',{name:'New chapter title',exact:true}).fill('A manual chapter');await page.getByRole('textbox',{name:'Chapter starts on printed page',exact:true}).fill('2');await page.getByRole('button',{name:'Add chapter',exact:true}).click();
     assert.equal(await page.locator('.chapter-edit').count(),4);
-    await page.getByRole('button',{name:'Page 2',exact:true}).click();await page.getByRole('img',{name:'Original PDF page 4',exact:true}).waitFor();
+    await page.getByRole('textbox',{name:'New chapter title',exact:true}).fill('A manual chapter');await page.getByRole('textbox',{name:'Chapter starts on printed page',exact:true}).fill('2');await page.getByRole('button',{name:'Add chapter',exact:true}).click();
+    assert.equal(await page.locator('.chapter-edit').count(),5);
+    await page.getByRole('button',{name:'View page 2',exact:true}).click();await page.getByRole('img',{name:'Original PDF page 4',exact:true}).waitFor();
     // Correct a front-matter label without renumbering the body.
     await page.getByRole('button',{name:'Previous preview page'}).click();await page.getByRole('button',{name:'Previous preview page'}).click();
     await page.getByRole('textbox',{name:'Printed page label',exact:true}).fill('ii');await page.getByRole('button',{name:'Set page label',exact:true}).click();
@@ -40,10 +40,10 @@ for(const [name,type] of [['chromium',chromium],['webkit',webkit]]){
     await page.getByRole('button',{name:'Create book',exact:true}).click();await page.waitForURL(/\/book\//);
     const book=await page.evaluate(async()=>{const db=await new Promise(res=>{const r=indexedDB.open('folio-preview');r.onsuccess=()=>res(r.result);});const books=await new Promise(res=>{const r=db.transaction('books').objectStore('books').getAll();r.onsuccess=()=>res(r.result);});db.close();return books.find(b=>b.sourcePdfBlobId);});
     assert.deepEqual(book.pageMarks.map(m=>m.label),['PDF 1','ii','1','2','3','4']);
-    assert.deepEqual(book.sections.map(s=>s.title),['Beginning','First journey','A manual chapter','Second journey']);
+    assert.deepEqual(book.sections.map(s=>s.title),['Beginning','Contents','First journey','A manual chapter','Second journey']);
     assert.ok(book.sections.flatMap(s=>s.blocks).some(b=>b.text?.includes('Recognition must recover the actual book content')));
     assert.ok(book.importReport.pages[5].ocrConfidence>80);
-    assert.equal(book.pageMarks[4].at.section,3);
+    assert.equal(book.pageMarks[4].at.section,4);
     await page.getByRole('button',{name:'Contents and go to page'}).click();await page.getByRole('textbox',{name:'Printed page',exact:true}).fill('3');await page.getByRole('button',{name:'Go',exact:true}).click();await page.getByRole('img',{name:'Original PDF page 5',exact:true}).waitFor();
     await page.screenshot({path:path.join(output,`${name}-printed-page.png`)});assert.deepEqual(errors,[]);
     console.log(`PASS ${name}: contents, printed numbering, manual chapter, page correction, sparse-layer OCR (${Math.round(book.importReport.pages[5].ocrConfidence)}%), saved original navigation`);

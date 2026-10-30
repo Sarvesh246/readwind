@@ -1,5 +1,5 @@
 export type PdfTextItem = {str:string;transform:number[];width:number;height:number;dir?:string;fontName?:string;hasEOL?:boolean};
-export type PdfLine = {text:string;x:number;y:number;size:number;page:number;header:boolean;endX:number};
+export type PdfLine = {text:string;x:number;y:number;size:number;page:number;header:boolean;endX:number;ocr?:boolean};
 export type PdfIssue = 'columns'|'rotated-text'|'rtl'|'vertical-text'|'scanned'|'text-mapping'|'sparse'|'illustrated'|'low-ocr'|'extraction-error';
 export const pdfIssueLabels:Record<PdfIssue,string> = {
  'columns':'Multiple columns or aligned text', 'rotated-text':'Rotated text', 'rtl':'Right-to-left writing', 'vertical-text':'Vertical writing', 'scanned':'Scanned content', 'text-mapping':'Unreliable text layer', 'sparse':'Little selectable text', 'illustrated':'Illustrations or tables', 'low-ocr':'Recognition needs review', 'extraction-error':'Some content could not be extracted',
@@ -23,14 +23,15 @@ export function analyzePdfPage(items:PdfTextItem[],viewport:{width:number;height
   const row=rows.slice(-5).find(r=>Math.abs(r.y-glyph.y)<=tolerance);
   if(row){row.items.push(glyph);row.size=Math.max(row.size,glyph.size);}else rows.push({y:glyph.y,size:glyph.size,items:[glyph]});
  }
- const lines:PdfLine[]=[],gaps:{x:number;y:number}[]=[];
+ const lines:PdfLine[]=[],gaps:{x:number;y:number}[]=[],fonts=new Map<PdfLine,{text:string;size:number}[]>();
  for(const row of rows){let line:PdfLine|undefined;for(const g of row.items.sort((a,b)=>a.x-b.x)){
   const gap=line?g.x-line.endX:0;
   if(!line||gap>Math.max(bodySize*2.8,viewport.width*.035)){
    if(line&&!line.header)gaps.push({x:(line.endX+g.x)/2,y:row.y});
-   line={text:g.text,x:g.x,y:row.y,size:g.size,page,header:row.y<viewport.height*.08||row.y>viewport.height*.92,endX:g.x+g.width};lines.push(line);
-  }else{const space=gap>Math.min(line.size,g.size)*.16&&!/\s$/.test(line.text)&&!/^\s/.test(g.text);line.text+=(space?' ':'')+g.text;line.endX=Math.max(line.endX,g.x+g.width);}
+   line={text:g.text,x:g.x,y:row.y,size:g.size,page,header:row.y<viewport.height*.12||row.y>viewport.height*.9,endX:g.x+g.width};lines.push(line);fonts.set(line,[{text:g.text,size:g.size}]);
+  }else{const space=gap>Math.min(line.size,g.size)*.16&&!/\s$/.test(line.text)&&!/^\s/.test(g.text);line.text+=(space?' ':'')+g.text;line.endX=Math.max(line.endX,g.x+g.width);fonts.get(line)!.push({text:g.text,size:g.size});}
  }}
+ for(const line of lines){line.size=dominantSize(fonts.get(line)!);if(line.size>bodySize*1.15)line.header=false;}
  const gutters=new Map<number,{count:number;minY:number}>();for(const g of gaps.filter(g=>g.x>viewport.width*.2&&g.x<viewport.width*.8)){const bin=Math.round(g.x/(viewport.width*.04));const old=gutters.get(bin);gutters.set(bin,{count:(old?.count||0)+1,minY:Math.min(old?.minY??Infinity,g.y)});}
  const candidate=[...gutters].sort((a,b)=>b[1].count-a[1].count)[0];
  if(candidate&&candidate[1].count>=Math.max(3,rows.length*.15)){

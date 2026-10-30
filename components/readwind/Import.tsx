@@ -9,6 +9,7 @@ import { addChapterAtPage } from "@/lib/readwind/chapters";
 import { Icon } from "./Icon";
 import { Cover } from "./Library";
 import { CoverPicker, coverIds } from "./CoverPicker";
+import { ChapterTitleInput } from "./ChapterTitleInput";
 import { PdfPreview } from "./PdfPreview";
 const ocrLanguages = [['eng','English'],['spa','Spanish'],['fra','French'],['deu','German'],['por','Portuguese'],['hin','Hindi'],['ara','Arabic'],['jpn','Japanese'],['chi_sim','Chinese (simplified)']];
 export function Import({
@@ -37,6 +38,7 @@ export function Import({
       ocr: true,
     });
   const [chapterTitle, setChapterTitle] = useState(""), [chapterPage, setChapterPage] = useState(""), [chapterError, setChapterError] = useState(""), [printedPage, setPrintedPage] = useState("");
+  const [openEditors,setOpenEditors]=useState<string[]>([]);
   const input = useRef<HTMLInputElement>(null),
     controller = useRef<AbortController | null>(null),
     request=useRef(0);
@@ -425,42 +427,32 @@ export function Import({
               {result.book.importReport?.warnings.map(w=><p key={w}>{w}</p>)}
               <details><summary>Review page quality</summary>{result.book.importReport?.pages.filter(p=>p.issues.length).map(p=><button type="button" className="pdf-chapter" key={p.index} onClick={()=>{setPreviewPage(p.index);setPrintedPage("");}}>Page {result.book.pageMarks[p.index]?.label}: {p.issues.map(issue=>pdfIssueLabels[issue]).join(", ")}{p.ocrConfidence !== undefined ? ` / OCR confidence ${Math.round(p.ocrConfidence)}%` : ""}</button>)}</details>
             </div>
-            <fieldset>
+            <fieldset className="chapter-review">
               <legend>Chapters and front matter ({result.book.sections.length})</legend>
               {new Set(result.book.pageMarks.map(m=>m.label.toLowerCase())).size !== result.book.pageMarks.length && <p role="alert" className="form-error">Some printed page labels repeat. Give those pages unique labels in the preview so navigation can identify them.</p>}
               <p className="muted">Chapter pages use the printed labels in the book. Select a chapter’s page to check its original scan.</p>
-              <label>New chapter title<input value={chapterTitle} onChange={e=>setChapterTitle(e.target.value)} /></label>
-              <label>Chapter starts on printed page<input value={chapterPage} placeholder="113 or ix" onChange={e=>setChapterPage(e.target.value)} /></label>
+              <div className="chapter-add">
+              <label>New chapter title<input maxLength={500} value={chapterTitle} placeholder="e.g. Introduction" onChange={e=>setChapterTitle(e.target.value)} /></label>
+              <label>Chapter starts on printed page<input maxLength={120} value={chapterPage} placeholder="113 or ix" onChange={e=>setChapterPage(e.target.value)} /></label>
               <button type="button" className="button small" onClick={()=>{try {setBook(addChapterAtPage(result.book,chapterPage,chapterTitle));setChapterError("");setChapterTitle("");setChapterPage("");}catch(e){setChapterError((e as Error).message);}}}>Add chapter</button>
+              </div>
               {chapterError && <p className="form-error" role="alert">{chapterError}</p>}
               <div className="chapter-edit-list">
                 {result.book.sections.map((sec, si) => (
                   <div className="chapter-edit" key={sec.id}>
                     <div className="chapter-edit-main">
                       <span>{si + 1}</span>
-                      <input
-                        aria-label={`Chapter ${si + 1} title`}
-                        value={sec.title}
-                        onChange={(e) => {
-                          const sections = [...result.book.sections];
-                          sections[si] = { ...sec, title: e.target.value };
-                          setBook({ sections });
-                        }}
-                      />
-                      {si > 0 && (
-                        <button
-                          type="button"
-                          className="chapter-merge"
-                          onClick={() => mergeChapter(si)}
-                        >
-                          Merge ↑
-                        </button>
-                      )}
+                      <ChapterTitleInput label={`Chapter ${si + 1} title`} title={sec.title} onChange={value=>{
+                        const sections=[...result.book.sections];sections[si]={...sec,title:value};setBook({sections});
+                      }}/>
                     </div>
-                    <button type="button" className="chapter-page" onClick={()=>{const mark=result.book.pageMarks.find(m=>m.at.section===si);if(mark){setPreviewPage(mark.index);setPrintedPage("");}}}>Page {result.book.pageMarks.find(m=>m.at.section===si)?.label || "unknown"}</button>
-                    <details>
+                    <div className="chapter-edit-actions">
+                      <button type="button" className="chapter-page" onClick={()=>{const mark=result.book.pageMarks.find(m=>m.at.section===si);if(mark){setPreviewPage(mark.index);setPrintedPage("");}}}><Icon name="file" size={15}/> View page {result.book.pageMarks.find(m=>m.at.section===si)?.label || "unknown"}</button>
+                      {si>0 && <button type="button" className="chapter-merge" onClick={()=>mergeChapter(si)}>Merge with previous</button>}
+                    </div>
+                    <details onToggle={e=>{const open=e.currentTarget.open;setOpenEditors(current=>open?[...new Set([...current,sec.id])]:current.filter(id=>id!==sec.id));}}>
                       <summary>Edit text / split</summary>
-                      {sec.blocks.map((b, bi) => (
+                      {openEditors.includes(sec.id) && sec.blocks.map((b, bi) => (
                         <div key={bi}>
                           {b.type !== "figure" && (
                             <textarea

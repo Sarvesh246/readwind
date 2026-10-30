@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addChapterAtPage, contentsChapters, findPrintedPage, printedLabels, interpolatePrintedLabels } from '../lib/readwind/chapters';
+import { addChapterAtPage, contentsChapters, findPrintedPage, printedLabels, interpolatePrintedLabels, pageHeading } from '../lib/readwind/chapters';
 import { ocrLines, ocrScore } from '../lib/readwind/ocr';
 import type { Book } from '../lib/readwind/types';
 import type { Page } from 'tesseract.js';
@@ -44,6 +44,54 @@ describe('printed page and chapter reliability', () => {
   });
   it('does not treat a large Roman chapter heading as a printed page number', () => {
     expect(printedLabels([[{...line('I',50,true),size:26},line('This is a complete paragraph of body text.')]])).toEqual(['PDF 1']);
+  });
+  it('recognizes a linked, numberless contents page with wrapped titles',()=>{
+    const pages=[[],[line('Contents'),line('A journey through',140),line('a changing world',160),line('Afterword',190)],[],[]];
+    const links=new Map([[1,[{top:130,bottom:145,index:2},{top:150,bottom:165,index:2},{top:180,bottom:195,index:3}]]]);
+    const result=contentsChapters(pages,['PDF 1','PDF 2','PDF 3','PDF 4'],links);
+    expect([...result.chapters]).toEqual([[2,'A journey through a changing world'],[3,'Afterword']]);
+    expect(result.entriesByPage.get(1)).toHaveLength(2);
+  });
+  it('recognizes contents even when its entries cannot be resolved',()=>{
+    const result=contentsChapters([[line('"Contents'),line('An unknown chapter',140)],[]],['PDF 1','PDF 2']);
+    expect(result.contentsPages.has(0)).toBe(true);
+    expect(result.unresolved).toEqual(['An unknown chapter']);
+  });
+  it('retains linked entries that point to earlier front matter',()=>{
+    const result=contentsChapters([[],[],[line('Contents'),line('Title page',140)]],['PDF 1','PDF 2','PDF 3'],new Map([[2,[{top:130,bottom:145,index:0}]]]));
+    expect(result.entriesByPage.get(2)?.[0].target).toBe(0);
+  });
+  it('joins all display lines of a chapter title and rejects body fragments',()=>{
+    const title=[{...line('A journey through',180),size:24},{...line('a changing world',210),size:24},line('A normal paragraph follows with a full sentence.',270)];
+    expect(pageHeading(title,12)?.title).toBe('A journey through a changing world');
+    expect(pageHeading([{...line('all, there was longing for home',100),size:20}],12)).toBeUndefined();
+    expect(pageHeading([{...line('With their hands on the door jambs our-',100),size:20}],12)).toBeUndefined();
+  });
+  it('reads inline page numbers only with corroborating neighboring headers',()=>{
+    expect(printedLabels([[line('A running title 33',75)],[line('34 A running title',75)], [line('Body text ends with 2026',90)]])).toEqual(['33','34','PDF 3']);
+  });
+  it('does not mistake chapter numbers in top-of-page titles for printed labels',()=>{
+    const pages=[0,1].map(i=>[{...line(`Chapter ${i+1}`,92),size:22},line('A full paragraph of ordinary body text follows.',145)]);
+    expect(printedLabels(pages,null,[792,792])).toEqual(['PDF 1','PDF 2']);
+  });
+  it('preserves contents group headings without promoting them to chapters',()=>{
+    const result=contentsChapters([[line('Contents'),line('PART ONE',140),line('A beginning 7',170),line('PART TWO',200),line('A conclusion 15',230)],[],[]],['PDF 1','7','15']);
+    expect([...result.chapters.values()]).toEqual(['A beginning','A conclusion']);
+    expect(result.entriesByPage.get(0)?.filter(e=>e.group).map(e=>e.title)).toEqual(['PART ONE','PART TWO']);
+  });
+  it('corrects isolated OCR digit errors without rewriting native printed numbers',()=>{
+    const numbers=['131','132','133','184','135','186','137','139'];
+    const pages=numbers.map(n=>[{...line(n,760,true),ocr:true}]);
+    expect(printedLabels(pages)).toEqual(['131','132','133','134','135','136','137','139']);
+    expect(printedLabels(numbers.map(n=>[line(n,760,true)]))[3]).toBe('184');
+  });
+  it('handles italic OCR page digits in contents when the target is corroborated',()=>{
+    const result=contentsChapters([[line('Contents'),line('A useful chapter ror',140),line('A later chapter 105',170)],[],[]],['PDF 1','101','105']);
+    expect([...result.chapters]).toEqual([[1,'A useful chapter'],[2,'A later chapter']]);
+  });
+  it('keeps differently sized lines of a scanned heading together',()=>{
+    expect(pageHeading([{...line('A journey through',180),size:25,ocr:true},{...line('a changing world',205),size:17,ocr:true}],8)?.title).toBe('A journey through a changing world');
+    expect(pageHeading([{...line('A normal body line with capitals',110),size:10,ocr:true}],8)).toBeUndefined();
   });
   it('splits a chapter at the printed page and preserves all text and anchors', () => {
     const book={sections:[{id:'a',title:'Beginning',heading:false,blocks:[{type:'p',text:'First'},{type:'p',text:'Second'},{type:'p',text:'Third'}]}],pageMarks:[{label:'ix',index:0,at:{section:0,block:0,offset:0}},{label:'1',index:1,at:{section:0,block:1,offset:0}},{label:'2',index:2,at:{section:0,block:2,offset:0}}]} as Book;
