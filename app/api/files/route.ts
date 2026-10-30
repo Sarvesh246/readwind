@@ -50,6 +50,18 @@ export const POST = safeRoute(async (request: Request) => {
   }
   return Response.json({ ok: true });
 });
+export const DELETE = safeRoute(async (request: Request) => {
+  const user = await owner(request);
+  if (!user) return unauthorized();
+  await rateLimit(`uploads:${user}`, 240);
+  const id = new URL(request.url).searchParams.get("id");
+  if (!id || !safeId.test(id)) throw new HttpError(400, "Invalid file ID");
+  const result = await storageFetch(`${user}/${id}`, { method: "DELETE" });
+  if (!result.ok && result.status !== 404)
+    throw new HttpError(502, "Could not delete this file. Please retry.");
+  await sql(user)`DELETE FROM folio_files WHERE owner_id=${user} AND id=${id}`;
+  return Response.json({ ok: true });
+});
 export const GET = safeRoute(async (request: Request) => {
   const user = await owner(request);
   if (!user) return unauthorized();

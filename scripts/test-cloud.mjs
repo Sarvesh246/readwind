@@ -36,8 +36,11 @@ response=await req(phone,'/api/library');assert.equal((await response.json()).an
 const prefs={paper:'Dusk',font:'Literata',size:24,spacing:'Airy',turn:'Curl',wideLayout:'single',warmLight:false,restNudge:true,focusParagraph:false,colorNames:{yellow:'Ideas',green:'Agree',blue:'Quotes',pink:'Question'}};
 response=await req(a,'/api/sync',{entity:'settings',value:prefs});assert.equal(response.status,200);
 response=await req(phone,'/api/library');assert.deepEqual((await response.json()).settings,prefs,'reader preferences follow the account');
-const id=crypto.randomUUID();response=await fetch(origin+`/api/files?id=${id}`,{method:'POST',headers:{Cookie:a.cookies,Origin:origin,'Content-Type':'application/pdf'},body:'%PDF-1.4\nReadwind QA storage test'});assert.equal(response.status,200,'private PDF upload');
-response=await fetch(origin+`/api/files?id=${id}`,{headers:{Cookie:a.cookies,Origin:origin}});assert.equal(response.status,200);assert.match(await response.text(),/Readwind QA/);
+const id=crypto.randomUUID();const pdf=new Uint8Array(6*1024*1024);pdf.set(new TextEncoder().encode('%PDF-1.4\nReadwind QA storage test'));
+response=await fetch(origin+'/api/files/sign',{method:'POST',headers:{Cookie:a.cookies,Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({id,type:'application/pdf',bytes:pdf.length})});assert.equal(response.status,200,'owner can request a direct upload URL');const grant=await response.json();
+response=await fetch(grant.url,{method:grant.method||'PUT',headers:grant.headers,body:pdf});assert.equal(response.status,200,'browser can upload a PDF directly to storage');
+response=await fetch(origin+'/api/files/complete',{method:'POST',headers:{Cookie:a.cookies,Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({id,type:'application/pdf',bytes:pdf.length})});assert.equal(response.status,200,'storage verifies the direct upload');
+response=await fetch(origin+`/api/files?id=${id}`,{headers:{Cookie:a.cookies,Origin:origin}});assert.equal(response.status,200);assert.equal((await response.arrayBuffer()).byteLength,pdf.length,'owner downloads the exact file');
 response=await fetch(origin+`/api/files?id=${id}`,{headers:{Cookie:b.cookies,Origin:origin}});assert.equal(response.status,404,'other accounts cannot download private files');
 const signin=await fetch(origin+'/api/auth/sign-in/email',{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify({email:a.email,password:a.password})});assert.equal(signin.status,200,'account signs back in');
 // Never persist QA credentials.

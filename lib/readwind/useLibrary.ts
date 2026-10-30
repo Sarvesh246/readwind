@@ -32,6 +32,12 @@ function bookFileIds(book: Book) {
     ),
   ].filter((id): id is string => Boolean(id));
 }
+async function responseError(response: Response, fallback: string) {
+  const data = (await response.json().catch(() => null)) as {
+    error?: string;
+  } | null;
+  return data?.error || fallback;
+}
 export function useLibrary(userId: string, auth: AuthClient | null) {
   const db = useMemo(() => new ReadwindDB(userId), [userId]);
   const guest = userId === "preview";
@@ -62,6 +68,67 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     },
     [auth],
   );
+  const cancelUpload = useCallback(
+    async (id: string) => {
+      await api(`/api/files?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }).catch(() => {});
+    },
+    [api],
+  );
+  const uploadFile = useCallback(
+    async (id: string, blob: Blob) => {
+      // Upload straight to object storage. Routing the bytes through a Vercel
+      // function hits its 4.5 MB request limit for ordinary book PDFs.
+      const signed = await api("/api/files/sign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, type: blob.type, bytes: blob.size }),
+      });
+      if (!signed.ok)
+        throw new Error(
+          await responseError(signed, "Could not prepare the file upload."),
+        );
+      const grant = (await signed.json()) as {
+        url?: string;
+        headers?: Record<string, string>;
+      };
+      if (!grant.url) throw new Error("Could not prepare the file upload.");
+      let stored: Response;
+      try {
+        stored = await fetch(grant.url, {
+          method: "PUT",
+          headers: grant.headers,
+          body: blob,
+          signal: lifetime.current.signal,
+        });
+      } catch (error) {
+        if (lifetime.current.signal.aborted) throw error;
+        await cancelUpload(id);
+        throw new Error(
+          "Could not upload the book file. Check your connection and retry.",
+        );
+      }
+      if (!stored.ok) {
+        await cancelUpload(id);
+        throw new Error(
+          stored.status === 413
+            ? "This file is larger than 20 MB."
+            : "Could not upload the book file. Please retry.",
+        );
+      }
+      const complete = await api("/api/files/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, type: blob.type, bytes: blob.size }),
+      });
+      if (!complete.ok)
+        throw new Error(
+          await responseError(complete, "Could not verify the uploaded file."),
+        );
+    },
+    [api, cancelUpload],
+  );
   const putChange = async (change: Pending) => db.pending.put(change);
   const sync = useCallback(async (): Promise<boolean> => {
     if (
@@ -88,23 +155,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
             if (uploaded.has(id)) continue;
             const file = await db.blobs.get(id);
             if (!file) throw new Error("An attached file is missing.");
-            const blob = storedBlob(file);
-            const response = await api(
-              `/api/files?id=${encodeURIComponent(id)}`,
-              {
-                method: "POST",
-                headers: { "Content-Type": blob.type },
-                body: blob,
-              },
-            );
-            if (!response.ok) {
-              const detail = (await response.json().catch(() => null)) as {
-                error?: string;
-              } | null;
-              throw new Error(
-                detail?.error || "Could not upload the book file.",
-              );
-            }
+            await uploadFile(id, storedBlob(file));
             // Remember each stored file so a retry never re-uploads a large PDF
             // or burns through the upload rate limit a second time.
             uploaded.add(id);
@@ -282,7 +333,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       running.current = false;
       if (alive.current) setReady(true);
     }
-  }, [db, guest, auth, api]);
+  }, [db, guest, auth, api, uploadFile]);
   useEffect(() => { syncAgain.current = () => void sync(); }, [sync]);
   useEffect(() => {
     alive.current = true;

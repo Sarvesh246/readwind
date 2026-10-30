@@ -88,19 +88,26 @@ function bodyLength(body: BodyInit | null | undefined) {
   if (typeof Blob !== "undefined" && body instanceof Blob) return body.size;
   return null;
 }
-export function storageFetch(key: string, init: RequestInit = {}) {
-  if (
-    key.split("/").length !== 2 ||
-    key.split("/").some((segment) => !safeId.test(segment))
-  )
-    throw new HttpError(400, "Invalid storage path.");
-  const client = new AwsClient({
+function storageClient() {
+  return new AwsClient({
     service: "s3",
     region: process.env.AWS_REGION || "us-east-2",
     accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
   });
+}
+function storageUrl(key: string) {
+  if (
+    key.split("/").length !== 2 ||
+    key.split("/").some((segment) => !safeId.test(segment))
+  )
+    throw new HttpError(400, "Invalid storage path.");
   const endpoint = process.env.AWS_ENDPOINT_URL_S3!.replace(/\/$/, "");
+  return `${endpoint}/${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
+}
+export function storageFetch(key: string, init: RequestInit = {}) {
+  // Validate the object path before touching credentials.
+  const url = storageUrl(key);
   // Vercel's runtime streams outbound bodies without a Content-Length, which
   // Neon object storage rejects with NotImplemented (501). The bytes are
   // already materialized, so send the exact length and keep the object store
@@ -109,10 +116,26 @@ export function storageFetch(key: string, init: RequestInit = {}) {
   const length = bodyLength(init.body);
   if (length !== null && !headers.has("content-length"))
     headers.set("content-length", String(length));
-  return client.fetch(
-    `${endpoint}/${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`,
-    { ...init, headers },
-  );
+  return storageClient().fetch(url, { ...init, headers });
+}
+/** Short-lived URL so browsers can upload large books without the function body limit. */
+export async function storagePresign(
+  key: string,
+  contentType: string,
+  expires = 300,
+) {
+  const url = new URL(storageUrl(key));
+  url.searchParams.set("X-Amz-Expires", String(expires));
+  const signed = await storageClient().sign(url, {
+    method: "PUT",
+    headers: { "Content-Type": contentType },
+    aws: { signQuery: true },
+  });
+  return {
+    url: signed.url.toString(),
+    headers: Object.fromEntries(signed.headers.entries()),
+    expires,
+  };
 }
 export const bucket = "folio-books";
 export const unauthorized = () =>
