@@ -35,7 +35,7 @@ export function Import({
     [options, setOptions] = useState({
       removeHeaders: true,
       joinHyphens: true,
-      ocr: true,
+      ocr: false,
       verifyText:true,
       verifyAllText:false,
       textLayout:"auto" as "auto"|"verse"|"code"|"dialogue",
