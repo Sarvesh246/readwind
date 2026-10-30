@@ -65,3 +65,9 @@ Small marginal footnotes can continue across adjacent source pages. Endnote sect
 The October 30 validation also inspected and extracted a 241-page text/image source and a 187-page scan locally. The linked source resolved all fourteen main chapters with complete names; the scan resolved all six numbered contents entries, including multi-line headings and italic OCR page digits. Source PDFs and extracted book text are not committed as test fixtures.
 
 Browser artifacts are written to ignored `work/import-qa`, `work/chapter-qa` and `work/reader-qa`. These tests do not establish accuracy for every book, physical-device behavior, or the live deployment.
+
+## Import speed and progress on other devices
+
+Recognition runs on a small pool of OCR workers (half the CPU cores, at most three, one on devices reporting under 4 GB of memory). While a scanned page is analysed, the next pages are already being recognised, so a 187-page scan imports in roughly half the time with byte-identical text. Orientation detection runs on the first three pages and stays on only if one of them is rotated; any page that scores low still retries with detection on.
+
+Imports run in the browser that started them. That browser reports percent and status to `/api/imports` (about every 2.5 seconds, plus a 15-second heartbeat), and every other signed-in device shows a progress card on its shelf. If the importing tab closes, reports stop and the card changes to "Stopped" after 45 seconds so it can be dismissed; the import has to be started again on the original device. Finished imports wait there for review, and the server forgets any import not touched for 30 minutes. The table is `folio_imports`; run `npm run db:migrate` and grant the runtime role access (`GRANT SELECT, INSERT, UPDATE, DELETE ON folio_imports TO readwind_runtime`) on existing databases. Until then the shelf works normally and simply shows no remote progress.

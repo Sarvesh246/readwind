@@ -23,7 +23,12 @@ CREATE TABLE IF NOT EXISTS folio_files (
   owner_id text NOT NULL, id text NOT NULL, bytes bigint NOT NULL CHECK(bytes BETWEEN 0 AND 20971520),
   PRIMARY KEY(owner_id,id)
 );
--- Serialize quota checks per tenant, including concurrent upserts.
+CREATE TABLE IF NOT EXISTS folio_imports (
+  owner_id text NOT NULL, id text NOT NULL, title text NOT NULL,
+  percent smallint NOT NULL CHECK(percent BETWEEN 0 AND 100), message text NOT NULL,
+  status text NOT NULL CHECK(status IN ('running','ready','failed')), device_id text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(owner_id,id)
+);-- Serialize quota checks per tenant, including concurrent upserts.
 CREATE OR REPLACE FUNCTION folio_check_quota() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE total_count bigint; total_bytes bigint;
 BEGIN
@@ -67,3 +72,7 @@ ALTER TABLE folio_files ENABLE ROW LEVEL SECURITY;
 ALTER TABLE folio_files FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant ON folio_files;
 CREATE POLICY tenant ON folio_files USING(owner_id=current_setting('readwind.owner',true)) WITH CHECK(owner_id=current_setting('readwind.owner',true));
+ALTER TABLE folio_imports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE folio_imports FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant ON folio_imports;
+CREATE POLICY tenant ON folio_imports USING(owner_id=current_setting('readwind.owner',true)) WITH CHECK(owner_id=current_setting('readwind.owner',true));

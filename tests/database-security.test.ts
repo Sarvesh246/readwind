@@ -118,6 +118,15 @@ describe("database tenant and quota enforcement", () => {
       ),
     );
   });
+  it("isolates import progress per tenant and validates its values", async () => {
+    const insert = "INSERT INTO folio_imports(owner_id,id,title,percent,message,status,device_id) VALUES($1,$2,'Book',$3,'Working',$4,'d')";
+    await tenant("alice", (tx) => tx.query(insert, ["alice", "job", 42, "running"]));
+    expect((await tenant("bob", (tx) => tx.query("SELECT * FROM folio_imports"))).rows).toHaveLength(0);
+    expect((await tenant("alice", (tx) => tx.query("SELECT percent FROM folio_imports"))).rows).toEqual([{ percent: 42 }]);
+    await expect(tenant("bob", (tx) => tx.query(insert, ["alice", "foreign", 1, "running"]))).rejects.toThrow(/row-level security/);
+    await expect(tenant("alice", (tx) => tx.query(insert, ["alice", "bad", 101, "running"]))).rejects.toThrow();
+    await expect(tenant("alice", (tx) => tx.query(insert, ["alice", "bad", 5, "paused"]))).rejects.toThrow();
+  });
   it("cascades book deletion to notes and progress", async () => {
     await tenant("alice", async (tx) => {
       await tx.query(

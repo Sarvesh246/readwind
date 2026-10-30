@@ -47,7 +47,15 @@ export function Import({
     request=useRef(0);
   const [coverBusy, setCoverBusy] = useState(false),
     [coverError, setCoverError] = useState("");
-  useEffect(() => () => { request.current++; controller.current?.abort(); }, []);
+  // The shelf on other devices mirrors this import's progress, so tell it when we stop.
+  const job = useRef<{ id: string; title: string; percent: number; message: string; sent: number } | null>(null);
+  const clearImport = useRef(l.clearImport);
+  useEffect(() => { clearImport.current = l.clearImport; });
+  useEffect(() => () => {
+    request.current++;
+    controller.current?.abort();
+    if (job.current) void clearImport.current(job.current.id);
+  }, []);
   async function parse(f: File) {
     const run=++request.current;
     setFile(f);
@@ -59,6 +67,24 @@ export function Import({
     setResult(null);
     controller.current?.abort();
     controller.current = new AbortController();
+    if (job.current) void l.clearImport(job.current.id);
+    const jobId = crypto.randomUUID(), title = f.name.replace(/\.pdf$/i, "").slice(0, 200) || "Untitled PDF";
+    job.current = { id: jobId, title, percent: 0, message: "Starting…", sent: 0 };
+    const publish = (status: "running" | "ready" | "failed", percent: number, message: string, force = false) => {
+      const current = job.current;
+      if (!current || current.id !== jobId) return;
+      current.percent = percent;
+      current.message = message;
+      if (!force && Date.now() - current.sent < 2500) return;
+      current.sent = Date.now();
+      void l.reportImport({ id: jobId, title, percent, message, status });
+    };
+    publish("running", 0, "Starting…", true);
+    // Long single steps (loading the OCR engine) report nothing, which would look like a stall elsewhere.
+    const heartbeat = setInterval(() => {
+      const current = job.current;
+      if (current && current.id === jobId) publish("running", current.percent, current.message, true);
+    }, 15000);
     try {
       const { importPDF } = await import("@/lib/readwind/pdf");
       const data = await importPDF(
@@ -68,21 +94,26 @@ export function Import({
           if(run!==request.current)return;
           setMessage(m);
           setPct(p);
+          publish("running", p, m);
         },
         controller.current.signal,
       );
       if(run!==request.current)return;
       setResult(data);
       setStep(2);
+      publish("ready", 100, "Ready to review", true);
     } catch (e) {
       if(run!==request.current)return;
-      if ((e as Error).name === "PasswordException") setNeedsPassword(true);
+      if ((e as Error).name === "PasswordException") { setNeedsPassword(true); void l.clearImport(jobId); }
+      else if ((e as Error).name !== "AbortError" && !controller.current?.signal.aborted)
+        publish("failed", job.current?.percent ?? 0, "Could not import this PDF", true);
       if ((e as Error).name !== "AbortError" && !controller.current?.signal.aborted)
         setError(
           (e as Error).message ||
             "Could not open this PDF. It may be encrypted or damaged.",
         );
     } finally {
+      clearInterval(heartbeat);
       if(run===request.current)setBusy(false);
     }
   }
@@ -141,6 +172,7 @@ export function Import({
     setError("");
     try {
       await l.addBook(result.book, result.files);
+      if (job.current) void l.clearImport(job.current.id);
       setStep(3);
       navigate(`/book/${result.book.id}`);
     } catch (e) {

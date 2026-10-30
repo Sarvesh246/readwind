@@ -9,6 +9,8 @@ import { CoverTitle } from "./CoverTitle";
 import {ResponsiveBookTitle} from './ResponsiveBookTitle';
 import {DeleteBookPrompt} from './DeleteBookPrompt';
 import { Icon } from "./Icon";
+import { ImportingBook } from "./ImportingBook";
+import { deviceId } from "@/lib/readwind/db";
 import { ReadwindLockup } from "./Logo";
 import { ThemeToggleButton } from "./Theme";
 import { CoverEditor } from "./CoverPicker";
@@ -409,7 +411,7 @@ export function Library({
               ))}
             </div>
           </div>
-          {l.ready && !l.books.length && (
+          {l.ready && !l.books.length && !l.imports.length && (
             <div className="empty-library">
               <h2>A shelf of your own.</h2>
               <p>Import your first PDF, or start with a few classics.</p>
@@ -430,6 +432,9 @@ export function Library({
           {deleteError&&<p className="form-error" role="alert">{deleteError}</p>}
           {l.settings.confirmBookDeletion===false&&<button className="delete-confirm-reset" onClick={()=>void l.saveSettings({...l.settings,confirmBookDeletion:true}).catch(()=>setDeleteError('Could not update deletion confirmations.'))}>Turn on deletion confirmations</button>}
           <div className="shelf-grid">
+            {l.imports.map((job) => (
+              <ImportingBook key={job.id} job={job} thisDevice={job.deviceId === deviceId()} onDismiss={() => void l.clearImport(job.id)} />
+            ))}
             <AnimatePresence initial={false} mode="popLayout">
             {books.map((b, i) => {
               const p = l.progress.find((p) => p.bookId === b.id),

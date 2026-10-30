@@ -2,13 +2,13 @@ import { neon } from '@neondatabase/serverless';
 import { pathToFileURL } from 'node:url';
 export const readinessSql = `
   SELECT name, to_regclass('public.' || name) IS NOT NULL AS ready
-  FROM unnest(ARRAY['folio_books','folio_progress','folio_annotations','folio_settings','folio_rate_limits','folio_files']) AS name
+  FROM unnest(ARRAY['folio_books','folio_progress','folio_annotations','folio_settings','folio_rate_limits','folio_files','folio_imports']) AS name
   UNION ALL
   SELECT 'quota:' || tablename, EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass('public.' || tablename) AND tgname=tablename || '_quota' AND NOT tgisinternal AND tgenabled='O')
   FROM unnest(ARRAY['folio_books','folio_annotations','folio_files']) AS tablename
   UNION ALL
   SELECT 'rls:' || name, EXISTS(SELECT 1 FROM pg_class WHERE oid=to_regclass('public.' || name) AND relrowsecurity AND relforcerowsecurity)
-  FROM unnest(ARRAY['folio_books','folio_progress','folio_annotations','folio_settings','folio_files']) AS name
+  FROM unnest(ARRAY['folio_books','folio_progress','folio_annotations','folio_settings','folio_files','folio_imports']) AS name
 `;
 export function assertSchemaReady(rows) {
   const missing=rows.filter(row=>!row.ready).map(row=>row.name);

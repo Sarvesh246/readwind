@@ -1,7 +1,7 @@
 import type { Book, Section, PageMark, Block } from "./types";
 import { analyzePdfPage, dominantSize, importReport, type PdfPageReport } from './pdf-layout';
 import { printedLabels, contentsChapters, interpolatePrintedLabels, type ContentsLink, pageHeading, matchesChapterTitle } from './chapters';
-import { ocrLines, ocrScore, enhanceOcrContrast } from './ocr';
+import { ocrLines, ocrScore, enhanceOcrContrast, OcrPool, ocrWorkerCount } from './ocr';
 import {findPdfTables,findRuledTables,findLayoutGraphics,findGridAreas,type PdfRect} from './pdf-tables';
 import {normalizeStyledText,pdfFontStyle,type TextStyleRun} from './rich-text';
 import {bookWordEvidence,joinPrintedLine,joinPageParagraphs} from './text-cleanup';
@@ -62,11 +62,17 @@ export async function importPDF(
     password: options.password,
     fontExtraProperties:true,
   });
-  const abort = () => { void ocr?.terminate(); void task.destroy(); };
+  const abort = () => { void ocrPool.terminate(); void task.destroy(); };
   signal?.addEventListener("abort", abort, { once: true });
-  let ocr:
-    | Awaited<ReturnType<(typeof import("tesseract.js"))["createWorker"]>>
-    | undefined;
+  // Workers are only created once a page actually needs recognition.
+  const ocrPool = new OcrPool(async () => {
+    const t = await import("tesseract.js");
+    return t.createWorker(options.ocrLanguage || "eng", 1, {
+      workerPath: "/ocr/worker.min.js",
+      corePath: "/ocr/core/",
+      langPath: "/ocr/lang/",
+    });
+  }, ocrWorkerCount());
   try {
     if(signal?.aborted) throw new DOMException('Import cancelled','AbortError');
     const pdf = await task.promise;
@@ -196,6 +202,47 @@ export async function importPDF(
       images.set(index,[{id,y:0,aspectRatio:viewport.width/viewport.height,text,fullPage:true,sourcePdf:!options.password || undefined}]);preservedPages.add(index);imageOnlyOpenings.add(index);
       reports[index].sourcePreserved=true;
     };
+    // Orientation detection is a full extra engine pass. Scans of one book share
+    // an orientation, so confirm it on the first pages and stop paying for it
+    // once they are upright. Low-scoring pages still retry with detection on.
+    const orientation = { samples: 0, rotated: false };
+    type Recognized = { result: { data: import("tesseract.js").Page }; canvas: HTMLCanvasElement };
+    const recognizePage = async (page: Awaited<ReturnType<typeof pdf.getPage>>, wide: boolean, columns: boolean): Promise<Recognized> => {
+      let canvas = await raster(page, 3);
+      const detect = orientation.samples < 3 || orientation.rotated;
+      let result = await ocrPool.run(async worker => {
+        await worker.setParameters({ tessedit_pageseg_mode: "3" as import("tesseract.js").PSM, preserve_interword_spaces: "1", user_defined_dpi: "300" });
+        return { data: (await worker.recognize(canvas, { rotateAuto: detect }, { blocks: true, text: true })).data };
+      });
+      if (detect) {
+        orientation.samples++;
+        if (Math.abs(result.data.rotateRadians || 0) > .01) orientation.rotated = true;
+      }
+      if (ocrScore(result.data) < 80) {
+        const retryCanvas = await raster(page, 4);
+        enhanceOcrContrast(retryCanvas);
+        // A higher-resolution, single-column pass helps faint prose scans.
+        const retry = await ocrPool.run(async worker => {
+          await worker.setParameters({ tessedit_pageseg_mode: (columns || wide ? '3' : '6') as import("tesseract.js").PSM, preserve_interword_spaces: "1", user_defined_dpi: "300" });
+          return { data: (await worker.recognize(retryCanvas, { rotateAuto: true }, { blocks: true, text: true })).data };
+        });
+        if (ocrScore(retry.data) > ocrScore(result.data) + 3 && retry.data.text.trim().length >= result.data.text.trim().length * .8) { result = retry; canvas = retryCanvas; }
+      }
+      return { result, canvas };
+    };
+    // While one scanned page is analysed, the next few are already recognised on the other workers.
+    const ahead = new Map<number, Promise<Recognized>>();
+    const readAhead = (from: number) => {
+      for (let q = from + 1; q <= Math.min(pdf.numPages, from + ocrPool.size); q++) {
+        if (ahead.has(q)) continue;
+        const job = pdf.getPage(q).then(next => {
+          const size = next.getViewport({ scale: 1 });
+          return recognizePage(next, size.width > size.height * 1.12, false);
+        });
+        job.catch(() => {});
+        ahead.set(q, job);
+      }
+    };
     for (let p = 1; p <= pdf.numPages; p++) {
       if (signal?.aborted)
         throw new DOMException("Import cancelled", "AbortError");
@@ -246,30 +293,20 @@ export async function importPDF(
         if (!analysis.report.characters) scanned++;
         if (options.ocr || automaticOcr) {
         try {
-        if (!ocr) {
+        if (!ocrPool.started) {
           onProgress(
             "Loading text recognition…",
             Math.round((p / pdf.numPages) * 80),
           );
-          const t = await import("tesseract.js");
-          ocr = await t.createWorker(options.ocrLanguage || "eng", 1, {
-            workerPath: "/ocr/worker.min.js",
-            corePath: "/ocr/core/",
-            langPath: "/ocr/lang/",
-          });
         }
         onProgress(`Recognizing page ${p} of ${pdf.numPages}…`, Math.round((p / pdf.numPages) * 80));
-        await ocr.setParameters({ tessedit_pageseg_mode: "3" as import("tesseract.js").PSM, preserve_interword_spaces: "1", user_defined_dpi: "300" });
-        let canvas = await raster(page, 3);
-        let result = await ocr.recognize(canvas, { rotateAuto:true }, { blocks:true, text:true });
-        if (ocrScore(result.data) < 80) {
-          const retryCanvas = await raster(page, 4);
-          enhanceOcrContrast(retryCanvas);
-          // A higher-resolution, single-column pass helps faint prose scans.
-          await ocr.setParameters({ tessedit_pageseg_mode: (analysis.report.issues.includes('columns') || v.width>v.height*1.12 ? '3' : '6') as import("tesseract.js").PSM });
-          const retry = await ocr.recognize(retryCanvas, { rotateAuto:true }, { blocks:true, text:true });
-          if (ocrScore(retry.data) > ocrScore(result.data) + 3 && retry.data.text.trim().length >= result.data.text.trim().length * .8) { result = retry; canvas = retryCanvas; }
-        }
+        const wide = v.width>v.height*1.12, columns = analysis.report.issues.includes('columns');
+        // Pages without a text layer behave alike, so a scan run is read ahead; its hints match recognizePage's defaults.
+        const early = !items.length ? ahead.get(p) : undefined;
+        ahead.delete(p);
+        const current = early ? early.catch(() => recognizePage(page, wide, columns)) : recognizePage(page, wide, columns);
+        if (!items.length) readAhead(p);
+        const { result, canvas } = await current;
         const recognized = ocrLines(result.data, v.width, v.height, canvas.width, canvas.height, p-1);
         const score = ocrScore(result.data);
         if(verifyNative)analysis.report.verification=textLayerCheck(lines.map(l=>l.text).join(' '),result.data.text,score);
@@ -642,7 +679,7 @@ export async function importPDF(
     };
   } finally {
     signal?.removeEventListener("abort", abort);
-    await ocr?.terminate().catch(()=>{});
+    await ocrPool.terminate().catch(()=>{});
     await task.destroy();
   }
 }

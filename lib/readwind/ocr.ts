@@ -22,6 +22,63 @@ export function enhanceOcrContrast(canvas: HTMLCanvasElement) {
   ctx.putImageData(image,0,0);
 }
 
+export type OcrWorker = Awaited<ReturnType<(typeof import('tesseract.js'))['createWorker']>>;
+
+/** Each worker is a separate WASM engine (~100-200 MB), so stay modest on small devices. */
+export function ocrWorkerCount(cores = typeof navigator === 'undefined' ? 4 : navigator.hardwareConcurrency || 4, memoryGb = typeof navigator === 'undefined' ? undefined : (navigator as Navigator & { deviceMemory?: number }).deviceMemory) {
+  if (memoryGb !== undefined && memoryGb < 4) return 1;
+  return Math.max(1, Math.min(3, Math.floor(cores / 2)));
+}
+
+/**
+ * Lazily grown pool of recognition workers. Jobs hold a worker for their whole
+ * run, so per-page parameters set inside a job can never leak into another.
+ */
+export class OcrPool {
+  private workers: OcrWorker[] = [];
+  private idle: OcrWorker[] = [];
+  private waiting: { resolve: (worker: OcrWorker) => void; reject: (error: unknown) => void }[] = [];
+  private creating = 0;
+  private closed = false;
+  started = false;
+  constructor(private create: () => Promise<OcrWorker>, readonly size: number) {}
+  async run<T>(job: (worker: OcrWorker) => Promise<T>): Promise<T> {
+    const worker = await this.acquire();
+    try { return await job(worker); } finally { this.release(worker); }
+  }
+  private acquire(): Promise<OcrWorker> {
+    if (this.closed) return Promise.reject(new DOMException('Import cancelled', 'AbortError'));
+    const idle = this.idle.pop();
+    if (idle) return Promise.resolve(idle);
+    if (this.workers.length + this.creating < this.size) {
+      this.started = true;
+      this.creating++;
+      return this.create().then(worker => {
+        this.creating--;
+        if (this.closed) { void worker.terminate().catch(() => {}); throw new DOMException('Import cancelled', 'AbortError'); }
+        this.workers.push(worker);
+        return worker;
+      }, error => {
+        this.creating--;
+        // With no worker to ever hand over, queued jobs would wait forever.
+        if (!this.workers.length && !this.creating) for (const waiter of this.waiting.splice(0)) waiter.reject(error);
+        throw error;
+      });
+    }
+    return new Promise((resolve, reject) => this.waiting.push({ resolve, reject }));
+  }
+  private release(worker: OcrWorker) {
+    const next = this.waiting.shift();
+    if (next) next.resolve(worker); else this.idle.push(worker);
+  }
+  async terminate() {
+    this.closed = true;
+    for (const waiter of this.waiting.splice(0)) waiter.reject(new DOMException('Import cancelled', 'AbortError'));
+    await Promise.all(this.workers.splice(0).map(worker => worker.terminate().catch(() => {})));
+    this.idle = [];
+  }
+}
+
 export function ocrScore(data: Pick<Page, 'text' | 'confidence'>) {
   const text = data.text.trim();
   if (!text || !Number.isFinite(data.confidence)) return 0;

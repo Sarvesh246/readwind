@@ -8,6 +8,7 @@ import type { Book, Annotation, Anchor, Settings, Progress } from "./types";
 import { defaults } from "./types";
 import {addPaceSample,mergeReadingPace,readingSpeed,validPaceSample} from './reading-pace';
 import { loadClassics } from "./classics";
+import type { ImportJob, ImportJobInput } from "./import-jobs";
 export type { AuthClient } from "./auth";
 import type { AuthClient } from "./auth";
 export type SyncConflict = {
@@ -432,6 +433,66 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       }, 1000);
     };
   }, [db, sync, guest, userId]);
+  // Imports run in the browser that started them; other devices only see their progress.
+  const [imports, setImports] = useState<ImportJob[]>([]);
+  // A poll already in flight must not bring back a card that was just dismissed.
+  const dismissed = useRef(new Set<string>());
+  const refreshImports = useCallback(async () => {
+    if (guest || !auth || !navigator.onLine) return;
+    try {
+      const response = await api("/api/imports");
+      if (!response.ok) return;
+      const data = (await response.json()) as { imports?: ImportJob[] };
+      if (alive.current) setImports((data.imports || []).filter(job => !dismissed.current.has(job.id)));
+    } catch {
+      // Mirroring is best-effort; the shelf works without it.
+    }
+  }, [api, auth, guest, alive]);
+  const watching = imports.length > 0;
+  useEffect(() => {
+    const first = setTimeout(() => void refreshImports(), 0);
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") void refreshImports();
+    }, watching ? 4000 : 20000);
+    const wake = () => {
+      if (document.visibilityState === "visible") void refreshImports();
+    };
+    window.addEventListener("focus", wake);
+    document.addEventListener("visibilitychange", wake);
+    return () => {
+      clearTimeout(first);
+      clearInterval(id);
+      window.removeEventListener("focus", wake);
+      document.removeEventListener("visibilitychange", wake);
+    };
+  }, [refreshImports, watching]);
+  const reportImport = useCallback(
+    async (job: Omit<ImportJobInput, "deviceId">) => {
+      if (guest || !auth) return;
+      const body: ImportJobInput = { ...job, deviceId: deviceId() };
+      dismissed.current.delete(body.id);
+      setImports(old => [{ ...body, age: 0 }, ...old.filter(item => item.id !== body.id)]);
+      try {
+        await api("/api/imports", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } catch {
+        // The import itself continues locally either way.
+      }
+    },
+    [api, auth, guest],
+  );
+  const clearImport = useCallback(
+    async (id: string) => {
+      dismissed.current.add(id);
+      setImports(old => old.filter(item => item.id !== id));
+      if (guest || !auth) return;
+      await api(`/api/imports?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
+    },
+    [api, auth, guest],
+  );
   const saveProgress = async (
     bookId: string,
     at: Anchor,
@@ -662,6 +723,9 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     loadBlob,
     conflict:conflict?.owner===db.name?conflict:null,
     resolveConflict,
+    imports,
+    reportImport,
+    clearImport,
     addClassics,
   };
 }
