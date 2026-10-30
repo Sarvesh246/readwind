@@ -4,10 +4,13 @@ import type { Library } from "@/lib/readwind/useLibrary";
 import type { Imported } from "@/lib/readwind/pdf";
 import { prepareCoverImage } from "@/lib/readwind/cover";
 import type { Book } from "@/lib/readwind/types";
+import { pdfIssueLabels } from "@/lib/readwind/pdf-layout";
+import { addChapterAtPage } from "@/lib/readwind/chapters";
 import { Icon } from "./Icon";
 import { Cover } from "./Library";
 import { CoverPicker, coverIds } from "./CoverPicker";
 import { PdfPreview } from "./PdfPreview";
+const ocrLanguages = [['eng','English'],['spa','Spanish'],['fra','French'],['deu','German'],['por','Portuguese'],['hin','Hindi'],['ara','Arabic'],['jpn','Japanese'],['chi_sim','Chinese (simplified)']];
 export function Import({
   library: l,
   navigate,
@@ -23,7 +26,6 @@ export function Import({
     [message, setMessage] = useState(""),
     [pct, setPct] = useState(0),
     [error, setError] = useState(""),
-
     [step, setStep] = useState(1),
     [previewPage, setPreviewPage] = useState(0),
     [password,setPassword]=useState(""),
@@ -32,8 +34,9 @@ export function Import({
     [options, setOptions] = useState({
       removeHeaders: true,
       joinHyphens: true,
-      ocr: false,
+      ocr: true,
     });
+  const [chapterTitle, setChapterTitle] = useState(""), [chapterPage, setChapterPage] = useState(""), [chapterError, setChapterError] = useState(""), [printedPage, setPrintedPage] = useState("");
   const input = useRef<HTMLInputElement>(null),
     controller = useRef<AbortController | null>(null),
     request=useRef(0);
@@ -44,6 +47,7 @@ export function Import({
     const run=++request.current;
     setFile(f);
     setPreviewPage(0);
+    setPrintedPage("");
     setNeedsPassword(false);
     setBusy(true);
     setError("");
@@ -255,7 +259,7 @@ export function Import({
                 </label>
               ))}
             </div>
-            {options.ocr && <label>OCR language <select disabled={busy} value={ocrLanguage} onChange={e=>setOcrLanguage(e.target.value)}>{[['eng','English'],['spa','Spanish'],['fra','French'],['deu','German'],['por','Portuguese'],['hin','Hindi'],['ara','Arabic'],['jpn','Japanese'],['chi_sim','Chinese (simplified)']].map(([v,t])=><option key={v} value={v}>{t}</option>)}</select><small>OCR requires a language download and may need correction. The original scan is always kept.</small></label>}
+            {options.ocr && <label>OCR language <select disabled={busy} value={ocrLanguage} onChange={e=>setOcrLanguage(e.target.value)}>{ocrLanguages.map(([v,t])=><option key={v} value={v}>{t}</option>)}</select><small>OCR requires a language download and may need correction. The original scan is always kept.</small></label>}
             {needsPassword && <form onSubmit={e=>{e.preventDefault();if(file)void parse(file);}}><label>PDF password<input type="password" autoFocus required value={password} onChange={e=>setPassword(e.target.value)}/></label><button className="button" disabled={busy}>Unlock and retry</button><p className="muted">The password is used to open this file and is never saved.</p></form>}
             {busy && (
               <div className="import-progress" role="status">
@@ -286,22 +290,32 @@ export function Import({
                 className="icon-button"
                 aria-label="Previous preview page"
                 disabled={previewPage === 0}
-                onClick={() => setPreviewPage((n) => n - 1)}
+                onClick={() => {setPreviewPage((n) => n - 1);setPrintedPage("");}}
               >
                 <Icon name="back" />
               </button>
               <span>
-                Page {previewPage + 1} of {result.book.printPageCount}
+                Printed page {result.book.pageMarks[previewPage]?.label} · PDF {previewPage + 1} of {result.book.printPageCount}
               </span>
               <button
                 className="icon-button"
                 aria-label="Next preview page"
                 disabled={previewPage === result.book.printPageCount - 1}
-                onClick={() => setPreviewPage((n) => n + 1)}
+                onClick={() => {setPreviewPage((n) => n + 1);setPrintedPage("");}}
               >
                 <Icon name="next" />
               </button>
             </div>
+            <label>Printed page label for this preview
+              <input aria-label="Printed page label" value={printedPage} placeholder={result.book.pageMarks[previewPage]?.label} onChange={e=>setPrintedPage(e.target.value)} />
+            </label>
+            <button type="button" className="button small" disabled={!printedPage.trim()} onClick={()=>{
+              setBook({pageMarks:result.book.pageMarks.map(m=>m.index===previewPage?{...m,label:printedPage.trim()}:m)});setPrintedPage("");
+            }}>Set page label</button>
+            <button type="button" className="button small" disabled={!/^[1-9]\d*$/.test(printedPage)} onClick={()=>{
+              setBook({pageMarks:result.book.pageMarks.map(m=>m.index>=previewPage?{...m,label:String(Number(printedPage)+m.index-previewPage)}:m)});setPrintedPage("");
+            }}>Number this and following pages</button>
+            <p className="muted">Enter the number printed on the book page, including Roman numerals for front matter. Use sequential numbering only where the book has no gaps or numbering resets.</p>
             <p className="muted">
               This preview shows the original page. Review adjustable text and chapter boundaries in the editor before choosing that mode.
             </p>
@@ -357,6 +371,15 @@ export function Import({
               )}
             </div>
             <div className="pdf-quality">
+              <details>
+                <summary>Recognition and cleanup options</summary>
+                <label>OCR language<select value={ocrLanguage} onChange={e=>setOcrLanguage(e.target.value)}>{ocrLanguages.map(([v,t])=><option key={v} value={v}>{t}</option>)}</select></label>
+                <label><input type="checkbox" checked={options.ocr} onChange={e=>setOptions({...options,ocr:e.target.checked})}/> Recognize scanned or damaged text</label>
+                <label><input type="checkbox" checked={options.removeHeaders} onChange={e=>setOptions({...options,removeHeaders:e.target.checked})}/> Remove running headers and page numbers</label>
+                <label><input type="checkbox" checked={options.joinHyphens} onChange={e=>setOptions({...options,joinHyphens:e.target.checked})}/> Re-join words split across lines</label>
+                <p className="muted">Reprocessing uses these options and replaces your current review edits.</p>
+                <button type="button" className="button small" disabled={busy || !file} onClick={()=>{if(file)void parse(file);}}>Reprocess PDF</button>
+              </details>
               <h3>How would you like to read?</h3>
               <div
                 className="reading-mode-options"
@@ -374,7 +397,7 @@ export function Import({
                   </span>
                   <span className="reading-mode-copy">
                     <strong>
-                      Adjustable text <em>Recommended</em>
+                      Adjustable text {result.book.importReport?.recommendedMode === "reflow" && <em>Recommended</em>}
                     </strong>
                     <small>Change the font, size, and spacing</small>
                   </span>
@@ -389,20 +412,27 @@ export function Import({
                     <Icon name="file" size={18} />
                   </span>
                   <span className="reading-mode-copy">
-                    <strong>Original layout</strong>
+                    <strong>Original layout {result.book.importReport?.recommendedMode === "original" && <em>Recommended</em>}</strong>
                     <small>Keep every printed page exactly as it is</small>
                   </span>
                 </button>
               </div>
               <p>
-                Adjustable text is the default and works well for most books.
+                The recommended mode reflects the quality of this import.
                 Original layout is the safest choice for tables, equations, and
                 complex page designs. You can switch modes later.
               </p>
               {result.book.importReport?.warnings.map(w=><p key={w}>{w}</p>)}
+              <details><summary>Review page quality</summary>{result.book.importReport?.pages.filter(p=>p.issues.length).map(p=><button type="button" className="pdf-chapter" key={p.index} onClick={()=>{setPreviewPage(p.index);setPrintedPage("");}}>Page {result.book.pageMarks[p.index]?.label}: {p.issues.map(issue=>pdfIssueLabels[issue]).join(", ")}{p.ocrConfidence !== undefined ? ` / OCR confidence ${Math.round(p.ocrConfidence)}%` : ""}</button>)}</details>
             </div>
             <fieldset>
-              <legend>{result.book.sections.length} chapters found</legend>
+              <legend>Chapters and front matter ({result.book.sections.length})</legend>
+              {new Set(result.book.pageMarks.map(m=>m.label.toLowerCase())).size !== result.book.pageMarks.length && <p role="alert" className="form-error">Some printed page labels repeat. Give those pages unique labels in the preview so navigation can identify them.</p>}
+              <p className="muted">Chapter pages use the printed labels in the book. Select a chapter’s page to check its original scan.</p>
+              <label>New chapter title<input value={chapterTitle} onChange={e=>setChapterTitle(e.target.value)} /></label>
+              <label>Chapter starts on printed page<input value={chapterPage} placeholder="113 or ix" onChange={e=>setChapterPage(e.target.value)} /></label>
+              <button type="button" className="button small" onClick={()=>{try {setBook(addChapterAtPage(result.book,chapterPage,chapterTitle));setChapterError("");setChapterTitle("");setChapterPage("");}catch(e){setChapterError((e as Error).message);}}}>Add chapter</button>
+              {chapterError && <p className="form-error" role="alert">{chapterError}</p>}
               <div className="chapter-edit-list">
                 {result.book.sections.map((sec, si) => (
                   <div className="chapter-edit" key={sec.id}>
@@ -427,6 +457,7 @@ export function Import({
                         </button>
                       )}
                     </div>
+                    <button type="button" className="chapter-page" onClick={()=>{const mark=result.book.pageMarks.find(m=>m.at.section===si);if(mark){setPreviewPage(mark.index);setPrintedPage("");}}}>Page {result.book.pageMarks.find(m=>m.at.section===si)?.label || "unknown"}</button>
                     <details>
                       <summary>Edit text / split</summary>
                       {sec.blocks.map((b, bi) => (

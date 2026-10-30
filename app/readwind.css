@@ -3626,6 +3626,14 @@ legend {
 .chapter-edit-main > .chapter-merge:hover {
   background: var(--hover);
 }
+.chapter-page {
+  align-self: flex-start;
+  margin-left: 30px;
+  min-height: 36px;
+  padding: 4px 8px;
+  color: var(--accent);
+  font-size: 13px;
+}
 .chapter-edit details {
   padding: 0 8px 4px 30px;
 }

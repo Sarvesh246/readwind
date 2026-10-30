@@ -1,4 +1,5 @@
 "use client";
+import { findPrintedPage } from "@/lib/readwind/chapters";
 import {
   useEffect,
   useLayoutEffect,
@@ -1016,9 +1017,7 @@ export function Reader({
             className="go-page"
             onSubmit={(e) => {
               e.preventDefault();
-              const mark = book.pageMarks.find(
-                (m) => m.label.toLowerCase() === goPage.trim().toLowerCase(),
-              );
+              const mark = findPrintedPage(book.pageMarks, goPage);
               if (mark) jump(mark.at);
               else setMessage("That printed page was not found in this book.");
             }}

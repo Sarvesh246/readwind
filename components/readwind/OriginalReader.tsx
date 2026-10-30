@@ -2,6 +2,7 @@
 import {useEffect,useRef,useState,type CSSProperties} from 'react';
 import type {PDFDocumentProxy} from 'pdfjs-dist';
 import type {Book,Annotation,Color} from '@/lib/readwind/types';
+import {findPrintedPage} from "@/lib/readwind/chapters";
 import {themes} from '@/lib/readwind/types';
 import {compare,start,wordProgress} from '@/lib/readwind/anchors';
 import type {Library} from '@/lib/readwind/useLibrary';
@@ -14,7 +15,7 @@ export function OriginalReader({book,library:l,navigate}:{book:Book;library:Libr
  const [comfort,setComfort]=useState(false),[full,setFull]=useState(false);
  const saved=l.progress.find(p=>p.bookId===book.id);
  const initial=Math.max(0,...book.pageMarks.filter(m=>compare(m.at,saved?.at||start)<=0).map(m=>m.index));
- const [index,setIndex]=useState(initial),[pdf,setPdf]=useState<PDFDocumentProxy|null>(null),[error,setError]=useState(''),[retry,setRetry]=useState(0),[password,setPassword]=useState(''),[unlock,setUnlock]=useState<((s:string)=>void)|null>(null),[passwordMessage,setPasswordMessage]=useState(''),[url,setUrl]=useState(''),[width,setWidth]=useState(800),[zoom,setZoom]=useState(1),[contents,setContents]=useState(false),[go,setGo]=useState('');
+ const [index,setIndex]=useState(initial),[pdf,setPdf]=useState<PDFDocumentProxy|null>(null),[error,setError]=useState(''),[retry,setRetry]=useState(0),[password,setPassword]=useState(''),[unlock,setUnlock]=useState<((s:string)=>void)|null>(null),[passwordMessage,setPasswordMessage]=useState(''),[url,setUrl]=useState(''),[width,setWidth]=useState(800),[zoom,setZoom]=useState(1),[contents,setContents]=useState(false),[go,setGo]=useState(''),[goError,setGoError]=useState('');
  const [selection,setSelection]=useState<Annotation|null>(null),[note,setNote]=useState(''),[point,setPoint]=useState<{x:number;y:number}|null>(null);
  const navigated=useRef(false);
  const area=useRef<HTMLDivElement>(null),navRef=useRef<(n:number)=>void>(()=>{}),selectionRef=useRef(selection);selectionRef.current=selection;
@@ -58,7 +59,7 @@ export function OriginalReader({book,library:l,navigate}:{book:Book;library:Libr
  </main>
  <footer className="pdf-footer"><button className="button small" aria-label="Previous page" disabled={index===0} onClick={()=>goto(index-(spread?2:1))}><Icon name="back"/> Previous</button><span>Page {book.pageMarks.find(m=>m.index===index)?.label||index+1}{spread&&index+1<book.printPageCount?`–${book.pageMarks.find(m=>m.index===index+1)?.label||index+2}`:''} · {index+1} of {book.printPageCount}<small>{l.guest?'Saved on this device':l.status}</small></span><button className="button small" aria-label="Next page" disabled={index+(spread?2:1)>=book.printPageCount} onClick={()=>goto(index+(spread?2:1))}>Next <Icon name="next"/></button></footer>
  {comfort&&<Comfort settings={l.settings} onChange={s=>void l.saveSettings(s)} onClose={()=>setComfort(false)}/>}
- {contents&&<Modal title="Contents and pages" onClose={()=>setContents(false)}><form onSubmit={e=>{e.preventDefault();const n=Number(go);if(n>=1&&n<=book.printPageCount){goto(n-1);setContents(false);}}}><label>PDF page (1–{book.printPageCount})<input type="number" min="1" max={book.printPageCount} value={go} onChange={e=>setGo(e.target.value)} required/></label><button className="button">Go</button></form>{book.sections.map((s,i)=><button className="pdf-chapter" key={s.id} onClick={()=>{goto(book.pageMarks.find(m=>m.at.section===i)?.index||0);setContents(false);}}>{s.title}</button>)}{book.importReport?.warnings.map(w=><p className="muted" key={w}>{w}</p>)}</Modal>}
+ {contents&&<Modal title="Contents and pages" onClose={()=>setContents(false)}><form onSubmit={e=>{e.preventDefault();const mark=findPrintedPage(book.pageMarks,go);if(mark){goto(mark.index);setContents(false);setGoError('');}else setGoError('That printed page was not found or its label is ambiguous.');}}><label>Printed page<input placeholder="113 or ix" value={go} onChange={e=>setGo(e.target.value)} required/></label><button className="button">Go</button></form>{goError&&<p role="alert">{goError}</p>}<p className="muted">Use the number printed in the book. Unknown labels use “PDF 3”, for example.</p>{book.sections.map((s,i)=><button className="pdf-chapter" key={s.id} onClick={()=>{goto(book.pageMarks.find(m=>m.at.section===i)?.index||0);setContents(false);}}>{s.title}</button>)}{book.importReport?.warnings.map(w=><p className="muted" key={w}>{w}</p>)}</Modal>}
  {selection&&<SelectionToolbar quote={selection.quote} note={note} onNote={setNote} onColor={c=>save(c)} onDelete={annotations.some(a=>a.id===selection.id)?()=>{void l.saveAnnotation({...selection,deleted:true});setSelection(null);}:undefined} onClose={()=>{setSelection(null);window.getSelection()?.removeAllRanges();}} position={point} selectedColor={selection.color} onSearch={()=>window.open(`https://www.google.com/search?q=${encodeURIComponent(selection.quote)}`,'_blank','noopener')}/>}
  </div>;
 }

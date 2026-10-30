@@ -84,6 +84,7 @@ export const book = z
               index: z.number().int().min(0),
               width: z.number().positive(),
               height: z.number().positive(),
+              ocrConfidence: z.number().min(0).max(100).optional(),
               characters: z.number().int().min(0).max(1000000),
               issues: z
                 .array(
@@ -100,7 +101,7 @@ export const book = z
                     "extraction-error",
                   ]),
                 )
-                .max(10),
+                .max(11),
             }),
           )
           .max(10000),

@@ -1,5 +1,7 @@
-import type { Book, Section, PageMark, Block } from "./types";
+import type { Book, Section, PageMark } from "./types";
 import { analyzePdfPage, dominantSize, importReport, type PdfPageReport } from './pdf-layout';
+import { printedLabels, contentsChapters, interpolatePrintedLabels, type ContentsLink } from './chapters';
+import { ocrLines, ocrScore, enhanceOcrContrast } from './ocr';
 export type ImportOptions = {
   removeHeaders: boolean;
   joinHyphens: boolean;
@@ -103,8 +105,8 @@ export async function importPDF(
           canvas.toBlob((b) => resolve(b!), "image/png"),
         );
       }
-      if (!analysis.report.characters) {
-        scanned++;
+      if (analysis.report.characters < 100 || analysis.report.issues.includes("text-mapping")) {
+        if (!analysis.report.characters) scanned++;
         if (options.ocr) {
         try {
         if (!ocr) {
@@ -119,22 +121,36 @@ export async function importPDF(
             langPath: "/ocr/lang/",
           });
         }
-        const canvas = await raster(page, 1.6);
-        const result = await ocr.recognize(canvas);
-        if (result.data.confidence < 75) { lowConfidence++; analysis.report.issues.push("low-ocr"); }
-        lines.push(
-          ...result.data.text
-            .split(/\n+/)
-            .filter((x) => x.trim())
-            .map((text, i) => ({
-              text: text.trim(),
-              x: 40,
-              y: 50 + i * 15,
-              size: 12,
-              page: p - 1,
-              header: false,
-            })),
-        );
+        onProgress(`Recognizing page ${p} of ${pdf.numPages}…`, Math.round((p / pdf.numPages) * 80));
+        await ocr.setParameters({ tessedit_pageseg_mode: "3" as import("tesseract.js").PSM, preserve_interword_spaces: "1", user_defined_dpi: "300" });
+        let canvas = await raster(page, 3);
+        let result = await ocr.recognize(canvas, { rotateAuto:true }, { blocks:true, text:true });
+        if (ocrScore(result.data) < 80) {
+          const retryCanvas = await raster(page, 4);
+          enhanceOcrContrast(retryCanvas);
+          // A higher-resolution, single-column pass helps faint prose scans.
+          await ocr.setParameters({ tessedit_pageseg_mode: "6" as import("tesseract.js").PSM });
+          const retry = await ocr.recognize(retryCanvas, { rotateAuto:true }, { blocks:true, text:true });
+          if (ocrScore(retry.data) > ocrScore(result.data) + 3 && retry.data.text.trim().length >= result.data.text.trim().length * .8) { result = retry; canvas = retryCanvas; }
+        }
+        const recognized = ocrLines(result.data, v.width, v.height, canvas.width, canvas.height, p-1);
+        const score = ocrScore(result.data);
+        analysis.report.ocrConfidence = score;
+        if (score < 80 || !recognized.length) { lowConfidence++; analysis.report.issues.push("low-ocr"); }
+        // Replace a broken/sparse text layer only when OCR actually recovers more text.
+        if (recognized.length && (analysis.report.issues.includes("text-mapping") || result.data.text.trim().length > analysis.report.characters * 1.2)) {
+          if (!analysis.report.issues.includes("scanned")) { analysis.report.issues.push("scanned"); scanned++; }
+          const nativeNumbers = analysis.report.issues.includes("text-mapping") ? [] : lines.filter(l => l.header && /^(\d+|[ivxlcdm]+)$/i.test(l.text.trim()));
+          // OCR often misses a small footer that the native layer already reads exactly.
+          for (const number of nativeNumbers) {
+            const duplicate = recognized.findIndex(l => l.header && Math.abs(l.y-number.y) < 24);
+            if (duplicate >= 0) recognized.splice(duplicate, 1);
+            const preserved = { ...number, endX:number.endX || number.x + number.size };
+            if (number.y < v.height / 2) recognized.unshift(preserved); else recognized.push(preserved);
+          }
+          lines.splice(0, lines.length, ...recognized);
+          analysis.report.characters = result.data.text.trim().length;
+        }
         } catch(e) { if(signal?.aborted)throw e; analysis.report.issues.push("extraction-error"); }
       }
       }
@@ -200,7 +216,6 @@ export async function importPDF(
           }
         }
         // Preserve aligned numeric table rows as an image instead of flattening cells.
-        const tableRows: Line[] = [];
         let run: Line[] = [];
         const finishTable = () => {
           if (
@@ -221,7 +236,6 @@ export async function importPDF(
               w: Math.max(0, rr - rx),
               h: Math.max(0, rb - ry),
             });
-            tableRows.push(...run);
           }
           run = [];
         };
@@ -238,10 +252,7 @@ export async function importPDF(
           }
         }
         finishTable();
-        for (const row of tableRows) {
-          const i = lines.indexOf(row);
-          if (i >= 0) lines.splice(i, 1);
-        }
+        // Retain cell text even when an image crop cannot be saved.
         if (regions.length) {
           analysis.report.issues.push("illustrated");
           const full = await raster(page, 1.5);
@@ -298,9 +309,32 @@ export async function importPDF(
         if (!frequency.has(key)) frequency.set(key, new Set());
         frequency.get(key)!.add(line.page);
       }
+    let pageLabels = printedLabels(all, labels, heights);
+    let toc = contentsChapters(all, [...pageLabels]);
+    const contentsLinks = new Map<number, ContentsLink[]>();
+    for (const pi of toc.contentsPages) {
+      if (signal?.aborted) throw new DOMException('Import cancelled', 'AbortError');
+      const page = await pdf.getPage(pi+1), viewport = page.getViewport({scale:1});
+      const links:ContentsLink[] = [];
+      for (const annotation of await page.getAnnotations().catch(()=>[])) {
+        try {
+          const dest = typeof annotation.dest === 'string' ? await pdf.getDestination(annotation.dest) : annotation.dest;
+          if (!Array.isArray(dest) || !annotation.rect) continue;
+          const index = typeof dest[0] === 'number' ? dest[0] : await pdf.getPageIndex(dest[0]);
+          const a = viewport.convertToViewportPoint(annotation.rect[0], annotation.rect[1]);
+          const b = viewport.convertToViewportPoint(annotation.rect[2], annotation.rect[3]);
+          links.push({index, top:Math.min(a[1],b[1]), bottom:Math.max(a[1],b[1])});
+        } catch { /* Broken links do not override visible contents and printed numbers. */ }
+      }
+      contentsLinks.set(pi, links);
+      page.cleanup();
+    }
+    toc = contentsChapters(all, pageLabels, contentsLinks);
+    pageLabels = interpolatePrintedLabels(pageLabels);
     const median = dominantSize(all.flat().filter(l=>!l.header));
     const outlinePages = new Map<number, string>();
-    for (const item of outline || []) {
+    const flattenOutline = (items: NonNullable<typeof outline>): NonNullable<typeof outline> => items.flatMap(item => [item, ...flattenOutline(item.items || [])]);
+    for (const item of flattenOutline(outline || [])) {
       try {
         const dest =
           typeof item.dest === "string"
@@ -311,7 +345,7 @@ export async function importPDF(
             typeof dest[0] === "number"
               ? dest[0]
               : await pdf.getPageIndex(dest[0]);
-          outlinePages.set(n, item.title);
+          if (n >= 0 && n < pdf.numPages && !outlinePages.has(n)) outlinePages.set(n, item.title);
         }
       } catch {}
     }
@@ -323,15 +357,7 @@ export async function importPDF(
       removed = 0,
       fixed = 0;
     all.forEach((lines, pi) => {
-      let pageLabel = labels?.[pi] || "";
-      if (!pageLabel) {
-        const token = lines
-          .filter((l) => l.header)
-          .map((l) => l.text.trim())
-          .find((t) => /^(\d+|[ivxlcdm]+)$/i.test(t));
-        pageLabel = token || String(pi + 1);
-      }
-      const footnoteLines = new Set<Line>();
+      const pageLabel = pageLabels[pi];
       let footnote: NonNullable<Book["footnotes"]>[number] | undefined;
       for (const line of lines) {
         if (
@@ -348,20 +374,18 @@ export async function importPDF(
               pageIndex: pi,
             };
             footnotes.push(footnote);
-            footnoteLines.add(line);
           } else if (footnote) {
             footnote.text += " " + line.text;
-            footnoteLines.add(line);
           }
         }
       }
       const kept = lines.filter((l) => {
-        if (footnoteLines.has(l)) return false;
+        // Keep footnote text in reading order too: not every marker can be linked safely.
         const repeated =
-          l.header &&
+          l.header && l.size <= median * 1.15 && /\p{L}/u.test(l.text) && !/^(chapter|part|book|section)\b/i.test(l.text) &&
           (frequency.get(normal(l.text))?.size || 0) >=
             Math.max(2, Math.ceil(pdf.numPages * 0.3));
-        const numbered = l.header && /^\s*(\d+|[ivxlcdm]+)\s*$/i.test(l.text);
+        const numbered = l.header && l.size <= median && l.text.trim() === pageLabel && /^\s*(\d+|[ivxlcdm]+)\s*$/i.test(l.text);
         if (options.removeHeaders && (repeated || numbered)) {
           removed++;
           return false;
@@ -369,10 +393,10 @@ export async function importPDF(
         return true;
       });
       const heading =
-        outlinePages.get(pi) ||
-        kept.find(
-          (l) => l.size > median * 1.3 && l.y < 250 && l.text.length < 130,
-        )?.text;
+        (toc.contentsPages.size ? toc.chapters.get(pi) : outlinePages.get(pi)) ||
+        (!toc.contentsPages.size && !outlinePages.size ? kept.find(
+          (l) => l.size > median * 1.3 && l.y < 250 && l.text.length < 130 && !l.header,
+        )?.text : undefined);
       if (!section || heading) {
         section = {
           id: crypto.randomUUID(),
@@ -405,19 +429,20 @@ export async function importPDF(
           flush();
           section.blocks.push({ type: "figure", blobId: figures.shift()!.id });
         }
-        if (line.text === heading) {
+        if (line.text === heading && line.y < 250) {
           flush();
           continue;
         }
         if (
           previous &&
-          (line.y - previous.y > median * 1.9 ||
+          (line.y < previous.y || line.y - previous.y > median * 1.9 ||
             line.x - previous.x > median * 1.2)
         )
           flush();
         if (
           options.joinHyphens &&
-          /-$/.test(paragraph) &&
+          previous && line.y > previous.y && line.y - previous.y < median * 1.9 &&
+          /[\p{L}]{2}-$/u.test(paragraph) &&
           /^\p{Ll}/u.test(line.text)
         ) {
           paragraph = paragraph.slice(0, -1) + line.text;
@@ -464,6 +489,9 @@ export async function importPDF(
       info.Title?.trim() && !/untitled/i.test(info.Title)
         ? info.Title
         : file.name.replace(/\.pdf$/i, "").replace(/[_-]/g, " ");
+    const report = importReport(reports);
+    if (toc.unresolved.length) report.warnings.push(`${toc.unresolved.length} contents entries could not be mapped confidently. Add or correct their chapters using the printed page labels.`);
+    if (pageLabels.some(label => label.startsWith("PDF "))) report.warnings.push("Some printed page numbers are unknown. These pages use explicit PDF labels; set their printed labels in the preview before adding chapters by number.");
     const book: Book = {
       id: crypto.randomUUID(),
       title,
@@ -476,8 +504,8 @@ export async function importPDF(
       },
       pdfCoverBlobId: coverId,
       sourcePdfBlobId: pdfId,
-      readingMode: "reflow",
-      importReport: importReport(reports),
+      readingMode: report.recommendedMode,
+      importReport: report,
       addedAt: Date.now(),
       lastOpenedAt: Date.now(),
       printPageCount: pdf.numPages,

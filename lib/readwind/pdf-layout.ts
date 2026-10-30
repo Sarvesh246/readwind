@@ -1,7 +1,10 @@
 export type PdfTextItem = {str:string;transform:number[];width:number;height:number;dir?:string;fontName?:string;hasEOL?:boolean};
 export type PdfLine = {text:string;x:number;y:number;size:number;page:number;header:boolean;endX:number};
 export type PdfIssue = 'columns'|'rotated-text'|'rtl'|'vertical-text'|'scanned'|'text-mapping'|'sparse'|'illustrated'|'low-ocr'|'extraction-error';
-export type PdfPageReport = {index:number;width:number;height:number;characters:number;issues:PdfIssue[]};
+export const pdfIssueLabels:Record<PdfIssue,string> = {
+ 'columns':'Multiple columns or aligned text', 'rotated-text':'Rotated text', 'rtl':'Right-to-left writing', 'vertical-text':'Vertical writing', 'scanned':'Scanned content', 'text-mapping':'Unreliable text layer', 'sparse':'Little selectable text', 'illustrated':'Illustrations or tables', 'low-ocr':'Recognition needs review', 'extraction-error':'Some content could not be extracted',
+};
+export type PdfPageReport = {index:number;width:number;height:number;characters:number;ocrConfidence?:number;issues:PdfIssue[]};
 export type PdfImportReport = {version:1;recommendedMode:'original'|'reflow';pages:PdfPageReport[];warnings:string[]};
 export function normalizePdfText(text:string){return text.normalize('NFC').replace(/\u00ad|\u200b/g,'').replace(/[ﬀﬁﬂﬃﬄﬅﬆ]/g,c=>({'ﬀ':'ff','ﬁ':'fi','ﬂ':'fl','ﬃ':'ffi','ﬄ':'ffl','ﬅ':'st','ﬆ':'st'})[c]!);}
 function matrix(a:number[],b:number[]){return [a[0]*b[0]+a[2]*b[1],a[1]*b[0]+a[3]*b[1],a[0]*b[2]+a[2]*b[3],a[1]*b[2]+a[3]*b[3],a[0]*b[4]+a[2]*b[5]+a[4],a[1]*b[4]+a[3]*b[5]+a[5]];}
@@ -38,6 +41,7 @@ export function analyzePdfPage(items:PdfTextItem[],viewport:{width:number;height
  return {lines,bodySize,report:{index:page,width:viewport.width,height:viewport.height,characters,issues:[...issues]}};
 }
 export function importReport(pages:PdfPageReport[]):PdfImportReport{
+ pages=pages.map(p=>({...p,issues:[...new Set(p.issues)]}));
  const all=new Set(pages.flatMap(p=>p.issues));const warnings:string[]=[];
  if(all.has('columns'))warnings.push('Multiple columns or aligned cells detected. Original layout keeps their reading order and spacing.');
  if(all.has('scanned'))warnings.push('Image-based pages detected. Original layout preserves the scan; OCR is optional and language-dependent.');
