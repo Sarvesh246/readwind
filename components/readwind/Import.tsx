@@ -264,7 +264,8 @@ export function Import({
                 </label>
               ))}
             </div>
-            {options.ocr && <OcrLanguages value={ocrLanguage} onChange={setOcrLanguage} disabled={busy}/>}
+            <small>Text pages use fast extraction. If a page needs recognition, OCR turns on automatically even when unchecked.</small>
+            <OcrLanguages value={ocrLanguage} onChange={setOcrLanguage} disabled={busy}/>
             {needsPassword && <form onSubmit={e=>{e.preventDefault();if(file)void parse(file);}}><label>PDF password<input type="password" autoFocus required value={password} onChange={e=>setPassword(e.target.value)}/></label><button className="button" disabled={busy}>Unlock and retry</button><p className="muted">The password is used to open this file and is never saved.</p></form>}
             {busy && (
               <div className="import-progress" role="status">
@@ -380,7 +381,8 @@ export function Import({
                 <summary>Recognition and cleanup options</summary>
                 <OcrLanguages value={ocrLanguage} onChange={setOcrLanguage}/>
                 <label>Check selectable text against the page<select disabled={!options.ocr} value={!options.verifyText?"off":options.verifyAllText?"all":"sample"} onChange={e=>setOptions({...options,verifyText:e.target.value!=="off",verifyAllText:e.target.value==="all"})}><option value="sample">Automatic: suspicious pages and regular samples</option><option value="all">Every text page (slower)</option><option value="off">Off</option></select></label>
-                <label><input type="checkbox" checked={options.ocr} onChange={e=>setOptions({...options,ocr:e.target.checked})}/> Recognize scanned or damaged text</label>
+                <label><input type="checkbox" checked={options.ocr} onChange={e=>setOptions({...options,ocr:e.target.checked})}/> Use OCR for sparse pages and optional text checks</label>
+                <small>Required recognition is automatic even when this is unchecked.</small>
                 <label><input type="checkbox" checked={options.removeHeaders} onChange={e=>setOptions({...options,removeHeaders:e.target.checked})}/> Remove running headers and page numbers</label>
                 <label>Text structure<select value={options.textLayout} onChange={e=>setOptions({...options,textLayout:e.target.value as typeof options.textLayout})}><option value="auto">Automatic</option><option value="verse">Preserve lines and stanzas</option><option value="dialogue">Preserve dialogue and stage directions</option><option value="code">Preserve code and indentation</option></select></label>
                 <label><input type="checkbox" checked={options.joinHyphens} onChange={e=>setOptions({...options,joinHyphens:e.target.checked})}/> Re-join words split across lines</label>

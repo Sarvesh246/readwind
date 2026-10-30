@@ -97,6 +97,7 @@ export const book = z
               height: z.number().positive(),
               ocrConfidence: z.number().min(0).max(100).optional(),
               sourcePreserved:z.boolean().optional(),
+              autoOcr:z.boolean().optional(),
               verification:z.enum(['matched','disagreed','inconclusive']).optional(),
               characters: z.number().int().min(0).max(1000000),
               issues: z

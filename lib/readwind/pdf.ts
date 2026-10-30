@@ -8,6 +8,7 @@ import {bookWordEvidence,joinPrintedLine,joinPageParagraphs} from './text-cleanu
 import {fidelityIssues,structuredBlocks,needsSourcePage,textLayerCheck,textLayerDisagrees,extractionLoss,ocrAddsContent} from './pdf-fidelity';
 import {isContentsTitle,normalizePageLabel,printedPageToken} from './navigation-labels';
 import {pageNotes,appendEndnotes} from './book-notes';
+import {hasTextBands} from './auto-ocr';
 export type ImportOptions = {
   removeHeaders: boolean;
   joinHyphens: boolean;
@@ -133,17 +134,31 @@ export async function importPDF(
       if(!items.length && v.width>v.height*1.12)analysis.report.issues.push('scan-spread');
       reports.push(analysis.report);
       const lines: Line[] = analysis.lines;
+      let detectionCanvas:HTMLCanvasElement|undefined;
       if (p === 1) {
         const canvas = await raster(page, 1);
+        detectionCanvas=canvas;
         preview = await new Promise<Blob>((resolve) =>
           canvas.toBlob((b) => resolve(b!), "image/png"),
         );
+      }
+      let automaticOcr=false;
+      if(!options.ocr && (analysis.report.characters<100 || analysis.report.issues.includes('text-mapping'))){
+        automaticOcr=analysis.report.issues.includes('text-mapping');
+        if(!automaticOcr){
+          const source=detectionCanvas || await raster(page,Math.min(1,600/v.width,900/v.height));
+          const probe=document.createElement('canvas'),scale=Math.min(1,500/source.width,800/source.height);probe.width=Math.max(1,Math.round(source.width*scale));probe.height=Math.max(1,Math.round(source.height*scale));
+          const ctx=probe.getContext('2d',{willReadFrequently:true})!;ctx.drawImage(source,0,0,probe.width,probe.height);
+          const covered=lines.map(l=>({left:(l.x-2)*probe.width/v.width,right:((l.endX||l.x+l.text.length*l.size)+2)*probe.width/v.width,top:(l.y-l.size*1.3)*probe.height/v.height,bottom:(l.y+l.size*.35)*probe.height/v.height}));
+          automaticOcr=hasTextBands(ctx.getImageData(0,0,probe.width,probe.height),covered);
+        }
+        if(automaticOcr){analysis.report.autoOcr=true;onProgress(`Page ${p} needs text recognition — enabling OCR automatically…`,Math.round((p/pdf.numPages)*80));}
       }
       const verifyNative=options.ocr && options.verifyText!==false && (analysis.report.issues.includes('suspect-text') || analysis.report.issues.includes('duplicate-text') || options.verifyAllText && analysis.report.characters>0 || analysis.report.characters>=400 && (!verifiedNative || p%25===0));
       if(verifyNative)verifiedNative=true;
       if (analysis.report.characters < 100 || analysis.report.issues.includes("text-mapping") || verifyNative) {
         if (!analysis.report.characters) scanned++;
-        if (options.ocr) {
+        if (options.ocr || automaticOcr) {
         try {
         if (!ocr) {
           onProgress(
@@ -488,6 +503,8 @@ export async function importPDF(
         ? info.Title
         : file.name.replace(/\.pdf$/i, "").replace(/[_-]/g, " ");
     const report = importReport(reports);
+    const automaticPages=reports.filter(p=>p.autoOcr).length;
+    if(automaticPages)report.warnings.push(`OCR was enabled automatically for ${automaticPages} ${automaticPages===1?'page that needed':'pages that needed'} text recognition. Other text pages used fast extraction.`);
     if (toc.unresolved.length) report.warnings.push(`${toc.unresolved.length} contents entries could not be mapped confidently. Add or correct their chapters using the printed page labels.`);
     if (pageLabels.some(label => label.startsWith("PDF "))) report.warnings.push("Some printed page numbers are unknown. These pages use explicit PDF labels; set their printed labels in the preview before adding chapters by number.");
     const book: Book = {

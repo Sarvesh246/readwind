@@ -28,8 +28,9 @@ export function edgeCasePdf(){
  streams.push(title(names[10])+text('ABC',40,650,'F4'));
  return build(streams.map((s,i)=>s+(i?text(`A-${i}`,280,25):'')),{outlines:true});
 }
-export function scanEdgePdf(image,{spread=false,hidden=false}={}){
+export function scanEdgePdf(image,{spread=false,hidden=false,footer=false}={}){
  let stream=`q ${spread?1224:612} 0 0 792 0 0 cm /Scan Do Q\n`;
  if(hidden){stream+='1 g\n';for(let i=0;i<8;i++)stream+=text('Unrelated hidden vocabulary about gardens rivers birds mountains and weather.',40,730-i*20);}
+ if(footer)stream+=text('4',280,25);
  return build([stream],{image,width:spread?1224:612});
 }
