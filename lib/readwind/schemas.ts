@@ -57,7 +57,7 @@ export const book = z
       )
       .max(10000),
     cover: z.object({
-      kind: z.enum(["typeset", "pdfPage"]),
+      kind: z.enum(["typeset", "pdfPage", "image"]),
       color: z
         .string()
         .max(200000)
@@ -65,6 +65,8 @@ export const book = z
       fg: z.string().regex(/^#[0-9a-f]{6}$/i),
       blobId: z.string().regex(safeId).optional(),
     }),
+    pdfCoverBlobId: z.string().regex(safeId).optional(),
+    customCoverBlobId: z.string().regex(safeId).optional(),
     addedAt: timestamp,
     lastOpenedAt: timestamp,
     printPageCount: z.number().int().positive().max(10000),

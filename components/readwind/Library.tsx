@@ -9,6 +9,7 @@ import { CoverTitle } from "./CoverTitle";
 import { Icon } from "./Icon";
 import { ReadwindLockup } from "./Logo";
 import { ThemeToggleButton } from "./Theme";
+import { CoverEditor } from "./CoverPicker";
 import { hasReadableContent } from '@/lib/readwind/content';
 export function Cover({
   book,
@@ -26,7 +27,8 @@ export function Cover({
       className={`shelf-cover ${className}`}
       style={{ background: book.cover.color, color: book.cover.fg }}
     >
-      {book.cover.kind === "pdfPage" && book.cover.blobId ? (
+      {(book.cover.kind === "pdfPage" || book.cover.kind === "image") &&
+      book.cover.blobId ? (
         <BlobImage
           id={book.cover.blobId}
           loadBlob={loadBlob}
@@ -123,6 +125,7 @@ export function Library({
   const [search, setSearch] = useState(""),
     [sort, setSort] = useState("Recent"),
     [collection, setCollection] = useState("All books"),
+    [coverBook, setCoverBook] = useState<Book | null>(null),
     [dragging, setDragging] = useState(false);
   const books = useMemo(
     () =>
@@ -193,6 +196,9 @@ export function Library({
   const lastHighlight = [...notes].sort((a, b) => b.updatedAt - a.updatedAt)[0];
   const started = !!progress && (reading?.pct ?? 0) > 0;
   const fanBooks = l.books.filter((b) => b.id !== current?.id);
+  const coverTarget = coverBook
+    ? l.books.find((b) => b.id === coverBook.id) || coverBook
+    : null;
   function drop(e: React.DragEvent) {
     e.preventDefault();
     setDragging(false);
@@ -249,19 +255,24 @@ export function Library({
             placeholder="Search books, notes, quotes"
           />
         </label>
-        <button className="button primary" onClick={() => navigate("/import")}>
+        <button
+          className="button primary library-import"
+          onClick={() => navigate("/import")}
+        >
           <Icon name="plus" size={18} />
           Import PDF
         </button>
-        <ThemeToggleButton />
-        <button
-          className="account-button"
-          aria-label={l.guest ? "Sign in to your account" : "Your account"}
-          onClick={onAccount}
-          title={name || "Sign in"}
-        >
-          {l.guest ? "Sign in" : <Icon name="user" size={18} />}
-        </button>
+        <div className="library-utility">
+          <ThemeToggleButton />
+          <button
+            className="account-button"
+            aria-label={l.guest ? "Sign in to your account" : "Your account"}
+            onClick={onAccount}
+            title={name || "Sign in"}
+          >
+            {l.guest ? "Sign in" : <Icon name="user" size={18} />}
+          </button>
+        </div>
       </header>
       <main className="library-main">
         {view === "collections" && (
@@ -445,9 +456,25 @@ export function Library({
                       </span>
                     </div>
                   </button>
-                  <button className="button shelf-delete" aria-label={`Delete ${b.title}`} onClick={() => {
-                    if (window.confirm(`Delete “${b.title}” and its notes from your library?`)) void l.deleteBook(b.id).catch(e=>window.alert(e.message));
-                  }}>Delete book</button>
+                  <div className="shelf-actions">
+                    <button
+                      className="button shelf-cover-action"
+                      aria-label={`Change cover for ${b.title}`}
+                      onClick={() => setCoverBook(b)}
+                    >
+                      <Icon name="image" size={14} />
+                      Cover
+                    </button>
+                    <button
+                      className="button shelf-delete"
+                      aria-label={`Delete ${b.title}`}
+                      onClick={() => {
+                        if (window.confirm(`Delete “${b.title}” and its notes from your library?`)) void l.deleteBook(b.id).catch(e=>window.alert(e.message));
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </motion.div>
               );
             })}
@@ -482,6 +509,13 @@ export function Library({
           )}
         </footer>
       </main>
+      {coverTarget && (
+        <CoverEditor
+          book={coverTarget}
+          library={l}
+          onClose={() => setCoverBook(null)}
+        />
+      )}
       <AnimatePresence>
         {dragging && (
           <motion.div

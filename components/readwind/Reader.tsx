@@ -23,6 +23,7 @@ import { OriginalPdfPreview } from "./OriginalPdfPreview";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { Comfort } from "./Comfort";
 import { ReaderHeader } from "./ReaderHeader";
+import { CoverEditor } from "./CoverPicker";
 import { Highlighter } from "lucide-react";
 import { hasReadableContent } from '@/lib/readwind/content';
 type Turn = { dir: number; p: number; kind: "page" | "open" | "close" };
@@ -38,6 +39,7 @@ export function Reader({
   const s = l.settings,
     t = themes[s.paper];
   const root = useRef<HTMLDivElement>(null),
+    shell = useRef<HTMLDivElement>(null),
     box = useRef<HTMLDivElement>(null),
     leaf = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 1000, h: 700 }),
@@ -54,7 +56,7 @@ export function Reader({
     [pages, setPages] = useState<ScreenPage[]>([]),
     [busy, setBusy] = useState(true);
   const [panel, setPanel] = useState<
-      "comfort" | "contents" | "search" | "original" | null
+      "comfort" | "contents" | "search" | "original" | "cover" | null
     >(null),
     [search, setSearch] = useState(""),
     [goPage, setGoPage] = useState(""),
@@ -90,7 +92,7 @@ export function Reader({
   } | null>(null);
   const spread = !phone && s.wideLayout === "spread" && s.turn !== "Scroll";
   const g = useMemo(
-    () => geometry(size.w, size.h, s, fill, spread, true),
+    () => geometry(size.w, size.h, s, fill, spread, !full),
     [size, s.size, s.spacing, fill, spread, full],
   );
   const annotations = l.annotations.filter((a) => a.bookId === book.id);
@@ -175,6 +177,14 @@ export function Reader({
     document.addEventListener("fullscreenchange", fs);
     return () => document.removeEventListener("fullscreenchange", fs);
   }, []);
+  useEffect(() => {
+    if (!full) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !document.fullscreenElement) setFull(false);
+    };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [full]);
   useEffect(() => () => cancelAnimationFrame(anim.current), []);
   useEffect(() => {
     if (!s.restNudge) return;
@@ -503,11 +513,26 @@ export function Reader({
     setPanel(null);
   };
   const fullscreen = async () => {
+    if (full) {
+      if (document.fullscreenElement) {
+        try {
+          await document.exitFullscreen();
+        } catch {
+          // The browser may already have left full screen.
+        }
+      }
+      setFull(false);
+      return;
+    }
+    // Fill the reading page itself, not the whole document. Phones without the
+    // Fullscreen API fall back to the same fixed, chrome-free reading view.
     try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await document.documentElement.requestFullscreen();
+      if (shell.current?.requestFullscreen) {
+        await shell.current.requestFullscreen();
+      }
+      setFull(true);
     } catch {
-      setFull((v) => !v);
+      setFull(true);
     }
   };
   const results = useMemo(() => {
@@ -651,6 +676,7 @@ export function Reader({
     s.warmLight && (new Date().getHours() >= 19 || new Date().getHours() < 6);
   return (
     <div
+      ref={shell}
       className={`reader ${phone ? "phone-reader" : ""} ${fill ? "fill-reader" : ""} ${full ? "is-full" : ""} ${selectMode ? "selecting" : ""}`}
       style={
         {
@@ -681,6 +707,7 @@ export function Reader({
           onSearch={()=>setPanel("search")}
           onNotebook={()=>navigate(`/book/${book.id}/notebook`)}
           onComfort={()=>setPanel("comfort")}
+          onCover={()=>setPanel("cover")}
           onFullScreen={fullscreen}
           onCloseBook={openClose}
         />
@@ -863,7 +890,7 @@ export function Reader({
               )}
             </div>
           )}
-          {(
+          {!full && (
             <footer
               className="book-footer"
               style={{ width: fill ? Math.min(g.bookW, 760) - 24 : g.bookW }}
@@ -907,6 +934,26 @@ export function Reader({
             </footer>
           )}
         </div>
+        {full && !closed && s.turn !== "Scroll" && (
+          <>
+            <button
+              className="full-page-nav prev"
+              aria-label="Previous page"
+              disabled={index === 0}
+              onClick={() => turnPage(-1)}
+            >
+              <Icon name="back" size={22} />
+            </button>
+            <button
+              className="full-page-nav next"
+              aria-label="Next page"
+              disabled={!canTurn(1)}
+              onClick={() => turnPage(1)}
+            >
+              <Icon name="next" size={22} />
+            </button>
+          </>
+        )}
         {!closed && (
           <div className="reader-bottom-tools" role="toolbar" aria-label="Reading actions">
             <button onClick={bookmark} aria-label={bookmarked ? 'Remove bookmark' : 'Bookmark this passage'} aria-pressed={!!bookmarked}>
@@ -918,7 +965,7 @@ export function Reader({
               onClick={() => { setSelectMode((v) => !v); if (!selectMode) setMessage("Select a passage, then choose a highlight color or Note."); }}
             >
               <Highlighter size={17} strokeWidth={1.7} aria-hidden="true"/>
-              <span>{selectMode ? "Done selecting" : "Highlight / note"}</span>
+              <span className="dock-label">{selectMode ? "Done selecting" : "Highlight / note"}</span>
             </button>
             {(compact || full) && (
               <>
@@ -946,7 +993,7 @@ export function Reader({
             aria-label="Exit full screen"
             onClick={fullscreen}
           >
-            <Icon name="full" />
+            <Icon name="close" />
           </button>
         )}
       </main>
@@ -1000,6 +1047,9 @@ export function Reader({
             ))}
           </div>
         </Modal>
+      )}
+      {panel === "cover" && (
+        <CoverEditor book={book} library={l} onClose={() => setPanel(null)} />
       )}
       {panel === "search" && (
         <Modal title="Search in book" onClose={() => setPanel(null)}>

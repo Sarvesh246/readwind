@@ -56,6 +56,13 @@ export function Icon({
       </>
     ),
     download: <path d="M12 3v12m-5-5 5 5 5-5M5 17v4h14v-4" />,
+    image: (
+      <>
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <circle cx="8.5" cy="9.5" r="1.5" />
+        <path d="m21 15-4.5-4.5L7 20" />
+      </>
+    ),
     file: (
       <>
         <path d="M14 2H5v20h14V7zM14 2v5h5" />

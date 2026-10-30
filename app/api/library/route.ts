@@ -76,6 +76,8 @@ export const DELETE = safeRoute(async (request: Request) => {
     [
       data.sourcePdfBlobId,
       data.cover.blobId,
+      data.pdfCoverBlobId,
+      data.customCoverBlobId,
       ...data.sections.flatMap((s) =>
         s.blocks.map((b) => (b.type === "figure" ? b.blobId : undefined)),
       ),

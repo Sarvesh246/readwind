@@ -18,6 +18,8 @@ export async function migratePreview(userId: string) {
         .flatMap((b) => [
           b.sourcePdfBlobId,
           b.cover.blobId,
+          b.pdfCoverBlobId,
+          b.customCoverBlobId,
           ...b.sections.flatMap((s) =>
             s.blocks.flatMap((b) => (b.type === "figure" ? [b.blobId] : [])),
           ),

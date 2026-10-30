@@ -100,6 +100,8 @@ export function decodeBackup(input: unknown) {
 
     const images = [
       b.cover.blobId,
+      b.pdfCoverBlobId,
+      b.customCoverBlobId,
       ...b.sections.flatMap((s) =>
         s.blocks.map((block) =>
           block.type === "figure" ? block.blobId : undefined,

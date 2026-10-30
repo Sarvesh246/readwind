@@ -2,8 +2,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { Library } from "@/lib/readwind/useLibrary";
 import type { Imported } from "@/lib/readwind/pdf";
+import { prepareCoverImage } from "@/lib/readwind/cover";
+import type { Book } from "@/lib/readwind/types";
 import { Icon } from "./Icon";
 import { Cover } from "./Library";
+import { CoverPicker, coverIds } from "./CoverPicker";
 import { PdfPreview } from "./PdfPreview";
 export function Import({
   library: l,
@@ -34,6 +37,8 @@ export function Import({
   const input = useRef<HTMLInputElement>(null),
     controller = useRef<AbortController | null>(null),
     request=useRef(0);
+  const [coverBusy, setCoverBusy] = useState(false),
+    [coverError, setCoverError] = useState("");
   useEffect(() => () => { request.current++; controller.current?.abort(); }, []);
   async function parse(f: File) {
     const run=++request.current;
@@ -77,6 +82,50 @@ export function Import({
   }, []);
   const setBook = (patch: Partial<Imported["book"]>) =>
     setResult((r) => (r ? { ...r, book: { ...r.book, ...patch } } : r));
+  const changeCover = (kind: Book["cover"]["kind"]) => {
+    if (!result) return;
+    const { pdfId, customId } = coverIds(result.book);
+    setCoverError("");
+    setBook({
+      cover: {
+        ...result.book.cover,
+        kind,
+        blobId:
+          kind === "pdfPage" ? pdfId : kind === "image" ? customId : pdfId,
+      },
+    });
+  };
+  const uploadCover = async (image: File) => {
+    if (!result) return;
+    setCoverBusy(true);
+    setCoverError("");
+    try {
+      const blob = await prepareCoverImage(image);
+      const id = crypto.randomUUID();
+      setResult((current) =>
+        current
+          ? {
+              ...current,
+              files: [
+                ...current.files.filter(
+                  (file) => file.id !== current.book.customCoverBlobId,
+                ),
+                { id, blob },
+              ],
+              book: {
+                ...current.book,
+                customCoverBlobId: id,
+                cover: { ...current.book.cover, kind: "image", blobId: id },
+              },
+            }
+          : current,
+      );
+    } catch (e) {
+      setCoverError((e as Error).message || "Could not use that image.");
+    } finally {
+      setCoverBusy(false);
+    }
+  };
   const create = async () => {
     if (!result) return;
     setBusy(true);
@@ -288,39 +337,68 @@ export function Import({
                     onChange={(e) => setBook({ author: e.target.value })}
                   />
                 </label>
-                <div className="inline-actions">
-                  <button
-                    type="button"
-                    className="button small"
-                    aria-pressed={result.book.cover.kind === "typeset"}
-                    onClick={() =>
-                      setBook({
-                        cover: { ...result.book.cover, kind: "typeset" },
-                      })
-                    }
-                  >
-                    Typeset cover
-                  </button>
-                  <button
-                    type="button"
-                    className="button small"
-                    aria-pressed={result.book.cover.kind === "pdfPage"}
-                    onClick={() =>
-                      setBook({
-                        cover: { ...result.book.cover, kind: "pdfPage" },
-                      })
-                    }
-                  >
-                    Use PDF page 1
-                  </button>
-                </div>
               </div>
+            </div>
+            <div className="import-cover">
+              <h3>Cover</h3>
+              <CoverPicker
+                book={result.book}
+                loadBlob={async (id) =>
+                  result.files.find((f) => f.id === id)?.blob
+                }
+                onChange={changeCover}
+                onUpload={(image) => void uploadCover(image)}
+                busy={coverBusy}
+              />
+              {coverError && (
+                <p className="form-error" role="alert">
+                  {coverError}
+                </p>
+              )}
             </div>
             <div className="pdf-quality">
               <h3>How would you like to read?</h3>
-              <label><input type="radio" name="reading-mode" checked={result.book.readingMode==='original'} onChange={()=>setBook({readingMode:'original'})}/>Original layout · preserve fonts, images, and formatting</label>
-              <label><input type="radio" name="reading-mode" checked={result.book.readingMode==='reflow'} onChange={()=>setBook({readingMode:'reflow'})}/>Adjustable text · change font and size</label>
-              <p>Original layout is the safest choice for every PDF. Adjustable text is a conversion and can change tables, equations, footnotes, and reading order. You can switch modes later.</p>
+              <div
+                className="reading-mode-options"
+                role="group"
+                aria-label="Reading mode"
+              >
+                <button
+                  type="button"
+                  className="reading-mode-option"
+                  aria-pressed={result.book.readingMode === "reflow"}
+                  onClick={() => setBook({ readingMode: "reflow" })}
+                >
+                  <span className="reading-mode-glyph" aria-hidden="true">
+                    <span>Aa</span>
+                  </span>
+                  <span className="reading-mode-copy">
+                    <strong>
+                      Adjustable text <em>Recommended</em>
+                    </strong>
+                    <small>Change the font, size, and spacing</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="reading-mode-option"
+                  aria-pressed={result.book.readingMode === "original"}
+                  onClick={() => setBook({ readingMode: "original" })}
+                >
+                  <span className="reading-mode-glyph" aria-hidden="true">
+                    <Icon name="file" size={18} />
+                  </span>
+                  <span className="reading-mode-copy">
+                    <strong>Original layout</strong>
+                    <small>Keep every printed page exactly as it is</small>
+                  </span>
+                </button>
+              </div>
+              <p>
+                Adjustable text is the default and works well for most books.
+                Original layout is the safest choice for tables, equations, and
+                complex page designs. You can switch modes later.
+              </p>
               {result.book.importReport?.warnings.map(w=><p key={w}>{w}</p>)}
             </div>
             <fieldset>
@@ -328,21 +406,27 @@ export function Import({
               <div className="chapter-edit-list">
                 {result.book.sections.map((sec, si) => (
                   <div className="chapter-edit" key={sec.id}>
-                    <span>{si + 1}</span>
-                    <input
-                      aria-label={`Chapter ${si + 1} title`}
-                      value={sec.title}
-                      onChange={(e) => {
-                        const sections = [...result.book.sections];
-                        sections[si] = { ...sec, title: e.target.value };
-                        setBook({ sections });
-                      }}
-                    />
-                    {si > 0 && (
-                      <button type="button" onClick={() => mergeChapter(si)}>
-                        Merge ↑
-                      </button>
-                    )}
+                    <div className="chapter-edit-main">
+                      <span>{si + 1}</span>
+                      <input
+                        aria-label={`Chapter ${si + 1} title`}
+                        value={sec.title}
+                        onChange={(e) => {
+                          const sections = [...result.book.sections];
+                          sections[si] = { ...sec, title: e.target.value };
+                          setBook({ sections });
+                        }}
+                      />
+                      {si > 0 && (
+                        <button
+                          type="button"
+                          className="chapter-merge"
+                          onClick={() => mergeChapter(si)}
+                        >
+                          Merge ↑
+                        </button>
+                      )}
+                    </div>
                     <details>
                       <summary>Edit text / split</summary>
                       {sec.blocks.map((b, bi) => (

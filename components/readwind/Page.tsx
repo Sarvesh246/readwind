@@ -235,7 +235,8 @@ export const Page = memo(function Page({
           className="reader-cover"
           style={{ background: book.cover.color, color: book.cover.fg }}
         >
-          {book.cover.kind === "pdfPage" && book.cover.blobId ? (
+          {(book.cover.kind === "pdfPage" || book.cover.kind === "image") &&
+          book.cover.blobId ? (
             <BlobImage
               id={book.cover.blobId}
               loadBlob={loadBlob}

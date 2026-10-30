@@ -25,6 +25,8 @@ function bookFileIds(book: Book) {
   return [
     book.sourcePdfBlobId,
     book.cover.blobId,
+    book.pdfCoverBlobId,
+    book.customCoverBlobId,
     ...book.sections.flatMap((section) =>
       section.blocks.map((block) =>
         block.type === "figure" ? block.blobId : undefined,
@@ -466,6 +468,39 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     });
     void sync();
   };
+  /**
+   * Saves metadata-only edits (cover, reading mode) without re-uploading the
+   * files that are already attached to the book.
+   */
+  const saveBook = async (
+    book: Book,
+    files: { id: string; blob: Blob }[] = [],
+  ) => {
+    const encoded = await Promise.all(files.map(encodeFile));
+    await db.transaction("rw", [db.books, db.blobs, db.pending], async () => {
+      await db.books.put(book);
+      if (encoded.length) await db.blobs.bulkPut(encoded);
+      if (!guest) {
+        const queued = await db.pending.get(`book:${book.id}`);
+        const incoming = new Set(files.map((file) => file.id));
+        const uploaded = new Set(queued?.uploaded || []);
+        // A queued add still has to upload its original attachments. Once the
+        // book is known remotely, skip files that are already stored there.
+        if (!queued || queued.uploadFiles === false)
+          for (const id of bookFileIds(book))
+            if (!incoming.has(id)) uploaded.add(id);
+        await db.pending.put({
+          id: `book:${book.id}`,
+          entity: "book",
+          bookId: book.id,
+          value: book,
+          uploadFiles: true,
+          uploaded: [...uploaded],
+        });
+      }
+    });
+    void sync();
+  };
   const saveReadingMode = async (book: Book, readingMode: 'original'|'reflow') => {
     await db.transaction('rw', [db.books,db.pending], async()=>{
       const value={...book,readingMode};
@@ -551,6 +586,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     saveAnnotation,
     saveSettings,
     addBook,
+    saveBook,
     saveReadingMode,
     loadBlob,
     conflict,

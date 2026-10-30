@@ -17,6 +17,7 @@ type Props = {
   onSearch: () => void;
   onNotebook: () => void;
   onComfort: () => void;
+  onCover: () => void;
   onFullScreen: () => void;
   onCloseBook: () => void;
 };
@@ -190,6 +191,10 @@ export function ReaderHeader(props: Props) {
             <button onClick={props.onNotebook}>
               <Icon name="notebook" size={18} />
               Notebook
+            </button>
+            <button onClick={props.onCover}>
+              <Icon name="image" size={18} />
+              Change cover
             </button>
             <button onClick={props.onCloseBook}>
               <Icon name="book" size={18} />

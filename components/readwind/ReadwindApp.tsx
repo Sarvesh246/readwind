@@ -299,6 +299,8 @@ function Workspace({
         const ids = [
           b.sourcePdfBlobId,
           b.cover.blobId,
+          b.pdfCoverBlobId,
+          b.customCoverBlobId,
           ...b.sections.flatMap((s) =>
             s.blocks.flatMap((b) => (b.type === "figure" ? [b.blobId] : [])),
           ),
@@ -357,7 +359,7 @@ function Workspace({
     try {
       const {data,files} = await readBackup(f, () => window.prompt("Enter the backup password."));
       for (const b of data.books) {
-        const ids = new Set([b.sourcePdfBlobId,b.cover.blobId,...b.sections.flatMap(s=>s.blocks.map(x=>x.type === "figure" ? x.blobId : undefined))]);
+        const ids = new Set([b.sourcePdfBlobId,b.cover.blobId,b.pdfCoverBlobId,b.customCoverBlobId,...b.sections.flatMap(s=>s.blocks.map(x=>x.type === "figure" ? x.blobId : undefined))]);
         await library.addBook(b as Book, files.filter(f=>ids.has(f.id)));
       }
       for (const a of data.annotations || []) await library.saveAnnotation(a);

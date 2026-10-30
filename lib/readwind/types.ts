@@ -22,9 +22,13 @@ export type Book = {
   cover: {
     color: string;
     fg: string;
-    kind: "typeset" | "pdfPage";
+    kind: "typeset" | "pdfPage" | "image";
     blobId?: string;
   };
+  /** First PDF page rendered at import time, kept so the cover can be switched back. */
+  pdfCoverBlobId?: string;
+  /** A cover image chosen by the reader, kept when switching cover styles. */
+  customCoverBlobId?: string;
   printPageCount: number;
   sections: Section[];
   pageMarks: PageMark[];
