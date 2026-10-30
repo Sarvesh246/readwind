@@ -100,11 +100,16 @@ function openingLine(book: Book) {
   if (text.length <= 170) return text;
   return `${text.slice(0, 170).replace(/\s+\S*$/, "")}…`;
 }
+const readDuration=(minutes:number)=>{
+  if(minutes<60)return `${minutes} min`;
+  const hours=Math.floor(minutes/60),remaining=minutes%60;
+  return `${hours} hr${remaining?` ${remaining} min`:''}`;
+};
 const readTime = (book: Book, speed = 230) => {
   const words = wordProgress(book,start,speed).total;
   const minutes = Math.max(1, Math.ceil(words / speed));
   if (!words) return "Reading time unavailable";
-  return minutes < 90 ? `${minutes} min read` : `${Math.round(minutes / 6) / 10} hr read`;
+  return `${readDuration(minutes)} read`;
 };
 export function Library({
   library: l,
@@ -335,7 +340,7 @@ export function Library({
                     <span>
                       Page {labelAt(current, at)} of {current.printPageCount}
                     </span>
-                    <span title="Estimated from your reading pace">About {reading!.bookMinutes} min left in book</span>
+                    <span title="Estimated from your reading pace">About {readDuration(reading!.bookMinutes)} left in book</span>
                   </div>
                 </div>
               )}
@@ -450,7 +455,7 @@ export function Library({
                       </div>
                       <span title="Full-book progress and estimated time at your reading pace">
                         {info.pct > 0
-                          ? `${Math.round(info.pct * 100)}% · ${info.bookMinutes} min left`
+                          ? `${Math.round(info.pct * 100)}% · ${readDuration(info.bookMinutes)} left`
                           : `Not started · ${readTime(b, l.readingSpeed)}`}
                       </span>
                     </div>
@@ -490,7 +495,7 @@ export function Library({
             <p>No books or notes match “{search}”.</p>
           )}
         </section>
-        <footer className="library-footer">
+        <footer className={`library-footer${l.guest?'':' has-sync'}`}>
           <span>
             {l.guest
               ? "Guest shelf · saved on this device · sign in to sync"

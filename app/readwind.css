@@ -2341,6 +2341,9 @@ legend {
   .library-footer button {
     min-height: 32px;
   }
+  .library-footer.has-sync { flex-direction:row; align-items:center; gap:12px; }
+  .library-footer.has-sync > span { flex:1; min-width:0; overflow-wrap:anywhere; }
+  .library-footer.has-sync > button { flex:none; white-space:nowrap; min-height:44px; }
   .reader {
     min-height: 0;
   }
