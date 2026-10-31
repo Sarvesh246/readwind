@@ -85,6 +85,8 @@ export function Reader({
     y: number;
   } | null>(null);
   const [selectMode, setSelectMode] = useState(false),
+    [navIdle, setNavIdle] = useState(false),
+    navTimer = useRef(0),
     [originalUrl, setOriginalUrl] = useState("");
   const [originalBlob, setOriginalBlob] = useState<Blob | null>(null);
   const [originalPageIndex,setOriginalPageIndex]=useState<number|null>(null);
@@ -98,6 +100,7 @@ export function Reader({
     started: boolean;
     dir: number;
     pointerId: number;
+    t: number;
   } | null>(null);
   const spread = !phone && s.wideLayout === "spread" && s.turn !== "Scroll";
   const g = useMemo(
@@ -411,6 +414,7 @@ export function Reader({
       started: false,
       dir: 1,
       pointerId: e.pointerId,
+      t: performance.now(),
     };
     // Capture after a horizontal drag begins, preserving taps on highlights.
   }
@@ -456,6 +460,8 @@ export function Reader({
       return;
     }
     if (Math.abs(d.dx) > 8) return;
+    // A press-and-hold is a word selection, never a page turn.
+    if (performance.now() - d.t > 450 || window.getSelection()?.toString().trim()) return;
     if (closed) {
       openClose();
       return;
@@ -501,6 +507,44 @@ export function Reader({
       setNote("");
     }
   }
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+  // Long-press word selection on touch fires no mouseup, so follow the selection itself.
+  useEffect(() => {
+    let timer = 0;
+    const change = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed) onSelectRef.current();
+      }, 320);
+    };
+    document.addEventListener("selectionchange", change);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("selectionchange", change);
+    };
+  }, []);
+  // Tapping anywhere outside the selection toolbar dismisses it without turning the page.
+  useEffect(() => {
+    if (!selection) return;
+    const away = (e: PointerEvent) => {
+      if ((e.target as HTMLElement | null)?.closest(".selection-ui")) return;
+      setSelection(null);
+      window.getSelection()?.removeAllRanges();
+    };
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, [selection]);
+  const wakeNav = useCallback(() => {
+    setNavIdle(false);
+    window.clearTimeout(navTimer.current);
+    navTimer.current = window.setTimeout(() => setNavIdle(true), 2600);
+  }, []);
+  useEffect(() => {
+    wakeNav();
+    return () => window.clearTimeout(navTimer.current);
+  }, [wakeNav, full, index]);
   const saveHighlight = async (color: Color) => {
     if (!selection) return;
     await l.saveAnnotation({
@@ -752,6 +796,10 @@ export function Reader({
           onMouseUp={onSelect}
           onKeyUp={onSelect}
           onTouchEnd={() => setTimeout(onSelect, 80)}
+          onPointerDownCapture={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            if (e.clientX - r.left < 110 || r.right - e.clientX < 110) wakeNav();
+          }}
         >
           {busy && (
             <div className="pagination-status" role="status">
@@ -956,12 +1004,13 @@ export function Reader({
           )}
         </div>
         {full && !closed && s.turn !== "Scroll" && (
-          <>
+          <div className={`full-page-nav-rail ${navIdle ? "idle" : ""}`}>
             <button
               className="full-page-nav prev"
               aria-label="Previous page"
               disabled={index === 0}
-              onClick={() => turnPage(-1)}
+              onFocus={wakeNav}
+              onClick={() => { wakeNav(); turnPage(-1); }}
             >
               <Icon name="back" size={22} />
             </button>
@@ -969,11 +1018,12 @@ export function Reader({
               className="full-page-nav next"
               aria-label="Next page"
               disabled={!canTurn(1)}
-              onClick={() => turnPage(1)}
+              onFocus={wakeNav}
+              onClick={() => { wakeNav(); turnPage(1); }}
             >
               <Icon name="next" size={22} />
             </button>
-          </>
+          </div>
         )}
         {!closed && (
           <div className="reader-bottom-tools" role="toolbar" aria-label="Reading actions">

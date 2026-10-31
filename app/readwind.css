@@ -3024,8 +3024,9 @@ legend {
 .original-reader .reader-header .icon-button[aria-pressed="true"] { background: var(--reader-chip); color: var(--reader-accent); }
 .pdf-footer { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
 .pdf-footer small { opacity: 1; color: var(--muted); }
+.book-box .page-text { user-select: text; -webkit-user-select: text; -webkit-touch-callout: none; }
 @media (pointer: fine) {
-  .book-box .page-text { user-select: text; -webkit-user-select: text; cursor: text; }
+  .book-box .page-text { cursor: text; }
 }
 @media (max-width: 900px) {
   .reader-bottom-tools > span { display: none; }
@@ -3702,11 +3703,31 @@ legend {
 .reader .exit-full.icon-button:hover {
   background: var(--reader-page);
 }
-.full-page-nav {
+/* One flex row holds both arrows, so they always share a baseline (no per-button transforms). */
+.full-page-nav-rail {
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
+  inset: 0;
   z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-inline: max(10px, env(safe-area-inset-left)) max(10px, env(safe-area-inset-right));
+  pointer-events: none;
+}
+.full-page-nav-rail .full-page-nav {
+  pointer-events: auto;
+  transition: opacity 0.45s ease;
+}
+@media (pointer: coarse) {
+  .full-page-nav-rail.idle .full-page-nav {
+    opacity: 0;
+    pointer-events: none;
+    transition-duration: 0.6s;
+  }
+}
+.full-page-nav {
+  position: relative;
+  flex: none;
   width: 48px;
   min-width: 48px;
   height: 48px;
@@ -3718,7 +3739,6 @@ legend {
   background: color-mix(in srgb, var(--reader-page) 82%, transparent);
   color: var(--reader-ink);
   box-shadow: 0 3px 14px rgba(0, 0, 0, 0.13);
-  backdrop-filter: blur(6px);
   opacity: 0.82;
 }
 .full-page-nav:hover:not(:disabled) {
@@ -3728,12 +3748,6 @@ legend {
 .full-page-nav:disabled {
   opacity: 0;
   pointer-events: none;
-}
-.full-page-nav.prev {
-  left: max(10px, env(safe-area-inset-left));
-}
-.full-page-nav.next {
-  right: max(10px, env(safe-area-inset-right));
 }
 
 @media (max-width: 800px) {
@@ -3832,11 +3846,8 @@ legend {
     height: 44px;
     min-height: 44px;
   }
-  .full-page-nav.prev {
-    left: max(6px, env(safe-area-inset-left));
-  }
-  .full-page-nav.next {
-    right: max(6px, env(safe-area-inset-right));
+  .full-page-nav-rail {
+    padding-inline: max(6px, env(safe-area-inset-left)) max(6px, env(safe-area-inset-right));
   }
 }
 @media (orientation: landscape) and (max-height: 550px) {
