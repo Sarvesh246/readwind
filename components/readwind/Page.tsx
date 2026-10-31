@@ -276,7 +276,7 @@ export const Page = memo(function Page({
                 <figure
                   key={i}
                   className="book-figure"
-                  style={{ height: figureHeight(book.sections[f.section].blocks[f.block],g,page.chapterStart && i===0) }}
+                  style={{ height: figureHeight(book.sections[f.section].blocks[f.block],g,page.chapterStart && i===0,page.chapterTitle) }}
                 >
                   <BookFigure id={f.blobId!} loadBlob={loadBlob} sourcePageIndex={figureSource(f)?.sourcePageIndex} sourcePdf={figureSource(f)?.sourcePdf} aspectRatio={figureSource(f)?.aspectRatio} onSourcePage={onSourcePage}/>
                 </figure>

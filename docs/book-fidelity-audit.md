@@ -32,3 +32,19 @@ Validation commands: `npm test`, `npm run typecheck`, `npm run test:fidelity`, `
 OCR confidence is not a transcription guarantee. Faint scans, unusual fonts, equations, complex vector diagrams and unsupported layouts can still need source review. Original mode retains the actual PDF and is recommended for risky layouts; enlargement and original-page controls make comparison possible during reading. Unknown printed numbers remain explicitly marked as PDF positions rather than invented printed labels.
 
 Existing books are not silently re-extracted because that could invalidate annotations and progress. Reimport the source to obtain extraction changes. The existing flattened-contents presentation repair continues to work without changing stored content. This audit does not certify every PDF, physical device or live deployment as bug-free.
+
+# Five-book re-audit — October 31, 2026
+
+The four books above plus *Never Split the Difference* (375 pages) were re-imported and read back block by block, then paged at eleven viewport shapes (phone portrait and landscape, small phone, tablet, laptop, 1920 and 2560×1080 desktop, square) in and out of full screen.
+
+- Pages with two or more list markers or "Word:" lines became line-preserving blocks, so wrapped prose kept hard line breaks. List items now flow as text and keep marker and nesting; prose around them stays prose; a script layout needs speaker labels on at least a fifth of the page.
+- Sentences cut by a page break or an OCR paragraph guess were left as two paragraphs (lowercase starts fell from 526 to 82 in the scan, 232 to 73 in Never Split). Continuations are now rejoined wherever the second block starts lowercase after an unfinished line, or after a line-end hyphen. Page marks keep their character offset.
+- A split word such as "frustra-tion" kept its hyphen when the book never used the whole word; common word endings now confirm the join.
+- OCR punctuation in place of a space ("in.store") and straight apostrophes are repaired; hostnames are left alone.
+- Paragraph gaps are measured against each page's own line pitch, which restores paragraph breaks in tightly set type (the Psychology of Money introduction).
+- A bold lead-in that runs on into lowercase text is no longer split off as a subheading, and a chapter label that repeats the section title is dropped.
+- Chapter openings on short or narrow screens could leave no room for text and showed a clipped drop cap; the title now shrinks to leave room, and the opening picture gets only the space under the title.
+- Landscape phones wider than 900px (for example 932×430) showed a small two-page spread in the middle of the screen; they now use the full width like narrower landscape phones.
+- Closing an import while pages were still being recognised could throw an unhandled error from the OCR engine; closing now waits for running pages.
+
+Not changed: printed page numbers are absent from these ebook-derived PDFs, so labels stay "PDF n". OCR misreads in the scanned book (for example "FrankI") remain. An illustration that the source PDF itself paints past the page edge is shown as cropped as the PDF shows it.

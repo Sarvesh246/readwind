@@ -31,7 +31,7 @@ export function fidelityIssues(lines:PdfLine[],items:PdfTextItem[],width:number,
 }
 
 /** Retain meaningful line breaks instead of inventing paragraphs for verse/code/drama/lists. */
-export function structuredBlocks(lines:PdfLine[],forced?:'verse'|'code'|'dialogue'):Block[]|undefined{
+export function structuredBlocks(lines:PdfLine[],forced?:'verse'|'code'|'dialogue',join?:(paragraph:string,line:string)=>{text:string;fixed:boolean}):Block[]|undefined{
  if(lines.filter(l=>listMarker.test(l.text)).length>=2){
   const rows:PdfLine[]=[];
   for(const line of [...lines].sort((a,b)=>a.y-b.y||a.x-b.x)){
@@ -51,9 +51,36 @@ export function structuredBlocks(lines:PdfLine[],forced?:'verse'|'code'|'dialogu
  const maxWidth=Math.max(...body.map(l=>l.endX-l.x)),ragged=body.filter(l=>l.endX-l.x<maxWidth*.82).length;
  const stanzas=body.some((l,i)=>i>0 && l.y-body[i-1].y>l.size*2.2);
  const verse=singleLane && body.length>=5 && short/body.length>.85 && ragged>=3 && (stanzas || ragged/body.length>.6) && body.filter(l=>/[.!?;:]\s*$/.test(l.text)).length/body.length<.35 && markers===0;
- const layout=forced||(mono>=2 && mono/body.length>.5?'code':drama>=2?'dialogue':markers>=2?'list':verse?'verse':undefined);
+ // A speaker label has to be a real share of the page; two "Note: ..." lines inside prose are not a script.
+ const layout=forced||(mono>=2 && mono/body.length>.5?'code':drama>=2 && drama>=body.length*.2?'dialogue':markers>=2?'list':verse?'verse':undefined);
  if(!layout)return;
  const left=Math.min(...body.map(l=>l.x)),blocks:Block[]=[];
+ if(layout==='list' && !forced){
+  // List items keep their marker and nesting, but wrapped lines flow as text, and prose around the list stays prose.
+  const joinLine=join||((p:string,l:string)=>({text:p+' '+l,fixed:false}));
+  type Item={text:string;styles:NonNullable<Extract<Block,{type:'p'|'h'|'quote'}>['styles']>;list:boolean;x:number;last:PdfLine};
+  const st:{cur?:Item}={};
+  const emit=()=>{if(st.cur?.text.trim())blocks.push({type:'p',text:st.cur.text,layout:st.cur.list?'list':undefined,styles:st.cur.styles.length?st.cur.styles:undefined});st.cur=undefined;};
+  for(const line of lines){
+   if(line.header){emit();blocks.push({type:'p',text:line.text,styles:line.styles});continue;}
+   const marker=listMarker.test(line.text);
+   if(st.cur && !marker){
+    const gap=line.y-st.cur.last.y,hanging=line.x>st.cur.x+line.size*.3,ended=/[.!?”"’)]\s*$/.test(st.cur.last.text);
+    const breaks=gap>line.size*1.9 || line.y<st.cur.last.y || (st.cur.list?!hanging && ended:line.x-st.cur.last.x>line.size*.7);
+    if(breaks)emit();
+   }
+   if(marker)emit();
+   if(!st.cur){
+    const indent=marker?' '.repeat(Math.min(24,Math.max(0,Math.round((line.x-left)/Math.max(1,line.size*.5))))):'';
+    st.cur={text:indent+line.text,styles:(line.styles||[]).map(r=>({...r,start:r.start+indent.length,end:r.end+indent.length})),list:marker,x:line.x,last:line};continue;
+   }
+   const joined=joinLine(st.cur.text,line.text),start=joined.text.length-line.text.length;
+   if(joined.fixed)st.cur.styles=st.cur.styles.map(r=>({...r,end:Math.min(r.end,start)})).filter(r=>r.end>r.start);
+   st.cur.styles.push(...(line.styles||[]).map(r=>({...r,start:r.start+start,end:r.end+start})));
+   st.cur.text=joined.text;st.cur.last=line;
+  }
+  emit();return blocks;
+ }
  let text='',styles:NonNullable<Extract<Block,{type:'p'|'h'|'quote'}>['styles']>=[];
  const flush=()=>{if(text)blocks.push({type:'p',text,layout,styles:styles.length?styles:undefined});text='';styles=[];};
  let previous:PdfLine|undefined;

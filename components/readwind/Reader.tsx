@@ -137,7 +137,7 @@ export function Reader({
         window.innerWidth < 640 && window.innerHeight > window.innerWidth;
       setPhone(p);
       setCompact(window.innerWidth < 900 || window.innerHeight < 550);
-      setFill(window.innerWidth < 900);
+      setFill(window.innerWidth < 900 || window.innerHeight < 500);
       return p;
     };
     // Measured after mount so server and client markup match on hydration.

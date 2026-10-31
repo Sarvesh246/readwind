@@ -4,7 +4,7 @@ import { printedLabels, contentsChapters, interpolatePrintedLabels, type Content
 import { ocrLines, ocrScore, enhanceOcrContrast, OcrPool, ocrWorkerCount } from './ocr';
 import {findPdfTables,findRuledTables,findLayoutGraphics,findGridAreas,type PdfRect} from './pdf-tables';
 import {normalizeStyledText,pdfFontStyle,type TextStyleRun} from './rich-text';
-import {bookWordEvidence,joinPrintedLine,joinPageParagraphs} from './text-cleanup';
+import {bookWordEvidence,joinPrintedLine,joinPageParagraphs,dropRepeatedHeadings} from './text-cleanup';
 import {fidelityIssues,structuredBlocks,needsSourcePage,textLayerCheck,textLayerDisagrees,extractionLoss,ocrAddsContent} from './pdf-fidelity';
 import {isContentsTitle,normalizePageLabel,printedPageToken} from './navigation-labels';
 import {pageNotes,appendEndnotes} from './book-notes';
@@ -541,8 +541,12 @@ export async function importPDF(
         sections.push(section);
       }
       const blockAt = section.blocks.length;
-      const first=kept.find(l=>!l.header&&!margin.has(l)),leftEdge=Math.min(...kept.filter(l=>!l.header && l.size>=median*.9).map(l=>l.x));
-      if(!heading && first && !first.paragraphStart && first.x<=leftEdge+median*.35)pageContinuations.add(pi);
+      const first=kept.find(l=>!l.header&&!margin.has(l)),leftEdge=(()=>{
+        // The modal left margin, not the minimum: a hanging quote mark or bullet must not hide a continuation.
+        const counts=new Map<number,number>();for(const l of kept)if(!l.header && l.size>=median*.9)counts.set(Math.round(l.x/2),(counts.get(Math.round(l.x/2))||0)+1);
+        const top=[...counts.entries()].sort((a,b)=>b[1]-a[1]||a[0]-b[0])[0];return top?top[0]*2:0;
+      })();
+      if(!heading && first && !first.paragraphStart && first.x<=leftEdge+median*.35+2)pageContinuations.add(pi);
       marks.push({
         label: pageLabel,
         index: pi,
@@ -568,7 +572,7 @@ export async function importPDF(
         }
       }
       // Sparse image-only title pages retain their original typography instead of OCR artifacts.
-      let structured=!entries?.length && !imageOnlyOpenings.has(pi)?structuredBlocks(kept.filter(l=>!headingLines.includes(l) && l.text!==heading && !margin.has(l)) as import('./pdf-layout').PdfLine[],options.textLayout==='auto'?undefined:options.textLayout):undefined;
+      let structured=!entries?.length && !imageOnlyOpenings.has(pi)?structuredBlocks(kept.filter(l=>!headingLines.includes(l) && l.text!==heading && !margin.has(l)) as import('./pdf-layout').PdfLine[],options.textLayout==='auto'?undefined:options.textLayout,(p,l)=>joinPrintedLine(p,l,options.joinHyphens,wordEvidence)):undefined;
       // Table pages read as ordinary prose around their crops, not as verse.
       if(structured?.length && figures.some(f=>f.table))structured=undefined;
       if(structured?.length){
@@ -582,6 +586,13 @@ export async function importPDF(
         if(item.figure){const f=item.figure;section!.blocks.push({type:"figure",blobId:f.id,aspectRatio:f.aspectRatio,sourcePageIndex:pi,text:f.text,fullPage:f.fullPage,sourcePdf:f.sourcePdf});}
         else if(item.block)section!.blocks.push(item.block);
       };
+      // A paragraph gap is measured against this page's own line pitch, so tightly set type still breaks paragraphs.
+      const pitch=(()=>{
+        const counts=new Map<number,number>();let before:typeof kept[number]|undefined;
+        for(const l of kept){if(l.header)continue;if(before && l.y>before.y && l.y-before.y<median*3){const k=Math.round((l.y-before.y)*2)/2;counts.set(k,(counts.get(k)||0)+1);}before=l;}
+        const top=[...counts.entries()].sort((a,b)=>b[1]-a[1])[0];return top && top[1]>=3?top[0]:0;
+      })();
+      const gapLimit=pitch>=median*.9?Math.min(median*1.9,pitch*1.5):median*1.9;
       for (const line of entries?.length || imageOnlyOpenings.has(pi) || structured?.length ? [] : kept) {
         if(margin.has(line))continue;
         while (flow[0] && flow[0].y < line.y) {
@@ -594,12 +605,16 @@ export async function importPDF(
         }
         if (
           previous &&
-          (line.paragraphStart || line.y < previous.y || line.y - previous.y > median * 1.9 ||
-            line.x - previous.x > median * .7)
+          (line.y < previous.y || line.y - previous.y > gapLimit ||
+            ((line.paragraphStart || line.x - previous.x > median * .7) &&
+              // A lowercase line after an unfinished line is the same sentence, however the OCR grouped it.
+              !(/^\p{Ll}/u.test(line.text) && /[\p{L},;\-­]$/u.test(paragraph.trimEnd()))))
         )
           flush();
         const bold=(line.styles||[]).filter(r=>r.bold).reduce((n,r)=>n+r.end-r.start,0)/Math.max(1,line.text.length);
-        if(bold>.8 && line.text.length<150 && line.size>=median && (!previous || line.y-previous.y>median*1.5)){
+        // A bold lead-in that runs on into plain lowercase text is the start of a paragraph, not a subheading.
+        const following=kept[kept.indexOf(line)+1],runIn=!!following && /^\p{Ll}/u.test(following.text) && !/[.!?:”"]\s*$/u.test(line.text);
+        if(bold>.8 && line.text.length<150 && line.size>=median && !runIn && (!previous || line.y-previous.y>median*1.5)){
           flush();const cleaned=normalizeStyledText(line.text,line.styles);section.blocks.push({type:"h",text:cleaned.text,styles:cleaned.runs});previous=undefined;continue;
         }
         const joined=joinPrintedLine(paragraph,line.text,options.joinHyphens,wordEvidence);
@@ -624,6 +639,7 @@ export async function importPDF(
       pageText.push(sourceText+"\n"+(images.get(pi)||[]).map(f=>f.text||" ").join("\n"));
     }
     appendEndnotes(sections,marks,footnotes);
+    dropRepeatedHeadings(sections,marks);
     joinPageParagraphs(sections,marks,pageContinuations,options.joinHyphens,wordEvidence);
     files.push({
       id: pdfId,

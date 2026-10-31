@@ -45,12 +45,17 @@ export function chapterTitleSize(fs: number, title: string) {
   return Math.round(fs * factor);
 }
 export function chapterLayout(g: Geometry, title: string) {
-  return {
-    paddingTop: Math.round(Math.min(g.fs * 3.2, g.textH * .10)),
-    paddingBottom: Math.round(Math.min(g.fs * 1.4, g.textH * .04)),
-    gap: Math.round(Math.min(14, g.textH * .04)),
-    titleSize: Math.min(chapterTitleSize(g.fs, title), Math.max(18, Math.round(g.textH * .16))),
-  };
+  const paddingTop = Math.round(Math.min(g.fs * 3.2, g.textH * .10)),
+    paddingBottom = Math.round(Math.min(g.fs * 1.4, g.textH * .04)),
+    gap = Math.round(Math.min(14, g.textH * .04));
+  let titleSize = Math.min(chapterTitleSize(g.fs, title), Math.max(18, Math.round(g.textH * .16)));
+  // A long title on a short or narrow page must leave room for the opening lines of the chapter,
+  // otherwise the first paragraph is clipped to a lone drop cap. Estimate the wrapped height and shrink to fit.
+  const width = Math.max(120, g.pw - 2 * g.padX), length = title.trim().length || 1;
+  const headingHeight = (size: number) =>
+    paddingTop + paddingBottom + 2 * gap + 2 * 14 + 1 + Math.ceil((length * size * .52) / width) * size * 1.15;
+  while (titleSize > 15 && g.textH - headingHeight(titleSize) < g.fs * g.lh * 3.5) titleSize--;
+  return { paddingTop, paddingBottom, gap, titleSize, height: headingHeight(titleSize) };
 }
 export function geometry(
   aw: number,
@@ -87,10 +92,12 @@ export function geometry(
     lh: leading[settings.spacing],
   };
 }
-export function figureHeight(block:Block,g:Geometry,chapterStart=false){
+export function figureHeight(block:Block,g:Geometry,chapterStart=false,title=''){
   const natural=block.type==='figure' && block.aspectRatio?(g.pw-2*g.padX)/block.aspectRatio:300;
   if(block.type==='figure' && block.fullPage)return Math.min(g.textH*.97,natural);
-  return Math.min(g.textH*(chapterStart ? .55 : .85),Math.max(g.fs*3,natural));
+  // Under a chapter title the picture gets what the title leaves, never more than the page holds.
+  const room=chapterStart?Math.max(g.fs*3,g.textH-chapterLayout(g,title).height-6):g.textH*.85;
+  return Math.min(chapterStart?Math.min(g.textH*.55,room):room,Math.max(g.fs*3,natural));
 }
 export function pageIndex(pages: ScreenPage[], at: Anchor, spread: boolean) {
   let i = pages.findIndex(
@@ -166,7 +173,7 @@ export async function paginate(
           folio: "",
           blank: true,
         });
-      while (bi < sec.blocks.length) {
+      sectionPages: while (bi < sec.blocks.length) {
         while (bi < sec.blocks.length && !hasReadableContent(sec.blocks[bi])) bi++;
         if (bi === sec.blocks.length) break;
         if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
@@ -219,7 +226,7 @@ export async function paginate(
             para.replaceChildren();
             if (block.type === "figure") {
               const figure = document.createElement("div");
-              figure.style.height = `${figureHeight(block,g,pg.chapterStart && pg.fragments.length===0)}px`;
+              figure.style.height = `${figureHeight(block,g,pg.chapterStart && pg.fragments.length===0,sec.title)}px`;
               para.appendChild(figure);
               return;
             }
@@ -311,6 +318,11 @@ export async function paginate(
             break;
           }
           let end = ends[Math.max(0, lo - 1)] || text.length;
+          // On a very short page the title alone fills the opening: give it a page of its own rather than a clipped drop cap.
+          if(lo===0 && !pg.fragments.length && pg.chapterStart){
+            para.remove();pg.end={section:si,block:bi,offset};
+            const label=labelAt(book,{section:si,block:0,offset:0});pg.folio=label;pages.push(pg);first=false;continue sectionPages;
+          }
           // A URL or an unusually long token can span several pages at large type.
           if(lo===0 && !pg.fragments.length){
             const charEnds:number[]=[];let pos=offset;
