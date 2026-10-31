@@ -14,6 +14,8 @@ import { Notebook } from "./Notebook";
 import { Import } from "./Import";
 import { Modal } from "./Modal";
 import { Icon } from "./Icon";
+import { Flame } from "./Flame";
+import { ReadingStats } from "./ReadingStats";
 import { AppearanceControl } from "./Theme";
 import { labelAt } from "@/lib/readwind/anchors";
 type User = { id: string; name: string; email: string };
@@ -256,6 +258,7 @@ function Workspace({
   const library = useLibrary(user?.id || "preview", auth),
     [file, setFile] = useState<File | null>(null),
     [account, setAccount] = useState(false),
+    [stats, setStats] = useState(false),
     [notice, setNotice] = useState("");
   const match = path.match(/^\/book\/([^/]+)(\/notebook)?/),
     book = match
@@ -421,6 +424,7 @@ function Workspace({
           navigate={navigate}
           onFile={onFile}
           onAccount={openAccount}
+          onStats={() => setStats(true)}
           name={user?.name}
           view={path === "/collections" ? "collections" : "library"}
         />
@@ -454,6 +458,7 @@ function Workspace({
           </div>
         </Modal>
       )}
+      {stats && <ReadingStats library={library} onClose={() => setStats(false)} />}
       {account && (
         <Modal title="Your reading room" onClose={() => setAccount(false)}>
           <div className="account-profile">
@@ -467,6 +472,20 @@ function Workspace({
             <Icon name="cloud" />
             <span>{library.status}</span>
           </div>
+          <button
+            className="account-stats"
+            onClick={() => {
+              setAccount(false);
+              setStats(true);
+            }}
+          >
+            <Flame size={18} lit={false} />
+            <span>
+              <strong>Reading stats</strong>
+              <small>Speed, time, words and your streak</small>
+            </span>
+            <Icon name="next" size={18} />
+          </button>
           <AppearanceControl />
           <p className="muted">
             Your books and notes belong to this account. Sign out removes downloaded

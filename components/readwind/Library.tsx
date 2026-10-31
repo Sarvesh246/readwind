@@ -10,6 +10,8 @@ import {ResponsiveBookTitle} from './ResponsiveBookTitle';
 import {DeleteBookPrompt} from './DeleteBookPrompt';
 import { Icon } from "./Icon";
 import { ImportingBook } from "./ImportingBook";
+import { StreakCalendar, StreakCelebration, StreakChip, useStreakCelebration } from "./Streak";
+import { dailyTotals, dayKey, streakOf } from "@/lib/readwind/reading-log";
 import { deviceId } from "@/lib/readwind/db";
 import { ReadwindLockup } from "./Logo";
 import { ThemeToggleButton } from "./Theme";
@@ -119,6 +121,7 @@ export function Library({
   navigate,
   onFile,
   onAccount,
+  onStats,
   name,
   view = "library",
 }: {
@@ -126,9 +129,16 @@ export function Library({
   navigate: (path: string) => void;
   onFile: (file: File) => void;
   onAccount: () => void;
+  onStats: () => void;
   name?: string;
   view?: "library" | "collections";
 }) {
+  const [calendar, setCalendar] = useState(false);
+  const readDays = useMemo(() => dailyTotals(l.readingLog), [l.readingLog]);
+  // Read per render so the chip rolls over at midnight on the next interaction.
+  const today = dayKey();
+  const streak = useMemo(() => streakOf(readDays.keys(), today), [readDays, today]);
+  const celebration = useStreakCelebration(streak, l.ready);
   const [search, setSearch] = useState(""),
     [sort, setSort] = useState("Recent"),
     [collection, setCollection] = useState("All books"),
@@ -279,6 +289,7 @@ export function Library({
           <span className="import-label">Import PDF</span>
         </button>
         <div className="library-utility">
+          <StreakChip streak={streak} onClick={() => setCalendar(true)} />
           <ThemeToggleButton />
           <button
             className="account-button"
@@ -290,6 +301,18 @@ export function Library({
           </button>
         </div>
       </header>
+      {calendar && (
+        <StreakCalendar
+          streak={streak}
+          days={readDays}
+          onClose={() => setCalendar(false)}
+          onStats={() => {
+            setCalendar(false);
+            onStats();
+          }}
+        />
+      )}
+      {celebration.show && !calendar && <StreakCelebration streak={streak} days={readDays} onClose={celebration.close} />}
       <main className="library-main">
         {view === "collections" && (
           <section className="collections-heading">

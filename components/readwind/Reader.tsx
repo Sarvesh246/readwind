@@ -118,7 +118,7 @@ export function Reader({
   // A chapter jump may land on the right of a spread beside the previous chapter.
   const visibleAnchor = anchor;
   const info = wordProgress(book, visibleAnchor, l.readingSpeed);
-  useReadingPace(`${l.paceOwner}:${book.id}`, info.before, !busy && !closed && !panel && !selection && !editing && !l.conflict && !isContentsSection(book,visibleAnchor.section), l.recordReading);
+  useReadingPace(`${l.paceOwner}:${book.id}`, info.before, !busy && !closed && !panel && !selection && !editing && !l.conflict && !isContentsSection(book,visibleAnchor.section), l.recordReading, l.recordActivity);
   const bookmarked = annotations.find(a => a.kind === 'bookmark' && first &&
     compare(a.range.start, first.start) >= 0 && compare(a.range.start, first.end) < 0);
   const { saveProgress, loadBlob } = l;
@@ -514,7 +514,9 @@ export function Reader({
     navigate(`/book/${book.id}/notebook`);
   };
   const onSelectRef = useRef(onSelect);
-  onSelectRef.current = onSelect;
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  });
   // Long-press word selection on touch fires no mouseup, so follow the selection itself.
   useEffect(() => {
     let timer = 0;
@@ -548,6 +550,8 @@ export function Reader({
     navTimer.current = window.setTimeout(() => setNavIdle(true), 2600);
   }, []);
   useEffect(() => {
+    // Turning the page or toggling full screen brings the arrows back for a moment.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     wakeNav();
     return () => window.clearTimeout(navTimer.current);
   }, [wakeNav, full, index]);

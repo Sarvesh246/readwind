@@ -7,6 +7,8 @@ import type { Pending } from "./db";
 import type { Book, Annotation, Anchor, Settings, Progress } from "./types";
 import { defaults } from "./types";
 import {addPaceSample,mergeReadingPace,readingSpeed,validPaceSample} from './reading-pace';
+import {addActivity,mergeReadingLog} from './reading-log';
+import type {LogEntry} from './reading-log';
 import { loadClassics } from "./classics";
 import type { ImportJob, ImportJobInput } from "./import-jobs";
 export type { AuthClient } from "./auth";
@@ -321,10 +323,13 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
             if (!ids.has(`annotation:${a.id}`) && remoteBooks.has(a.bookId))
               await db.annotations.put(a);
           if (data.settings && !ids.has("settings"))
+          {
+            const local = (await db.preferences.get("reader"))?.value;
             await db.preferences.put({
               id: "reader",
-              value: { ...defaults, ...data.settings, readingPace:mergeReadingPace((await db.preferences.get("reader"))?.value.readingPace,data.settings.readingPace) },
+              value: { ...defaults, ...data.settings, readingPace:mergeReadingPace(local?.readingPace,data.settings.readingPace), readingLog:mergeReadingLog(local?.readingLog,data.settings.readingLog) },
             });
+          }
           // The account is authoritative for books. Remove copies deleted on
           // another device, with their notes and position, unless this device
           // still has an unsent change for that book.
@@ -547,7 +552,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   const saveSettings = async (value: Settings) => {
     await db.transaction("rw", [db.preferences, db.pending], async () => {
       const current = await db.preferences.get("reader");
-      value = {...value,readingPace:mergeReadingPace(current?.value.readingPace,value.readingPace)};
+      value = {...value,readingPace:mergeReadingPace(current?.value.readingPace,value.readingPace),readingLog:mergeReadingLog(current?.value.readingLog,value.readingLog)};
       await db.preferences.put({ id: "reader", value });
       if (!guest)
         await putChange({ id: "settings", entity: "settings", value });
@@ -561,6 +566,16 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       const pace=addPaceSample(current.readingPace || {},deviceId(),words,seconds);
       if(pace===current.readingPace)return;
       const value={...current,readingPace:pace};
+      await db.preferences.put({id:"reader",value});
+      if(!guest)await putChange({id:"settings",entity:"settings",value});
+    });
+    void sync();
+  };
+  /** Written the moment a page is read, so the streak never waits on a sync. */
+  const recordActivity = async (credit:LogEntry) => {
+    await db.transaction("rw",[db.preferences,db.pending],async()=>{
+      const current=(await db.preferences.get("reader"))?.value || defaults;
+      const value={...current,readingLog:addActivity(current.readingLog || {},deviceId(),credit)};
       await db.preferences.put({id:"reader",value});
       if(!guest)await putChange({id:"settings",entity:"settings",value});
     });
@@ -710,6 +725,8 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     paceOwner:userId,
     readingSpeed:readingSpeed(settings.readingPace),
     recordReading,
+    recordActivity,
+    readingLog:settings.readingLog,
     status,
     ready,
     guest,

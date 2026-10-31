@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { safeId } from "./security";
+import { logKey } from "./reading-log";
 export const timestamp = z.number().int().min(0).max(8640000000000000);
 export const anchor = z.object({
   section: z.number().int().min(0).max(1999),
@@ -194,6 +195,11 @@ export const settings = z.object({
     words:z.number().min(0).max(1000000000000),
     seconds:z.number().min(0).max(7200),
   })).refine(value=>Object.keys(value).length<=64).optional(),
+  readingLog: z.record(z.string().regex(logKey), z.object({
+    pages:z.number().int().min(0).max(100000),
+    words:z.number().min(0).max(10000000),
+    seconds:z.number().min(0).max(86400),
+  })).refine(value=>Object.keys(value).length<=4000).optional(),
   paper: z.enum(["Paper", "Sepia", "Dusk", "Night"]),
   font: z.enum(["Literata", "Source Serif", "Atkinson"]),
   size: z.number().min(14).max(28),

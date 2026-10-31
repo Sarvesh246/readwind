@@ -30,7 +30,7 @@ export function OriginalReader({book,library:l,navigate}:{book:Book;library:Libr
  const savedRef=useRef(saved);useEffect(()=>{savedRef.current=saved;});
  useEffect(()=>{const latest=savedRef.current;if(latest&&(!navigated.current||latest.deviceId!==localStorage.getItem('folio-device'))&&!l.conflict){setIndex(Math.max(0,...book.pageMarks.filter(m=>compare(m.at,latest.at)<=0).map(m=>m.index)));}},[saved?.updatedAt,saved?.revision,l.conflict,book.pageMarks]);
  const at=(n:number)=>book.pageMarks.find(m=>m.index===n)?.at||start;
- useReadingPace(`${l.paceOwner}:${book.id}`,wordProgress(book,at(index)).before,!!pdf&&!error&&!contents&&!comfort&&!selection&&!l.conflict&&!isContentsSection(book,at(index).section),l.recordReading);
+ useReadingPace(`${l.paceOwner}:${book.id}`,wordProgress(book,at(index)).before,!!pdf&&!error&&!contents&&!comfort&&!selection&&!l.conflict&&!isContentsSection(book,at(index).section),l.recordReading,l.recordActivity);
  const goto=(n:number)=>{navigated.current=true;n=Math.max(0,Math.min(book.printPageCount-1,n));setIndex(n);setSelection(null);area.current?.scrollTo(0,0);void l.saveProgress(book.id,at(n),wordProgress(book,at(n)).before);};useEffect(()=>{navRef.current=goto;});
  useEffect(()=>{const el=area.current!;const o=new ResizeObserver(([e])=>setWidth(e.contentRect.width));o.observe(el);return()=>o.disconnect();},[]);
  useEffect(()=>{

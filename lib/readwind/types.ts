@@ -73,6 +73,7 @@ export type Progress = {
 export type Settings = {
   confirmBookDeletion?:boolean;
   readingPace?: import('./reading-pace').ReadingPace;
+  readingLog?: import('./reading-log').ReadingLog;
   paper: "Paper" | "Sepia" | "Dusk" | "Night";
   font: "Literata" | "Source Serif" | "Atkinson";
   size: number;
