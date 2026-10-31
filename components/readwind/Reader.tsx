@@ -507,6 +507,12 @@ export function Reader({
       setNote("");
     }
   }
+  const openNotebook = () => {
+    try {
+      sessionStorage.setItem("rw-notebook-from", book.id);
+    } catch {}
+    navigate(`/book/${book.id}/notebook`);
+  };
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
   // Long-press word selection on touch fires no mouseup, so follow the selection itself.
@@ -768,7 +774,7 @@ export function Reader({
           onOriginalPage={()=>{setOriginalPageIndex(null);setPanel("original");}}
           onContents={()=>setPanel("contents")}
           onSearch={()=>setPanel("search")}
-          onNotebook={()=>navigate(`/book/${book.id}/notebook`)}
+          onNotebook={openNotebook}
           onComfort={()=>setPanel("comfort")}
           onCover={()=>setPanel("cover")}
           onFullScreen={fullscreen}
@@ -1046,7 +1052,7 @@ export function Reader({
             )}
             {full && <>
               <button onClick={() => setPanel('comfort')} aria-label="Type and comfort settings">Aa</button>
-              <button aria-label="Notebook" title="Notebook" onClick={() => navigate(`/book/${book.id}/notebook`)}><Icon name="notebook" size={18}/><span className="dock-label">Notebook</span></button>
+              <button aria-label="Notebook" title="Notebook" onClick={openNotebook}><Icon name="notebook" size={18}/><span className="dock-label">Notebook</span></button>
             </>}
             {compact && !full && <button onClick={fullscreen} aria-label="Full screen"><Icon name="full" size={16}/></button>}
             {book.sourcePdfBlobId && (!phone || full) && (

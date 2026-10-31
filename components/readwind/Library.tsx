@@ -366,7 +366,10 @@ export function Library({
                 {notes.length > 0 && (
                   <button
                     className="button"
-                    onClick={() => navigate(`/book/${current.id}/notebook`)}
+                    onClick={() => {
+                      try { sessionStorage.removeItem("rw-notebook-from"); } catch {}
+                      navigate(`/book/${current.id}/notebook`);
+                    }}
                   >
                     {notes.length} notes & highlights
                   </button>

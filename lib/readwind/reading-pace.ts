@@ -17,6 +17,11 @@ export function validPaceSample(words:number, seconds:number) {
 export function addPaceSample(pace:ReadingPace, id:string, words:number, seconds:number):ReadingPace {
   if(!validPaceSample(words,seconds)) return pace;
   const old=pace[id] || {samples:0,words:0,seconds:0};
+  // Once a device has a real baseline, skimming bursts and long pauses are anomalies, not a new pace.
+  if(old.samples>=5 && old.seconds>=900){
+    const usual=old.words*60/old.seconds, speed=words*60/seconds;
+    if(speed>usual*2.5 || speed<usual*0.35) return pace;
+  }
   const weight=old.seconds>0?Math.min(1,Math.max(0,7200-seconds)/old.seconds):1;
   return {...pace,[id]:{samples:old.samples+1,words:old.words*weight+words,seconds:old.seconds*weight+seconds}};
 }

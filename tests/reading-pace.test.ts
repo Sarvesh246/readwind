@@ -36,6 +36,12 @@ describe('account reading pace',()=>{
     expect(pace.a.seconds).toBe(7200);expect(pace.a.samples).toBe(101);
     expect(readingSpeed(pace)).toBeLessThan(230);
   });
+  it('ignores skimming bursts and long pauses once a baseline exists',()=>{
+    const base={a:{samples:10,words:2300,seconds:600+300}};
+    expect(addPaceSample(base,'a',600,60)).toBe(base);
+    expect(addPaceSample(base,'a',20,60)).toBe(base);
+    expect(addPaceSample(base,'a',200,60)).not.toBe(base);
+  });
   it('merges independent devices and ignores older samples',()=>{
     const latest={a:{samples:2,words:400,seconds:120}};
     expect(mergeReadingPace(latest,{a:{samples:1,words:200,seconds:60},b:{samples:1,words:100,seconds:60}})).toEqual({...latest,b:{samples:1,words:100,seconds:60}});

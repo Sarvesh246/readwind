@@ -24,6 +24,14 @@ export function Notebook({
     [edit, setEdit] = useState<Annotation | null>(null),
     [note, setNote] = useState(""),
     [naming, setNaming] = useState(false);
+  // Reader sets this marker when it opens the notebook, so Back returns to the page being read.
+  const [cameFromBook] = useState(() => {
+    try {
+      return !!book && sessionStorage.getItem("rw-notebook-from") === book.id;
+    } catch {
+      return false;
+    }
+  });
   const all = l.annotations.filter((a) => !book || a.bookId === book.id),
     filtered = all.filter(
       (a) =>
@@ -105,8 +113,8 @@ export function Notebook({
       <header className="document-header">
         <button
           className="icon-button"
-          aria-label="Back to library"
-          onClick={() => navigate("/")}
+          aria-label={cameFromBook ? "Back to book" : "Back to library"}
+          onClick={() => navigate(cameFromBook && book ? `/book/${book.id}` : "/")}
         >
           <Icon name="back" />
         </button>
