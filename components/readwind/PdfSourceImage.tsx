@@ -26,5 +26,6 @@ export function PdfSourceImage({id,pageIndex,loadBlob,alt,className,large=false,
   })();
   return ()=>{alive=false;if(url)URL.revokeObjectURL(url);void task?.destroy();};
  },[visible,id,pageIndex,loadBlob,large]);
+ // eslint-disable-next-line @next/next/no-img-element -- blob: URL, next/image cannot optimise it
  return <span ref={ref} style={{aspectRatio}} className={`source-page-image ${className||''}`}>{visible && url?<img src={url} alt={alt}/>:<span className="image-loading">{error?'Original page unavailable · connect to download':'Loading original page…'}</span>}</span>;
 }

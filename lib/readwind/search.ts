@@ -85,7 +85,7 @@ export function searchBook(book: Pick<Book, 'sections'>, query: string, limit = 
     if (!q) memo.set(word, q = words.map(w => closeness(w, word)));
     return q;
   };
-  const found: (SearchHit & { order: number })[] = [];
+  const found: SearchHit[] = [];
   book.sections.forEach((sec, section) => sec.blocks.forEach((b, block) => {
     if (!hasReadableContent(b)) return;
     const tokens = blockTokens(b);
@@ -122,9 +122,9 @@ export function searchBook(book: Pick<Book, 'sections'>, query: string, limit = 
       at: { section, block, offset: s },
       text: text.slice(Math.max(0, s - 45), Math.min(text.length, e + 60)),
       score: best,
-      order: found.length,
     });
   }));
-  found.sort((a, b) => b.score - a.score || a.order - b.order);
-  return { hits: found.slice(0, limit).map(({ order, ...hit }) => hit), total: found.length };
+  // Array.prototype.sort is stable, so equal scores keep reading order.
+  found.sort((a, b) => b.score - a.score);
+  return { hits: found.slice(0, limit), total: found.length };
 }

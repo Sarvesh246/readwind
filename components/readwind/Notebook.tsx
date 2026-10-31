@@ -35,6 +35,7 @@ export function Notebook({
     );
   const due = all.filter(
       (a) =>
+        // eslint-disable-next-line react-hooks/purity -- review due dates are relative to now
         a.kind === "highlight" && (!a.review || a.review.due <= Date.now()),
     ),
     card = due[0];

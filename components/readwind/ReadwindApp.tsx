@@ -37,6 +37,8 @@ function AuthForm({
     [error, setError] = useState(""),
     [info, setInfo] = useState("");
   useEffect(() => {
+    // URL is only readable on the client, so this is read after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (new URLSearchParams(location.search).has("token")) setMode("reset");
   }, []);
   async function submit(e: React.FormEvent) {
@@ -520,6 +522,8 @@ export default function ReadwindApp() {
   useEffect(() => {
     let alive = true;
     localStorage.removeItem("folio-offline-user");
+    // Location is only readable on the client, so the path is synced after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPath(location.pathname);
     if (new URLSearchParams(location.search).has("reset")) setShowAuth(true);
     const loadAuth = () => fetch("/api/config")

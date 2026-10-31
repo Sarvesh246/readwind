@@ -13,14 +13,14 @@ import {
 } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { Book, Anchor, Annotation, Color } from "@/lib/readwind/types";
-import { themes, colors, families, leading } from "@/lib/readwind/types";
+import { themes } from "@/lib/readwind/types";
 import { geometry, paginate, pageIndex } from "@/lib/readwind/pagination";
 import type { CurlRenderer } from "@/lib/readwind/curl";
 import type { ScreenPage } from "@/lib/readwind/pagination";
 import { compare, labelAt, wordProgress, start, sectionStart } from "@/lib/readwind/anchors";
 import type { Library } from "@/lib/readwind/useLibrary";
 import { ScrollReader } from "./ScrollReader";
-import { Page, BlobImage } from "./Page";
+import { Page } from "./Page";
 import { Icon } from "./Icon";
 import { Modal } from "./Modal";
 import { OriginalPdfPreview } from "./OriginalPdfPreview";
@@ -71,6 +71,8 @@ export function Reader({
     turnRef = useRef<Turn | null>(null),
     anim = useRef(0),
     [reduced, setReduced] = useState(false);
+  const turnKind = turn?.kind,
+    turnDir = turn?.dir;
   const [selection, setSelection] = useState<{
       start: Anchor;
       end: Anchor;
@@ -99,7 +101,7 @@ export function Reader({
   } | null>(null);
   const spread = !phone && s.wideLayout === "spread" && s.turn !== "Scroll";
   const g = useMemo(
-    () => geometry(size.w, size.h, s, fill, spread, !full),
+    () => geometry(size.w, size.h, { size: s.size, spacing: s.spacing }, fill, spread, !full),
     [size, s.size, s.spacing, fill, spread, full],
   );
   const annotations = l.annotations.filter((a) => a.bookId === book.id);
@@ -116,14 +118,15 @@ export function Reader({
   useReadingPace(`${l.paceOwner}:${book.id}`, info.before, !busy && !closed && !panel && !selection && !editing && !l.conflict && !isContentsSection(book,visibleAnchor.section), l.recordReading);
   const bookmarked = annotations.find(a => a.kind === 'bookmark' && first &&
     compare(a.range.start, first.start) >= 0 && compare(a.range.start, first.end) < 0);
+  const { saveProgress, loadBlob } = l;
   const commitAnchor = useCallback(
     (at: Anchor) => {
       navigated.current = true;
       anchorRef.current = at;
       setAnchor(at);
-      void l.saveProgress(book.id, at, wordProgress(book, at).before);
+      void saveProgress(book.id, at, wordProgress(book, at).before);
     },
-    [book, l.saveProgress],
+    [book, saveProgress],
   );
   useLayoutEffect(() => {
     const media = () => {
@@ -134,6 +137,8 @@ export function Reader({
       setFill(window.innerWidth < 900);
       return p;
     };
+    // Measured after mount so server and client markup match on hydration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setClosed(media());
     const ro = new ResizeObserver((entries) => {
       const r = entries[0].contentRect;
@@ -155,8 +160,9 @@ export function Reader({
   }, []);
   useEffect(() => {
     const controller = new AbortController();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- show the busy state while re-paginating
     setBusy(true);
-    paginate(book, g, s, controller.signal)
+    paginate(book, g, { font: s.font }, controller.signal)
       .then((p) => {
         if (!controller.signal.aborted) {
           setPages(p);
@@ -171,14 +177,20 @@ export function Reader({
       });
     return () => controller.abort();
   }, [book, g, s.font]);
+  // Only a new saved revision should pull the reader, not every re-render.
+  const savedRef = useRef(saved);
   useEffect(() => {
+    savedRef.current = saved;
+  });
+  useEffect(() => {
+    const latest = savedRef.current;
     if (
-      saved &&
-      (!navigated.current || saved.deviceId !== localStorage.getItem("folio-device")) &&
+      latest &&
+      (!navigated.current || latest.deviceId !== localStorage.getItem("folio-device")) &&
       !l.conflict
     ) {
-      setAnchor(saved.at);
-      anchorRef.current = saved.at;
+      setAnchor(latest.at);
+      anchorRef.current = latest.at;
     }
   }, [saved?.updatedAt, saved?.revision, l.conflict]);
   useEffect(() => {
@@ -220,8 +232,8 @@ export function Reader({
   }, [s.restNudge, closed, panel]);
   useEffect(() => {
     if (
-      !turn ||
-      turn.kind !== "page" ||
+      !turnKind ||
+      turnKind !== "page" ||
       s.turn !== "Curl" ||
       reduced ||
       !box.current ||
@@ -237,7 +249,7 @@ export function Reader({
             height: g.bookH,
             pageWidth: g.pw,
             spread,
-            backward: spread && turn.dir === -1,
+            backward: spread && turnDir === -1,
           }),
         )
         .then((renderer) => {
@@ -261,7 +273,7 @@ export function Reader({
       curl.current?.dispose();
       curl.current = null;
     };
-  }, [turn?.kind, turn?.dir, s.turn, reduced, g, spread]);
+  }, [turnKind, turnDir, s.turn, reduced, g, spread]);
   const canTurn = (dir: number) =>
     dir > 0 ? index + (spread ? 2 : 1) < pages.length : index > 0;
   // Toasts clear themselves so a hint never lingers over the page controls.
@@ -431,7 +443,7 @@ export function Reader({
       );
     }
   }
-  function up(e: ReactPointerEvent) {
+  function up() {
     const d = drag.current;
     drag.current = null;
     if (!d) return;
@@ -564,7 +576,7 @@ export function Reader({
     if (panel !== "original" || !book.sourcePdfBlobId) return;
     let alive = true,
       url = "";
-    l.loadBlob(book.sourcePdfBlobId)
+    loadBlob(book.sourcePdfBlobId)
       .then(async (blob) => {
         if (blob && alive) {
           if (blob.type !== "application/pdf" || (await blob.slice(0,5).text()) !== "%PDF-") throw new Error("Original file is not a PDF.");
@@ -580,7 +592,7 @@ export function Reader({
       setOriginalUrl("");
       setOriginalBlob(null);
     };
-  }, [panel, book.sourcePdfBlobId, l.loadBlob]);
+  }, [panel, book.sourcePdfBlobId, loadBlob]);
   const P = (n: number) => pages[n] || null;
   let ul: ScreenPage | null = null,
     ur: ScreenPage | null = null,
@@ -590,8 +602,8 @@ export function Reader({
     urCover = false,
     backInside = false,
     hasLeaf = false;
-  let shift = closed && spread ? -g.pw / 2 : 0,
-    forward = turn?.dir !== -1;
+  let shift = closed && spread ? -g.pw / 2 : 0;
+  const forward = turn?.dir !== -1;
   if (turn && turn.kind !== "page") {
     ur = spread ? P(index + 1) : P(index);
     frontCover = true;

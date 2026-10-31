@@ -8,13 +8,14 @@ export function PdfPage({pdf,index,width,annotations=[],onEdit,onNavigatePage}:{
  const [height,setHeight]=useState(width*1.414),[error,setError]=useState(''),[busy,setBusy]=useState(true);
  const [links,setLinks]=useState<{index:number;x:number;y:number;width:number;height:number}[]>([]);
  useEffect(()=>{
-  let alive=true,render:RenderTask|undefined,layer:TextLayer|undefined;
+  let alive=true,render:RenderTask|undefined,layer:TextLayer|undefined;const container=text.current!;
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- reset page state when the document, page or width changes
   setBusy(true);setError('');setLinks([]);
   (async()=>{
    const page=await pdf.getPage(index+1);if(!alive)return;
    const base=page.getViewport({scale:1}),scale=width/base.width,v=page.getViewport({scale});
    setHeight(v.height);
-   const c=canvas.current!,container=text.current!;
+   const c=canvas.current!;
    const ratio=Math.min(window.devicePixelRatio||1,2,Math.sqrt(12_000_000/(v.width*v.height)),4096/Math.max(v.width,v.height));
    c.width=Math.ceil(v.width*ratio);c.height=Math.ceil(v.height*ratio);
    container.replaceChildren();container.style.setProperty('--total-scale-factor',String(scale));
@@ -38,7 +39,7 @@ export function PdfPage({pdf,index,width,annotations=[],onEdit,onNavigatePage}:{
    const {TextLayer}=await import('pdfjs-dist');if(!alive)return;
    layer=new TextLayer({textContentSource:content,container,viewport:v});await layer.render();
   })().catch(e=>{if(alive&&e.name!=='RenderingCancelledException'){setBusy(false);setError(e.message||'This page could not be displayed.');}});
-  return ()=>{alive=false;render?.cancel();layer?.cancel();text.current?.replaceChildren();};
+  return ()=>{alive=false;render?.cancel();layer?.cancel();container.replaceChildren();};
  },[pdf,index,width]);
  return <div className="pdf-sheet" data-pdf-page={index} style={{width,height}}>
   <canvas ref={canvas} role="img" aria-label={`Original PDF page ${index+1}`} style={{width:'100%',height:'100%'}}/>

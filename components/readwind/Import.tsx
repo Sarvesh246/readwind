@@ -118,7 +118,10 @@ export function Import({
     }
   }
   useEffect(() => {
+    // Runs once on mount to parse the file handed over from the library.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialFile) void parse(initialFile);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only; parse changes every render
   }, []);
   const setBook = (patch: Partial<Imported["book"]>) =>
     setResult((r) => (r ? { ...r, book: { ...r.book, ...patch } } : r));

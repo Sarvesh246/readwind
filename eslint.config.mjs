@@ -9,6 +9,7 @@ const eslintConfig = defineConfig([
     "dist/**",
     "public/ocr/**",
     "public/pdf.worker.min.mjs",
+    "public/pdf-wasm/**",
     ".vinext/**",
     ".wrangler/**",
     ".sites-runtime/**",

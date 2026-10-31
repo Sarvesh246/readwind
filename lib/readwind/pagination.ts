@@ -55,7 +55,7 @@ export function chapterLayout(g: Geometry, title: string) {
 export function geometry(
   aw: number,
   ah: number,
-  settings: Settings,
+  settings: Pick<Settings, "size" | "spacing">,
   fill: boolean,
   spread: boolean,
   footer = true,
@@ -108,7 +108,7 @@ const cache = new Map<string, ScreenPage[]>();
 export async function paginate(
   book: Book,
   g: Geometry,
-  settings: Settings,
+  settings: Pick<Settings, "font">,
   signal?: AbortSignal,
 ): Promise<ScreenPage[]> {
   const key = [

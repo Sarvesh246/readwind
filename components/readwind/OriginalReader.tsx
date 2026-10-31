@@ -16,26 +16,29 @@ import {Comfort} from './Comfort';
 import {ChapterNavigation} from './ChapterNavigation';
 export function OriginalReader({book,library:l,navigate}:{book:Book;library:Library;navigate:(u:string)=>void}){
  const [comfort,setComfort]=useState(false),[full,setFull]=useState(false);
- const saved=l.progress.find(p=>p.bookId===book.id);
+ const {loadBlob}=l,saved=l.progress.find(p=>p.bookId===book.id);
  const initial=Math.max(0,...book.pageMarks.filter(m=>compare(m.at,saved?.at||start)<=0).map(m=>m.index));
  const [index,setIndex]=useState(initial),[pdf,setPdf]=useState<PDFDocumentProxy|null>(null),[error,setError]=useState(''),[retry,setRetry]=useState(0),[password,setPassword]=useState(''),[unlock,setUnlock]=useState<((s:string)=>void)|null>(null),[passwordMessage,setPasswordMessage]=useState(''),[url,setUrl]=useState(''),[width,setWidth]=useState(800),[zoom,setZoom]=useState(1),[contents,setContents]=useState(false),[go,setGo]=useState(''),[goError,setGoError]=useState('');
  const [selection,setSelection]=useState<Annotation|null>(null),[note,setNote]=useState(''),[point,setPoint]=useState<{x:number;y:number}|null>(null);
  const navigated=useRef(false);
- const area=useRef<HTMLDivElement>(null),navRef=useRef<(n:number)=>void>(()=>{}),selectionRef=useRef(selection);selectionRef.current=selection;
+ const area=useRef<HTMLDivElement>(null),navRef=useRef<(n:number)=>void>(()=>{}),selectionRef=useRef(selection);useEffect(()=>{selectionRef.current=selection;},[selection]);
  const annotations=l.annotations.filter(a=>a.bookId===book.id&&!a.deleted),theme=themes[l.settings.paper];
  const spread=width>850&&l.settings.wideLayout==='spread'&&zoom===1;
  const pageWidth=Math.max(240,(width-(spread?72:36))/(spread?2:1))*zoom;
  useEffect(()=>{const update=()=>setFull(!!document.fullscreenElement);document.addEventListener('fullscreenchange',update);return()=>document.removeEventListener('fullscreenchange',update);},[]);
  const fullscreen=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{setFull(v=>!v);}};
- useEffect(()=>{if(saved&&(!navigated.current||saved.deviceId!==localStorage.getItem('folio-device'))&&!l.conflict){setIndex(Math.max(0,...book.pageMarks.filter(m=>compare(m.at,saved.at)<=0).map(m=>m.index)));}},[saved?.updatedAt,saved?.revision,l.conflict]);
+ const savedRef=useRef(saved);useEffect(()=>{savedRef.current=saved;});
+ useEffect(()=>{const latest=savedRef.current;if(latest&&(!navigated.current||latest.deviceId!==localStorage.getItem('folio-device'))&&!l.conflict){setIndex(Math.max(0,...book.pageMarks.filter(m=>compare(m.at,latest.at)<=0).map(m=>m.index)));}},[saved?.updatedAt,saved?.revision,l.conflict,book.pageMarks]);
  const at=(n:number)=>book.pageMarks.find(m=>m.index===n)?.at||start;
  useReadingPace(`${l.paceOwner}:${book.id}`,wordProgress(book,at(index)).before,!!pdf&&!error&&!contents&&!comfort&&!selection&&!l.conflict&&!isContentsSection(book,at(index).section),l.recordReading);
- const goto=(n:number)=>{navigated.current=true;n=Math.max(0,Math.min(book.printPageCount-1,n));setIndex(n);setSelection(null);area.current?.scrollTo(0,0);void l.saveProgress(book.id,at(n),wordProgress(book,at(n)).before);};navRef.current=goto;
+ const goto=(n:number)=>{navigated.current=true;n=Math.max(0,Math.min(book.printPageCount-1,n));setIndex(n);setSelection(null);area.current?.scrollTo(0,0);void l.saveProgress(book.id,at(n),wordProgress(book,at(n)).before);};useEffect(()=>{navRef.current=goto;});
  useEffect(()=>{const el=area.current!;const o=new ResizeObserver(([e])=>setWidth(e.contentRect.width));o.observe(el);return()=>o.disconnect();},[]);
  useEffect(()=>{
-  let alive=true,task:ReturnType<(typeof import('pdfjs-dist'))['getDocument']>|undefined,objectUrl='';setError('');setPdf(null);
+  let alive=true,task:ReturnType<(typeof import('pdfjs-dist'))['getDocument']>|undefined,objectUrl='';
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- reset load state when the PDF or retry count changes
+  setError('');setPdf(null);
   (async()=>{
-   const blob=await l.loadBlob(book.sourcePdfBlobId!);if(!blob)throw new Error('The original PDF is missing.');if(!alive)return;
+   const blob=await loadBlob(book.sourcePdfBlobId!);if(!blob)throw new Error('The original PDF is missing.');if(!alive)return;
    objectUrl=URL.createObjectURL(blob);setUrl(objectUrl);
    const js=await import('pdfjs-dist');if(!alive)return;js.GlobalWorkerOptions.workerSrc='/pdf.worker.min.mjs';
    task=js.getDocument({data:await blob.arrayBuffer(),cMapUrl:'/cmaps/',cMapPacked:true,standardFontDataUrl:'/standard_fonts/',wasmUrl:'/pdf-wasm/'});
@@ -43,7 +46,7 @@ export function OriginalReader({book,library:l,navigate}:{book:Book;library:Libr
    const doc=await task.promise;if(alive){setUnlock(null);setPdf(doc);}
   })().catch(e=>{if(alive)setError(e.message||'Could not open this PDF.');});
   return()=>{alive=false;void task?.destroy();if(objectUrl)URL.revokeObjectURL(objectUrl);};
- },[book.sourcePdfBlobId,l.loadBlob,retry]);
+ },[book.sourcePdfBlobId,loadBlob,retry]);
  useEffect(()=>{const key=(e:KeyboardEvent)=>{if((e.target as HTMLElement).closest('input,textarea,button,select')||selectionRef.current||window.getSelection()?.toString())return;if(['ArrowRight','PageDown'].includes(e.key)){e.preventDefault();navRef.current(index+(spread?2:1));}if(['ArrowLeft','PageUp'].includes(e.key)){e.preventDefault();navRef.current(index-(spread?2:1));}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[index,spread]);
  function select(){
   const s=window.getSelection();if(!s||s.isCollapsed||!s.rangeCount||!s.toString().trim())return;

@@ -232,6 +232,8 @@ export function Library({
       onDrop={drop}
     >
       <header className="library-header">
+        {/* Client-side navigation via the app's own router; href stays for open-in-new-tab. */}
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
         <a
           href="/"
           onClick={(e) => {

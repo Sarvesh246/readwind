@@ -1,6 +1,5 @@
 "use client";
 import { memo, useState } from "react";
-import type { CSSProperties } from "react";
 import type { ScreenPage, Fragment, Geometry } from "@/lib/readwind/pagination";
 import type { Book, Settings, Annotation, Anchor } from "@/lib/readwind/types";
 import { colors, themes, families } from "@/lib/readwind/types";
