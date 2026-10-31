@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
   useCallback,
+  useDeferredValue,
 } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { Book, Anchor, Annotation, Color } from "@/lib/readwind/types";
@@ -30,6 +31,7 @@ import { ChapterNavigation } from "./ChapterNavigation";
 import { CoverEditor } from "./CoverPicker";
 import { Highlighter } from "lucide-react";
 import { hasReadableContent } from '@/lib/readwind/content';
+import { searchBook } from '@/lib/readwind/search';
 type Turn = { dir: number; p: number; kind: "page" | "open" | "close" };
 export function Reader({
   book,
@@ -546,26 +548,9 @@ export function Reader({
       setFull(true);
     }
   };
-  const results = useMemo(() => {
-    if (search.trim().length < 2) return [];
-    const q = search.toLowerCase(),
-      out: { at: Anchor; text: string }[] = [];
-    book.sections.forEach((sec, section) =>
-      sec.blocks.forEach((b, block) => {
-        if (!hasReadableContent(b)) return;
-        const text = b.text || "";
-        let offset = text.toLowerCase().indexOf(q);
-        while (offset >= 0 && out.length < 60) {
-          out.push({
-            at: { section, block, offset },
-            text: text.slice(Math.max(0, offset - 45), offset + q.length + 100),
-          });
-          offset = text.toLowerCase().indexOf(q, offset + q.length);
-        }
-      }),
-    );
-    return out;
-  }, [search, book]);
+  const deferredSearch = useDeferredValue(search);
+  const found = useMemo(() => searchBook(book, deferredSearch, 60), [deferredSearch, book]);
+  const results = found.hits;
   useEffect(() => {
     if (panel !== "original" || !book.sourcePdfBlobId) return;
     let alive = true,
@@ -1069,7 +1054,8 @@ export function Reader({
                 <p>…{r.text}…</p>
               </button>
             ))}
-            {search.length > 1 && !results.length && <p>No passages found.</p>}
+            {found.total > results.length && <p>Showing the best {results.length} of {found.total} matches. Add more words to narrow it down.</p>}
+            {search.trim().length > 1 && deferredSearch === search && !results.length && <p>No passages found.</p>}
           </div>
         </Modal>
       )}
