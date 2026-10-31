@@ -254,7 +254,7 @@ export function Import({
             <Icon name="upload" size={36} />
             <h2>Your next good read starts here.</h2>
             <p>
-              Drop a PDF. We’ll find the chapters, clean up the text,
+              Drop a PDF. We’ll find the chapters, clean up the text,{" "}
               <br />
               and give it room to breathe.
             </p>

@@ -184,13 +184,11 @@ export function Notebook({
               </h2>
               <p>Spaced repetition, so what you read actually sticks.</p>
             </div>
-            <button
-              className="button"
-              disabled={!due.length}
-              onClick={() => setReview(true)}
-            >
-              Start · {Math.max(1, Math.ceil(due.length * 0.5))} min
-            </button>
+            {due.length > 0 && (
+              <button className="button" onClick={() => setReview(true)}>
+                Start · {Math.max(1, Math.ceil(due.length * 0.5))} min
+              </button>
+            )}
           </section>
           {[...groups.entries()].map(([key, g]) => (
             <section className="notebook-chapter" key={key}>

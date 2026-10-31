@@ -270,10 +270,11 @@ export function Library({
         </label>
         <button
           className="button primary library-import"
+          aria-label="Import PDF"
           onClick={() => navigate("/import")}
         >
           <Icon name="plus" size={18} />
-          Import PDF
+          <span className="import-label">Import PDF</span>
         </button>
         <div className="library-utility">
           <ThemeToggleButton />
@@ -504,7 +505,10 @@ export function Library({
             <button className="drop-tile" onClick={() => navigate("/import")}>
               <Icon name="upload" size={28} />
               <span>
-                <strong>Drop a PDF</strong>
+                <strong>
+                  <span className="drop-fine">Drop a PDF</span>
+                  <span className="drop-coarse">Import a PDF</span>
+                </strong>
                 <br />
                 It becomes a real book — chapters, type, the lot.
               </span>

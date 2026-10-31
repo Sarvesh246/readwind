@@ -6,7 +6,7 @@ import { ThemeProvider, useTheme } from "next-themes";
 function ThemeColorSync() {
   const { resolvedTheme } = useTheme();
   useEffect(() => {
-    const color = resolvedTheme === "dark" ? "#17181c" : "#efe8da";
+    const color = resolvedTheme === "dark" ? "#1a1511" : "#efe8da";
     document
       .querySelectorAll('meta[name="theme-color"]')
       .forEach((meta) => meta.setAttribute("content", color));

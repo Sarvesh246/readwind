@@ -74,53 +74,55 @@
 }
 
 /*
- * Neutral charcoal reading room with soft ivory text and a muted blue accent.
+ * Dark mode is the light theme inverted: the same warm paper hues, turned into
+ * a brown-black room with cream text. Surfaces step up in lightness the way
+ * light mode steps down, so depth reads the same in both.
  */
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg-desk: #17181c;
-  --surface: #202126;
-  --surface-2: #292a30;
-  --line: #3b3c43;
-  --line-2: #33343b;
-  --line-strong: #505159;
-  --chip: #34353c;
-  --ink: #e8e5df;
+  --bg-desk: #1a1511;
+  --surface: #231d17;
+  --surface-2: #2c251d;
+  --line: #3b332a;
+  --line-2: #322b23;
+  --line-strong: #52483b;
+  --chip: #382f25;
+  --ink: #efe6d3;
   --ui-ink: var(--ink);
-  --ink-2: #d5d2cc;
-  --muted: #b9b6b0;
-  --muted-2: #aaa7a1;
-  --accent: #9dbbe0;
-  --accent-hover: #c2d6ee;
-  --accent-soft: rgba(157, 187, 224, 0.14);
-  --focus: #9dbbe0;
-  --forest: #b2c5dd;
-  --ribbon: #c4615a;
-  --danger: #e8908a;
-  --hover: rgba(237, 228, 214, 0.06);
-  --hover-strong: rgba(237, 228, 214, 0.09);
-  --field-border: #4a4b53;
-  --dashed: #55565f;
-  --mark-bg: rgba(232, 198, 108, 0.22);
-  --mark-ink: #f5ecd8;
-  --overlay: rgba(23, 24, 28, 0.96);
-  --modal-bg: #202126;
-  --modal-shadow: 0 28px 90px rgba(0, 0, 0, 0.62);
-  --scrim: rgba(0, 0, 0, 0.62);
-  --switch-knob: #f2ebdd;
-  --toolbar-bg: #303138;
-  --toolbar-ink: #f4eee2;
-  --toolbar-line: #55565e;
-  --toolbar-border: rgba(255, 255, 255, 0.09);
-  --forest-card-bg: #2b303a;
-  --forest-card-ink: #e6e8ed;
-  --forest-card-eyebrow: #b7c9df;
-  --forest-card-muted: #cbd1dc;
-  --forest-card-button-bg: #e6e8ed;
-  --forest-card-button-ink: #2b303a;
-  --cover-ring: rgba(255, 255, 255, 0.08);
-  --shadow-soft: 0 8px 32px rgba(0, 0, 0, 0.55);
-  --shadow-float: 0 10px 34px rgba(0, 0, 0, 0.6);
+  --ink-2: #ddd3bf;
+  --muted: #bdb29e;
+  --muted-2: #ada290;
+  --accent: #a9c1df;
+  --accent-hover: #c8d9ee;
+  --accent-soft: rgba(169, 193, 223, 0.14);
+  --focus: #a9c1df;
+  --forest: #c9bd9f;
+  --ribbon: #c9645a;
+  --danger: #ec9a8f;
+  --hover: rgba(239, 230, 211, 0.06);
+  --hover-strong: rgba(239, 230, 211, 0.1);
+  --field-border: #4d4337;
+  --dashed: #5c5142;
+  --mark-bg: rgba(232, 198, 108, 0.24);
+  --mark-ink: #f7eedb;
+  --overlay: rgba(26, 21, 17, 0.96);
+  --modal-bg: #261f19;
+  --modal-shadow: 0 28px 90px rgba(0, 0, 0, 0.6);
+  --scrim: rgba(10, 7, 4, 0.66);
+  --switch-knob: #f4ecdb;
+  --toolbar-bg: #3a3128;
+  --toolbar-ink: #f4ecdb;
+  --toolbar-line: #5f5444;
+  --toolbar-border: rgba(239, 230, 211, 0.1);
+  --forest-card-bg: #302920;
+  --forest-card-ink: #efe6d3;
+  --forest-card-eyebrow: #c9bd9f;
+  --forest-card-muted: #d6ccb8;
+  --forest-card-button-bg: #efe6d3;
+  --forest-card-button-ink: #2a2218;
+  --cover-ring: rgba(239, 230, 211, 0.1);
+  --shadow-soft: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --shadow-float: 0 10px 34px rgba(0, 0, 0, 0.55);
 }
 * {
   box-sizing: border-box;
@@ -3845,6 +3847,230 @@ legend {
     width: 40px;
     min-width: 40px;
     height: 40px;
+    min-height: 40px;
+  }
+}
+
+/* Touch devices have no drag-and-drop, so the shelf tile reads as a plain import prompt. */
+.drop-coarse {
+  display: none;
+}
+@media (pointer: coarse) {
+  .drop-fine {
+    display: none;
+  }
+  .drop-coarse {
+    display: inline;
+  }
+}
+
+/* Phone header: wordmark and utilities, then the tabs, then search with a compact import button beside it. */
+@media (max-width: 639px) {
+  .library-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .library-header nav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    flex-wrap: nowrap;
+    margin-left: -12px;
+  }
+  .library-header nav button {
+    flex: none;
+    white-space: nowrap;
+  }
+  .library-search {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  .library-import {
+    grid-column: 2;
+    grid-row: 3;
+    justify-self: end;
+    width: 48px;
+    height: 48px;
+    min-height: 48px;
+    min-width: 48px;
+    padding: 0;
+    justify-content: center;
+  }
+  .library-import svg {
+    width: 22px;
+    height: 22px;
+  }
+  .library-import .import-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}
+
+/* Ragged-right on phones: justified text on a narrow measure opens wide gaps between words. */
+@media (max-width: 639px) {
+  .page-text,
+  .continuous-reader {
+    text-align: left;
+  }
+}
+
+@media (max-width: 639px) {
+  .selection-ui {
+    width: min(410px, calc(100vw - 16px));
+  }
+  .selection-toolbar {
+    flex-wrap: nowrap;
+    padding: 4px;
+    justify-content: space-between;
+  }
+  .selection-toolbar button,
+  .selection-toolbar a,
+  .selection-swatches button,
+  .selection-toolbar .selection-dismiss {
+    min-width: 38px;
+    padding: 0 6px;
+  }
+  .selection-swatches button {
+    padding: 0;
+  }
+  .selection-swatches span {
+    width: 24px;
+    height: 24px;
+  }
+  .toast,
+  .reader > .toast,
+  .reader.is-full > .toast {
+    bottom: auto;
+    top: calc(env(safe-area-inset-top, 0px) + 64px);
+    padding: 12px 16px;
+    font-size: 14px;
+    border-radius: 14px;
+  }
+  .comfort-modal .modal-content {
+    padding-bottom: max(24px, calc(env(safe-area-inset-bottom) + 16px));
+  }
+}
+
+.selection-note > button {
+  padding: 0 18px;
+  border-radius: 999px;
+  background: var(--toolbar-ink);
+  color: var(--toolbar-bg);
+  font-weight: 500;
+  margin-top: 12px;
+}
+
+/* Notebook on phones: one scrolling row of filters, compact colour dots, tidy entry footers. */
+@media (max-width: 639px) {
+  .notebook-columns > aside {
+    gap: 12px;
+  }
+  .notebook-filters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0 -20px;
+    padding: 0 20px;
+    scrollbar-width: none;
+  }
+  .notebook-filters > button {
+    flex: none;
+    white-space: nowrap;
+  }
+  .notebook-columns .color-filter {
+    gap: 12px;
+  }
+  .highlight-colors {
+    margin: 0;
+    gap: 4px;
+  }
+  .color-filter .highlight-colors > button {
+    position: relative;
+    width: 30px;
+    height: 30px;
+    margin: 7px;
+  }
+  .color-filter .highlight-colors > button::after {
+    content: "";
+    position: absolute;
+    inset: -7px;
+  }
+  .note-meta > span {
+    flex-basis: 100%;
+  }
+  .note-meta {
+    gap: 4px 20px;
+  }
+  .note-meta button {
+    min-height: 40px;
+  }
+}
+
+.library-search input:not([type="file"]) {
+  text-overflow: ellipsis;
+}
+@media (max-width: 359px) {
+  .library-header .wordmark img,
+  .library-header .wordmark svg {
+    height: 22px;
+    width: auto;
+  }
+}
+
+/* Delete prompt: legible text on the danger button in both themes, checkbox and label on one line. */
+.delete-confirm-button {
+  color: #fffaf0;
+  font-weight: 600;
+}
+[data-theme="dark"] .delete-confirm-button {
+  color: #2a1612;
+}
+.readwind-modal .delete-confirm-choice {
+  flex-direction: row;
+  justify-content: flex-start;
+  text-align: left;
+  color: var(--muted);
+}
+.delete-confirm-choice input {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  accent-color: var(--accent);
+}
+@media (max-width: 639px) {
+  .delete-confirm-actions .button {
+    flex: 1;
+  }
+}
+
+.ocr-languages label {
+  flex-direction: row;
+  justify-content: flex-start;
+  text-align: left;
+  min-height: 40px;
+}
+.ocr-languages > div {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+@media (max-width: 639px) {
+  .ocr-languages > div {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 639px) {
+  .collection-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0 -20px;
+    padding: 0 20px 2px;
+    scrollbar-width: none;
+  }
+  .collection-tabs .button {
+    flex: none;
+    white-space: nowrap;
+  }
+  .shelf-actions .button {
     min-height: 40px;
   }
 }

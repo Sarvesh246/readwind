@@ -264,6 +264,15 @@ export function Reader({
   }, [turn?.kind, turn?.dir, s.turn, reduced, g, spread]);
   const canTurn = (dir: number) =>
     dir > 0 ? index + (spread ? 2 : 1) < pages.length : index > 0;
+  // Toasts clear themselves so a hint never lingers over the page controls.
+  useEffect(() => {
+    if (!message) return;
+    const t = setTimeout(
+      () => setMessage(""),
+      message.startsWith("Rest your eyes") ? 20000 : 4500,
+    );
+    return () => clearTimeout(t);
+  }, [message]);
   const updateTurn = (value: Turn | null) => {
     turnRef.current = value;
     setTurn(value);
