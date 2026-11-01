@@ -27,6 +27,14 @@ it("holds unknown author attribution and explicitly partial editions", () => {
   expect(
     validateCandidate({ title: "Webster's Dictionary (1st 100 Pages)" }).errors,
   ).toContain("Not an approved complete edition");
+  expect(
+    validateCandidate({
+      title: "Index of the Project Gutenberg Works of Stephen Leacock",
+    }).errors,
+  ).toContain("A navigation index is not a complete book.");
+  expect(validateCandidate({ title: "Grania, vol. 1/2" }).errors).toContain(
+    "Not an approved complete edition",
+  );
 });
 
 it("matches documented initials without treating other contributors as authors", () => {

@@ -54,6 +54,8 @@ export function validateCandidate(record) {
     errors.push("Invalid edition ID");
   if (/^(unknown|anonymous|n\/?a)$/i.test(record.author?.trim() || ""))
     errors.push("Verified author attribution is required.");
+  if (/^index of (?:the )?project gutenberg\b/i.test(record.title || ""))
+    errors.push("A navigation index is not a complete book.");
   if (!["epub", "pdf", "html"].includes(record.format))
     errors.push("Unsupported source format");
   if (
@@ -104,7 +106,7 @@ export function validateCandidate(record) {
   if (record.coverNote && !record.coverEditionEvidence)
     errors.push("Alternate cover edition needs evidence");
   if (
-    /\b(sample|preview|excerpt|abridged|incomplete|partial)\b|\b\d+(?:st|nd|rd|th)?\s+\d*\s*pages\b/i.test(
+    /\b(sample|preview|excerpt|abridged|incomplete|partial)\b|\b\d+(?:st|nd|rd|th)?\s+\d*\s*pages\b|\bvol\.?\s*\d+\s*\/\s*\d+\b/i.test(
       `${record.edition || ""} ${record.title || ""}`,
     )
   )
