@@ -84,3 +84,5 @@ Run `npm test`, `npm run typecheck`, `npx next build`, the portable `npm run bui
 Before enabling production, inspect representative complete source editions and their prepared opening, middle, ending, covers, contents, notes, and complex content. Record actual prepared/published counts and source-access failures. A pushed implementation, a running local worker, a prepared local collection, and a verified live catalog are separate completion checks.
 
 Large catalog downloads and library pages use streamed JSON responses. Catalog metadata edits send only a small patch; the server retains or restores the immutable prepared body, so large books do not cross Vercel's request-body limit during synchronization.
+
+Gutenberg generic numbered generated covers, unknown author attribution, and explicitly partial or incomplete titles are held for review, including when reusing preparation checkpoints. A source-provided image alone is insufficient evidence of a real edition cover.

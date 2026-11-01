@@ -16,6 +16,7 @@ import {
   oapenRecords,
 } from "./providers.mjs";
 import { download, defaultHosts } from "./network.mjs";
+import { sourceCoverValidation } from "./source-cover.mjs";
 import { prepare, closePreparation, preparationVersion } from "./prepare.mjs";
 import {
   digest,
@@ -178,6 +179,15 @@ export async function runJob(queue, job, { publish = false } = {}) {
   const source = readFileSync(path);
   if (record.expectedSha256 && digest(source) !== record.expectedSha256)
     throw new Error("Saved source checksum differs from publisher metadata.");
+  const coverValidation = sourceCoverValidation(record, source);
+  if (!coverValidation.passed) {
+    atomicJson(join(folder, "review.json"), coverValidation);
+    stage("review");
+    queue.db
+      .prepare("UPDATE jobs SET error=? WHERE id=?")
+      .run(coverValidation.errors.join("; "), record.id);
+    return;
+  }
   let prepared;
   const cached = existsSync(preparedPath)
     ? JSON.parse(readFileSync(preparedPath, "utf8"))

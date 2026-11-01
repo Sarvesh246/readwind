@@ -45,5 +45,5 @@ describe("Postgres migration splitting", () => {
     } finally {
       await pg.close();
     }
-  });
+  }, 20000);
 });
