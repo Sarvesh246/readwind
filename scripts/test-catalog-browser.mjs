@@ -1,6 +1,6 @@
 import { chromium, webkit } from "@playwright/test";
 import { zipSync, strToU8 } from "fflate";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import assert from "node:assert/strict";
 import { prepare, closePreparation } from "./catalog/prepare.mjs";
@@ -16,11 +16,11 @@ const epub = (content, extra = {}) =>
       '<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>',
     ),
     "OPS/book.opf": strToU8(
-      '<package><metadata><title>Fixture book</title><creator>Fixture author</creator></metadata><manifest><item id="c" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="n" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="i" href="cover.png" media-type="image/png" properties="cover-image"/></manifest><spine><itemref idref="c"/></spine></package>',
+      '<package><metadata><title>Fixture book</title><contributor id="translator">Fixture author</contributor><meta property="role" refines="#translator">trl</meta></metadata><manifest><item id="c" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="n" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="i" href="cover.png" media-type="image/png" properties="cover-image"/></manifest><spine><itemref idref="c"/></spine></package>',
     ),
     "OPS/chapter.xhtml": strToU8(`<html><body>${content}</body></html>`),
     "OPS/nav.xhtml": strToU8(
-      '<html><body><nav epub:type="toc"><ol><li><a href="chapter.xhtml#one">First</a><ol><li><a href="chapter.xhtml#two">Second</a></li></ol></li></ol></nav></body></html>',
+      '<html><body><nav epub:type="toc"><ol><li><a href="chapter.xhtml#wrapped">First</a><ol><li><a href="chapter.xhtml#two">Second</a></li></ol></li></ol></nav></body></html>',
     ),
     "OPS/cover.png": Buffer.from(png, "base64"),
     ...extra,
@@ -28,13 +28,14 @@ const epub = (content, extra = {}) =>
 let fixture, fixtureSource;
 try {
   const source = (fixtureSource = epub(
-    '<header id="pg-header"><p>Project Gutenberg source notice.</p></header><h1 id="one">First chapter</h1><p>The <strong>bold</strong> opening has 203 words and a <a href="#note">note</a>.</p><h2 id="two">Second chapter</h2><p class="verse">One line<br/>Next line</p><aside><p id="note" epub:type="footnote">The complete note.</p></aside><p>The complete ending.</p><table><tr><th>Year</th><th>Total</th></tr><tr><td>2024</td><td>203</td></tr></table>',
+    '<header id="pg-header"><p>Project Gutenberg source notice.</p></header><p>The complete introduction.</p><section id="wrapped"><h1 id="one">First chapter</h1><p>The <strong>bold</strong> opening has 203 words and a <a href="#note">note</a>, an <a href="#ending">ending</a> and a <a href="#last-page">last page</a>.</p><h2 id="two">Second chapter</h2><p class="verse">One line<br/>Next line</p><aside><p id="note" epub:type="footnote">The complete note.</p></aside><table><tr><th>Year</th><th>Total</th></tr><tr><td>2024</td><td>203</td></tr></table><p><a id="ending"/>The complete ending.</p><a id="last-page"/></section>',
   ));
   fixture = await prepare({
     data: Buffer.from(source).toString("base64"),
     name: "fixture.epub",
     format: "epub",
   });
+  writeFileSync(path.join(out, "fixture.epub"), fixtureSource);
   assert.equal(fixture.report.passed, true);
   assert.equal(fixture.report.relocatedNotices.length, 1);
   assert.ok(
@@ -48,8 +49,24 @@ try {
     ),
   );
   assert.equal(fixture.book.sourceFormat, "epub");
+  assert.equal(fixture.book.author, "Fixture author");
   assert.equal(fixture.book.pagination, "flow");
   assert.equal(fixture.book.chapterLinks[1].level, 1);
+  assert.equal(fixture.book.chapterLinks[0].at.section, 1);
+  assert.equal(
+    fixture.warnings.some((w) => /Unresolved/.test(w)),
+    false,
+  );
+  const links = fixture.book.sections.flatMap((s) =>
+    s.blocks.flatMap((b) => b.internalLinks || []),
+  );
+  assert.ok(
+    links.some(
+      (link) =>
+        fixture.book.sections[link.at.section].blocks[link.at.block].text ===
+        "The complete ending.",
+    ),
+  );
   assert.ok(
     fixture.book.sections.some((s) =>
       s.blocks.some((b) => b.styles?.some((r) => r.bold)),
@@ -257,7 +274,15 @@ for (const engine of [chromium, webkit]) {
       });
     await upload
       .getByRole("heading", { name: "Review your book", exact: true })
-      .waitFor();
+      .waitFor()
+      .catch(async (error) => {
+        await upload.screenshot({
+          path: path.join(out, `upload-failure-${engine.name()}.png`),
+          fullPage: true,
+        });
+        console.error(await upload.locator("body").innerText());
+        throw error;
+      });
     await upload.getByRole("button", { name: "Add book", exact: true }).click();
     await upload.locator(".reader-page-position").waitFor();
     assert.match(

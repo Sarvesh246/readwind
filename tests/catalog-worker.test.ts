@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +8,7 @@ import {
   validateCandidate,
   oapenRecords,
 } from "../scripts/catalog/providers.mjs";
-import { openQueue, enqueue } from "../scripts/catalog/worker.mjs";
+import { openQueue, enqueue, drain } from "../scripts/catalog/worker.mjs";
 describe("catalog worker safety", () => {
   it("blocks loopback, private, link-local, mapped and reserved addresses", () => {
     for (const ip of [
@@ -84,5 +84,41 @@ describe("catalog worker safety", () => {
       },
     ]);
     expect(rows[0].fullText).toBe(false);
+  });
+  it("picks up newly prioritized jobs without immediately retrying failed jobs", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "readwind-priority-"));
+    const q = openQueue(dir);
+    const errors = vi.spyOn(console, "error").mockImplementation((message) => {
+      if (String(message).startsWith("first:")) {
+        enqueue(q, { id: "urgent" });
+        q.db
+          .prepare("UPDATE jobs SET stage='queued',updated=0 WHERE id='urgent'")
+          .run();
+      }
+    });
+    try {
+      for (const [id, updated] of [
+        ["first", 1],
+        ["second", 2],
+      ] as const) {
+        enqueue(q, { id });
+        q.db
+          .prepare("UPDATE jobs SET stage='queued',updated=? WHERE id=?")
+          .run(updated, id);
+      }
+      await drain(q, { limit: 2 });
+      expect(
+        q.db.prepare("SELECT id,stage,attempts FROM jobs ORDER BY id").all(),
+      ).toEqual([
+        { id: "first", stage: "retry", attempts: 1 },
+        { id: "second", stage: "queued", attempts: 0 },
+        { id: "urgent", stage: "retry", attempts: 1 },
+      ]);
+      expect(q.db.prepare("SELECT count(*) n FROM locks").get()?.n).toBe(0);
+    } finally {
+      errors.mockRestore();
+      q.db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

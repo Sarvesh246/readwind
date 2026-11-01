@@ -86,6 +86,7 @@ export async function publishPrepared(record, prepared) {
     id: record.id,
     workId: record.workId || record.id,
     title: record.title,
+    aliases: record.aliases,
     author: record.author,
     language: record.language,
     subjects: record.subjects || [],
@@ -112,8 +113,13 @@ export async function publishPrepared(record, prepared) {
     );
   if (reserved.manifest_sha256 !== hash)
     throw new Error("Immutable version already exists with different content.");
-  for (const asset of prepared.assets)
-    await db`INSERT INTO folio_catalog_assets(id,version_id,sha256,bytes,type) VALUES(${asset.id},${version},${asset.sha256},${asset.bytes},${asset.type}) ON CONFLICT(id) DO NOTHING`;
+  const inventory = prepared.assets.map(({ id, sha256, bytes, type }) => ({
+    id,
+    sha256,
+    bytes,
+    type,
+  }));
+  await db`INSERT INTO folio_catalog_assets(id,version_id,sha256,bytes,type) SELECT asset.id,${version},asset.sha256,asset.bytes,asset.type FROM jsonb_to_recordset(${JSON.stringify(inventory)}::jsonb) AS asset(id text,sha256 text,bytes bigint,type text) ON CONFLICT(id) DO NOTHING`;
   const storage = client();
   const put = async (id, data, type) => {
     const url = `${endpoint}/${bucket}/catalog/${id}`;
@@ -136,8 +142,17 @@ export async function publishPrepared(record, prepared) {
     )
       throw new Error("Published asset readback verification failed.");
   };
-  for (const asset of prepared.assets)
-    await put(asset.id, Buffer.from(asset.data, "base64"), asset.type);
+  let next = 0;
+  const uploads = await Promise.allSettled(
+    Array.from({ length: Math.min(4, prepared.assets.length) }, async () => {
+      while (next < prepared.assets.length) {
+        const asset = prepared.assets[next++];
+        await put(asset.id, Buffer.from(asset.data, "base64"), asset.type);
+      }
+    }),
+  );
+  const failure = uploads.find((result) => result.status === "rejected");
+  if (failure) throw failure.reason;
   await put(manifestId, manifest, "application/json");
   await db.transaction([
     db`SELECT pg_advisory_xact_lock(hashtextextended('readwind-catalog-budget',0))`,

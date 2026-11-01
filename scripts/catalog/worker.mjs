@@ -83,13 +83,16 @@ function identityMatches(expected, actual) {
   return !!a.length && a.filter((w) => b.has(w)).length / a.length >= 0.75;
 }
 export function authorIdentityMatches(expected, actual) {
-  const authors = expected
-    .split(";")
-    .filter(
-      (name) =>
-        !/\[(?:illustrator|editor|translator|contributor|compiler|photographer)\]/i.test(
-          name,
-        ),
+  const names = expected.split(";");
+  let authors = names.filter(
+    (name) =>
+      !/\[(?:illustrator|editor|translator|contributor|compiler|photographer)\]/i.test(
+        name,
+      ),
+  );
+  if (!authors.length)
+    authors = names.filter((name) =>
+      /\[(?:translator|editor|compiler)\]/i.test(name),
     );
   return (
     authors.length > 0 &&
@@ -299,6 +302,8 @@ export async function runJob(queue, job, { publish = false } = {}) {
   return prepared;
 }
 export async function drain(queue, { publish = false, limit = 100 } = {}) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 10000)
+    throw new Error("Choose a preparation batch of 1–10000.");
   const now = Date.now();
   queue.db.exec("BEGIN IMMEDIATE");
   try {
@@ -328,13 +333,13 @@ export async function drain(queue, { publish = false, limit = 100 } = {}) {
     throw e;
   }
   try {
-    const jobs = queue.db
-      .prepare(
-        "SELECT * FROM jobs WHERE stage IN ('queued','downloading','preparing','publishing','retry') OR (stage='prepared' AND ?) ORDER BY updated LIMIT ?",
-      )
-      .all(publish ? 1 : 0, limit);
-    for (const job of jobs) {
-      if (job.next_attempt > Date.now()) continue;
+    for (let completed = 0; completed < limit; completed++) {
+      const job = queue.db
+        .prepare(
+          "SELECT * FROM jobs WHERE (stage IN ('queued','downloading','preparing','publishing','retry') OR (stage='prepared' AND ?)) AND next_attempt<=? ORDER BY updated,id LIMIT 1",
+        )
+        .get(publish ? 1 : 0, Date.now());
+      if (!job) break;
       try {
         await runJob(queue, job, { publish });
         console.log(

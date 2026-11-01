@@ -190,4 +190,27 @@ describe("catalog atomic publication", () => {
       "verification",
     );
   });
+  it("verifies every asset in a batch before activating its manifest", async () => {
+    const value = prepared();
+    value.assets = Array.from({ length: 9 }, (_, i) => ({
+      ...value.assets[0],
+      id: i === 0 ? "cover" : `figure-${i}`,
+    }));
+    value.book.catalog.assets = value.assets.map(
+      ({ id, type, sha256, bytes }) => ({ id, type, sha256, bytes }),
+    );
+    await publishPrepared(record, value);
+    expect(state.objects.size).toBe(10);
+    expect(
+      (
+        await state.pg!.query(
+          "SELECT count(*)::int AS n FROM folio_catalog_assets",
+        )
+      ).rows,
+    ).toEqual([{ n: 9 }]);
+    state.objects.delete("https://storage.test/folio-books/catalog/figure-8");
+    await expect(publishPrepared(record, value)).rejects.toThrow(
+      "verification",
+    );
+  });
 });

@@ -1,0 +1,313 @@
+{
+  "requestedCollection": "Success, Money, Health, Life",
+  "books": [
+    {
+      "title": "The Psychology of Money",
+      "author": "Morgan Housel",
+      "category": "Money and Business",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "The Intelligent Investor",
+      "author": "Benjamin Graham",
+      "category": "Money and Business",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "The Simple Path to Wealth",
+      "author": "JL Collins",
+      "category": "Money and Business",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "The Millionaire Next Door",
+      "author": "Thomas J. Stanley and William D. Danko",
+      "category": "Money and Business",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Rich Dad Poor Dad",
+      "author": "Robert Kiyosaki",
+      "category": "Money and Business",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Zero to One",
+      "author": "Peter Thiel",
+      "category": "Money and Business",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "The Lean Startup",
+      "author": "Eric Ries",
+      "category": "Money and Business",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Shoe Dog",
+      "author": "Phil Knight",
+      "category": "Money and Business",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Atomic Habits",
+      "author": "James Clear",
+      "category": "Habits, Focus and Discipline",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Deep Work",
+      "author": "Cal Newport",
+      "category": "Habits, Focus and Discipline",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Digital Minimalism",
+      "author": "Cal Newport",
+      "category": "Habits, Focus and Discipline",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Indistractable",
+      "author": "Nir Eyal",
+      "category": "Habits, Focus and Discipline",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Essentialism",
+      "author": "Greg McKeown",
+      "category": "Habits, Focus and Discipline",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "The 7 Habits of Highly Effective People",
+      "author": "Stephen R. Covey",
+      "category": "Habits, Focus and Discipline",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Getting Things Done",
+      "author": "David Allen",
+      "category": "Habits, Focus and Discipline",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "The Compound Effect",
+      "author": "Darren Hardy",
+      "category": "Habits, Focus and Discipline",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "The War of Art",
+      "author": "Steven Pressfield",
+      "category": "Habits, Focus and Discipline",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Mindset",
+      "author": "Carol S. Dweck",
+      "category": "Habits, Focus and Discipline",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Grit",
+      "author": "Angela Duckworth",
+      "category": "Habits, Focus and Discipline",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Can’t Hurt Me",
+      "author": "David Goggins",
+      "category": "Habits, Focus and Discipline",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Make Your Bed",
+      "author": "William H. McRaven",
+      "category": "Habits, Focus and Discipline",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "The 5 AM Club",
+      "author": "Robin Sharma",
+      "category": "Habits, Focus and Discipline",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Man’s Search for Meaning",
+      "author": "Viktor E. Frankl",
+      "category": "Philosophy and Life",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Meditations",
+      "author": "Marcus Aurelius",
+      "category": "Philosophy and Life",
+      "status": "published-authorized-edition",
+      "editionId": "pg-2680",
+      "source": "https://www.gutenberg.org/ebooks/2680",
+      "note": "Complete Gutenberg English edition; not a claim to a modern copyrighted translation."
+    },
+    {
+      "title": "Letters from a Stoic",
+      "author": "Seneca",
+      "category": "Philosophy and Life",
+      "status": "published-authorized-edition",
+      "editionId": "se-seneca-moral-letters-gummere",
+      "source": "https://standardebooks.org/ebooks/seneca/moral-letters-to-lucilius/richard-m-gummere",
+      "note": "Complete 124 letters, Richard M. Gummere translation, cataloged as Moral Letters to Lucilius with its documented alternate title Letters from a Stoic."
+    },
+    {
+      "title": "The Obstacle Is the Way",
+      "author": "Ryan Holiday",
+      "category": "Philosophy and Life",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "The Almanack of Naval Ravikant",
+      "author": "Eric Jorgenson",
+      "category": "Philosophy and Life",
+      "status": "free-download-permission-review",
+      "source": "https://www.navalmanack.com/",
+      "note": "Official free EPUB inspected: copyright 2020 Eric Jorgenson, all rights reserved. Free download does not establish permission to host and convert for the shared catalog."
+    },
+    {
+      "title": "The Bhagavad Gita",
+      "author": "Traditional; Edwin Arnold translation",
+      "category": "Philosophy and Life",
+      "status": "published-authorized-edition",
+      "editionId": "pg-2388",
+      "source": "https://www.gutenberg.org/ebooks/2388",
+      "note": "Complete Edwin Arnold translation, cataloged as The Song Celestial; historical alternate-edition cover identified in details."
+    },
+    {
+      "title": "The Power of Now",
+      "author": "Eckhart Tolle",
+      "category": "Philosophy and Life",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "The Subtle Art of Not Giving a F*ck",
+      "author": "Mark Manson",
+      "category": "Philosophy and Life",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "The Alchemist",
+      "author": "Paulo Coelho",
+      "category": "Philosophy and Life",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Ultralearning",
+      "author": "Scott H. Young",
+      "category": "Learning and Career",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Peak",
+      "author": "Anders Ericsson and Robert Pool",
+      "category": "Learning and Career",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "So Good They Can’t Ignore You",
+      "author": "Cal Newport",
+      "category": "Learning and Career",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Range",
+      "author": "David Epstein",
+      "category": "Learning and Career",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Thinking, Fast and Slow",
+      "author": "Daniel Kahneman",
+      "category": "People and Psychology",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "How to Win Friends and Influence People",
+      "author": "Dale Carnegie",
+      "category": "People and Psychology",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Influence",
+      "author": "Robert B. Cialdini",
+      "category": "People and Psychology",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Never Split the Difference",
+      "author": "Chris Voss",
+      "category": "People and Psychology",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "The 48 Laws of Power",
+      "author": "Robert Greene",
+      "category": "People and Psychology",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Quiet",
+      "author": "Susan Cain",
+      "category": "People and Psychology",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Outlive",
+      "author": "Peter Attia",
+      "category": "Health",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    },
+    {
+      "title": "Why We Sleep",
+      "author": "Matthew Walker",
+      "category": "Health",
+      "status": "needs-authorized-full-text",
+      "note": "No verified full-text redistribution and conversion permission has been established. Do not publish a preview, unrelated edition, or an unverified web PDF."
+    }
+  ]
+}

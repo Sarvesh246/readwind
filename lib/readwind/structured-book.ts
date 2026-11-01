@@ -19,6 +19,18 @@ export type StructuredImport = Imported & {
   conversionReport: ConversionReport;
 };
 const decoder = new TextDecoder();
+/** HTML parsers ignore self-closing syntax on non-void XHTML elements. */
+export function expandEmptyXhtmlTags(text: string) {
+  return text.replace(
+    /<([A-Za-z][\w:.-]*)\b((?:"[^"<]*"|'[^'<]*'|[^'"><])*)\/\s*>/g,
+    (source, tag: string, attributes: string) =>
+      /^(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/i.test(
+        tag,
+      )
+        ? source
+        : `<${tag}${attributes}></${tag}>`,
+  );
+}
 const MAX_SOURCE = 20 * 1024 * 1024,
   MAX_UNPACKED = 80 * 1024 * 1024;
 export function resourcePath(base: string, href: string) {
@@ -231,6 +243,25 @@ export async function importStructured(
       .map((e) => e.textContent?.trim())
       .filter(Boolean)
       .join(", ");
+    if (!author) {
+      const roles = elements(opf, "meta").filter(
+        (meta) => meta.getAttribute("property") === "role",
+      );
+      author = elements(opf, "contributor")
+        .filter((contributor) => {
+          const role =
+            contributor.getAttribute("opf:role") ||
+            roles
+              .find(
+                (meta) => meta.getAttribute("refines") === `#${contributor.id}`,
+              )
+              ?.textContent?.trim();
+          return ["aut", "trl", "edt", "com"].includes(role || "");
+        })
+        .map((contributor) => contributor.textContent?.trim())
+        .filter(Boolean)
+        .join(", ");
+    }
     const manifest = new Map(
       elements(opf, "item").map((e) => [e.getAttribute("id")!, e]),
     );
@@ -288,23 +319,32 @@ export async function importStructured(
     notices: { path: string; text: string }[] = [];
   // Keep provider notices intact, after the authored work. Relative resources and
   // original fragment IDs still resolve against their original source document.
-  documents = documents.map((source) => {
-    const doc = new DOMParser().parseFromString(source.text, "text/html");
-    const found = [...doc.querySelectorAll("#pg-header,#pg-footer")].filter(
-      (node) => /Project Gutenberg/i.test(node.textContent || ""),
+  documents = documents
+    .map((source) => {
+      if (epub) source = { ...source, text: expandEmptyXhtmlTags(source.text) };
+      const doc = new DOMParser().parseFromString(source.text, "text/html");
+      const found = [...doc.querySelectorAll("#pg-header,#pg-footer")].filter(
+        (node) => /Project Gutenberg/i.test(node.textContent || ""),
+      );
+      if (!found.length) return source;
+      for (const node of found) {
+        notices.push({
+          path: source.path,
+          text: `<html><head><title>Source and license</title></head><body>${node.outerHTML}</body></html>`,
+        });
+        relocatedNotices.push(`${source.path}#${node.id}`);
+        node.remove();
+      }
+      if (
+        !doc.body.textContent?.trim() &&
+        !doc.body.querySelector("img,svg,math,table")
+      )
+        return null;
+      return { ...source, text: doc.documentElement.outerHTML };
+    })
+    .filter(
+      (source): source is { path: string; text: string } => source !== null,
     );
-    if (!found.length) return source;
-    for (const node of found) {
-      notices.push({
-        path: source.path,
-        text: `<html><head><title>Source and license</title></head><body>${node.outerHTML}</body></html>`,
-      });
-      relocatedNotices.push(`${source.path}#${node.id}`);
-      node.remove();
-    }
-    if(!doc.body.textContent?.trim()&&!doc.body.querySelector('img,svg,math,table'))return null;
-    return { ...source, text: doc.documentElement.outerHTML };
-  }).filter((source):source is {path:string;text:string}=>source!==null);
   documents.push(...notices);
   const sections: Section[] = [],
     chapterLinks: NonNullable<Book["chapterLinks"]> = [],
@@ -346,6 +386,7 @@ export async function importStructured(
       body = doc.body;
     expected += ` ${documentText(body)}`;
     sourceChars += documentText(body).length;
+    const firstSection = sections.length;
     current = {
       id: crypto.randomUUID(),
       title:
@@ -605,6 +646,33 @@ export async function importStructured(
       for (const child of [...node.childNodes]) await walk(child);
     }
     for (const child of [...body.childNodes]) await walk(child);
+    // A container or empty anchor immediately before a heading points to the
+    // next retained block, even when that heading starts a new section.
+    for (const [key, at] of destinations) {
+      if (
+        at.section < firstSection ||
+        (key !== source.path && !key.startsWith(`${source.path}#`)) ||
+        sections[at.section]?.blocks[at.block]
+      )
+        continue;
+      const next = sections.findIndex(
+        (section, index) => index > at.section && section.blocks.length > 0,
+      );
+      if (next >= 0)
+        destinations.set(key, { section: next, block: 0, offset: 0 });
+      else {
+        for (let index = sections.length - 1; index >= firstSection; index--) {
+          const blocks = sections[index].blocks;
+          if (!blocks.length) continue;
+          destinations.set(key, {
+            section: index,
+            block: blocks.length - 1,
+            offset: blocks.at(-1)?.text?.length || 0,
+          });
+          break;
+        }
+      }
+    }
   }
   // Resolve internal hyperlinks to retained content; notes remain readable in the book too.
   for (const link of pendingLinks) {

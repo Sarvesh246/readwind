@@ -61,4 +61,4 @@ export async function closePreparation() {
   await server?.close();
   browser = server = undefined;
 }
-export const preparationVersion = "4";
+export const preparationVersion = "6";

@@ -49,6 +49,18 @@ it("holds unknown author attribution and explicitly partial editions", () => {
 it("matches documented initials without treating other contributors as authors", () => {
   expect(
     authorIdentityMatches(
+      "Arnold, Edwin, Sir, 1832-1904 [Translator]",
+      "Sir Edwin Arnold",
+    ),
+  ).toBe(true);
+  expect(
+    authorIdentityMatches(
+      "Arnold, Edwin, Sir, 1832-1904 [Translator]",
+      "Another Translator",
+    ),
+  ).toBe(false);
+  expect(
+    authorIdentityMatches(
       "Wells, H. G. (Herbert George), 1866-1946",
       "H. G. Wells",
     ),

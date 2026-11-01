@@ -52,6 +52,16 @@ export function validateCandidate(record) {
       errors.push(`Missing ${key}`);
   if (!/^[a-zA-Z0-9_-]{1,80}$/.test(record.id || ""))
     errors.push("Invalid edition ID");
+  if (
+    record.aliases !== undefined &&
+    (!Array.isArray(record.aliases) ||
+      record.aliases.length > 20 ||
+      record.aliases.some(
+        (alias) =>
+          typeof alias !== "string" || !alias.trim() || alias.length > 500,
+      ))
+  )
+    errors.push("Invalid alternate titles");
   if (/^(unknown|anonymous|n\/?a)$/i.test(record.author?.trim() || ""))
     errors.push("Verified author attribution is required.");
   if (/^index of (?:the )?project gutenberg\b/i.test(record.title || ""))

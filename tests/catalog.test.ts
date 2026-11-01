@@ -11,6 +11,7 @@ import {
   unpackEpub,
   retainedText,
   resourcePath,
+  expandEmptyXhtmlTags,
 } from "../lib/readwind/structured-book";
 import type { Book } from "../lib/readwind/types";
 import { zipSync, strToU8 } from "fflate";
@@ -84,6 +85,14 @@ describe("catalog discovery", () => {
     expect(searchCatalog([entry("a", "Émile: A Book")], "emile").length).toBe(
       1,
     ));
+  it("finds an authorized edition by its documented alternative title", () => {
+    const letters = {
+      ...entry("seneca", "Moral Letters to Lucilius", "Seneca"),
+      aliases: ["Letters from a Stoic"],
+    };
+    expect(searchCatalog([letters], "letters from a stoic")).toEqual([letters]);
+    expect(searchCatalog([letters], "letters from")).toEqual([letters]);
+  });
   it("excludes owned books and does not infer subjects from ambiguous manual matches", () => {
     const a = entry("a", "Book"),
       b = entry("b", "Next");
@@ -168,5 +177,18 @@ describe("structured source safeguards", () => {
       resourcePath("book.xhtml", "http://127.0.0.1/private"),
     ).toThrow();
     expect(() => resourcePath("book.xhtml", "images\\outside")).toThrow();
+  });
+  it("preserves XHTML empty anchors without changing void elements or quoted text", () => {
+    expect(
+      expandEmptyXhtmlTags(
+        '<p><a id="page"/>Text<br/><img src="cover.jpg"/></p>',
+      ),
+    ).toBe('<p><a id="page"></a>Text<br/><img src="cover.jpg"/></p>');
+    expect(expandEmptyXhtmlTags('<span title="a > b" />')).toBe(
+      '<span title="a > b" ></span>',
+    );
+    expect(expandEmptyXhtmlTags('<a broken <span id="valid"/>')).toBe(
+      '<a broken <span id="valid"></span>',
+    );
   });
 });

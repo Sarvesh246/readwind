@@ -86,3 +86,26 @@ Before enabling production, inspect representative complete source editions and 
 Large catalog downloads and library pages use streamed JSON responses. Catalog metadata edits send only a small patch; the server retains or restores the immutable prepared body, so large books do not cross Vercel's request-body limit during synchronization.
 
 Gutenberg generic numbered generated covers, unknown author attribution, and explicitly partial or incomplete titles are held for review, including when reusing preparation checkpoints. A source-provided image alone is insufficient evidence of a real edition cover.
+
+## Broad catalog expansion
+
+Use Gutenberg’s official bulk CSV, RDF ZIP, and image inventory feeds instead of individual website crawling. Keep downloads and generated indexes in ignored `work/`. The optional bulk indexing command uses Python 3.11+ standard-library modules; ordinary preparation still runs in Node.
+
+```powershell
+python scripts/catalog/index-gutenberg.py rights work/catalog-activation/rdf-files.tar.zip work/catalog-activation/gutenberg-rights.json
+python scripts/catalog/index-gutenberg.py covers work/catalog-activation/img_data.csv.gz work/catalog-activation/gutenberg-covers.json
+node scripts/catalog/seed-gutenberg.mjs work/catalog-activation/pg_catalog.csv.gz work/catalog-activation/gutenberg-rights.json work/catalog-activation/gutenberg-covers.json 1200
+```
+
+The indexes retain the official feed URLs and archive checksums. Candidate selection requires item-level public-domain evidence, balances subjects, skips existing queue IDs, and uses the source image inventory to prefer real-cover candidates. It never bypasses the worker’s cover, source identity, completeness, retention, resource, or storage checks. Priority IDs may follow the count argument. The queue checks for new priority jobs between books and respects retry backoff.
+
+Publication inserts the verified asset inventory in one database request and transfers at most four assets concurrently. Every uploaded object is read back and checked before the manifest is activated. One preparation job still runs at a time.
+
+For an individually reviewed Standard Ebooks source edition, the optional `package-standard-ebook.mjs` command packages a public Git source checkout into EPUB, preserving all source prose, spine order, original SVG files and license notices. It rasterizes source SVGs faithfully to PNG and records the upstream Git commit and per-file checksums. The optional final argument verifies every numbered letter is present in the source spine. It does not access authenticated collection downloads or generate replacement cover designs. Its rasterizer uses the pinned `sharp` installed with this workspace’s development tooling.
+
+```powershell
+node scripts/catalog/package-standard-ebook.mjs work/catalog-activation/seneca-standardebooks work/catalog-activation/seneca-source.epub 124
+python -m unittest discover -s tests -p test_catalog_indexes.py
+```
+
+Requested contemporary titles are tracked in `catalog/requests/master-books.json`, outside public search. A title enters public discovery only after an authorized full-text edition passes preparation. An official free download, retail ebook, or preview alone does not establish shared hosting and conversion permission. Documented alternate titles are searchable without relabeling a different translation as the requested commercial edition.

@@ -3,6 +3,7 @@ export type CatalogEntry = {
   id: string;
   workId: string;
   title: string;
+  aliases?: string[];
   author: string;
   language: string;
   subjects: string[];
@@ -54,28 +55,27 @@ export function searchCatalog(entries: CatalogEntry[], query: string) {
   if (!q) return entries;
   return entries
     .map((entry) => {
-      const t = catalogKey(entry.title),
+      const titles = [entry.title, ...(entry.aliases || [])].map(catalogKey),
         a = catalogKey(entry.author),
         s = catalogKey(entry.subjects.join(" "));
       return {
         entry,
-        rank:
-          t === q
-            ? 0
-            : t.startsWith(q)
-              ? 1
-              : t.includes(q)
-                ? 2
-                : a.includes(q) ||
-                    q
-                      .split(" ")
-                      .every((token) =>
-                        a.split(" ").some((word) => word.startsWith(token)),
-                      )
-                  ? 3
-                  : s.includes(q)
-                    ? 4
-                    : 99,
+        rank: titles.some((t) => t === q)
+          ? 0
+          : titles.some((t) => t.startsWith(q))
+            ? 1
+            : titles.some((t) => t.includes(q))
+              ? 2
+              : a.includes(q) ||
+                  q
+                    .split(" ")
+                    .every((token) =>
+                      a.split(" ").some((word) => word.startsWith(token)),
+                    )
+                ? 3
+                : s.includes(q)
+                  ? 4
+                  : 99,
       };
     })
     .filter((r) => r.rank < 99)
