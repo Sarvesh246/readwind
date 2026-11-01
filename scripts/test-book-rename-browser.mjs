@@ -111,12 +111,12 @@ try {
         });
         await dialog.getByLabel("Book title", { exact: true }).fill("   ");
         await dialog
-          .getByRole("button", { name: "Save title", exact: true })
+          .getByRole("button", { name: "Done", exact: true })
           .click();
         await dialog.getByRole("alert").waitFor();
         await dialog
           .getByLabel("Book title", { exact: true })
-          .fill("  My renamed book 📚  ");
+          .fill("Saved with button");
         await dialog
           .getByRole("button", { name: "Save title", exact: true })
           .click();
@@ -130,6 +130,7 @@ try {
         await page.screenshot({
           path: `work/rename-qa/${engine.name()}-${width}.png`,
         });
+        await dialog.getByLabel("Book title", { exact: true }).fill("  My renamed book 📚  ");
         await dialog.getByRole("button", { name: "Done", exact: true }).click();
         await page
           .getByRole("button", { name: "Read My renamed book 📚", exact: true }).first()
@@ -158,11 +159,8 @@ try {
         await page
           .getByLabel("Book title", { exact: true })
           .fill("Renamed while reading");
-        await page
-          .getByRole("button", { name: "Save title", exact: true })
-          .click();
-        await page.getByText("Title saved.", { exact: true }).waitFor();
         await page.getByRole("button", { name: "Done", exact: true }).click();
+        await page.getByRole("dialog", { name: "Edit book", exact: true }).waitFor({state:"hidden"});
         await page
           .getByRole("button", { name: "Back to library", exact: true })
           .first()
@@ -306,6 +304,3 @@ try {
 } finally {
   await fixtureServer.close();
 }
-
-
-

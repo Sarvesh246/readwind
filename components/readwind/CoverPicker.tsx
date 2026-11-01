@@ -163,8 +163,7 @@ export function BookEditor({
   const [error, setError] = useState("");
   const [title, setTitle] = useState(book.title);
   const [titleMessage, setTitleMessage] = useState("");
-  const rename = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const rename = async (closeAfterSave = false) => {
     setBusy(true);
     setError("");
     setTitleMessage("");
@@ -172,6 +171,7 @@ export function BookEditor({
       await library.renameBook(book.id, title);
       setTitle(title.trim());
       setTitleMessage("Title saved.");
+      if (closeAfterSave) onClose();
     } catch (e) {
       setError((e as Error).message || "Could not rename this book.");
     } finally {
@@ -244,7 +244,10 @@ export function BookEditor({
         <div className="cover-editor-copy">
           <form
             className="book-title-form"
-            onSubmit={(event) => void rename(event)}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void rename();
+            }}
             noValidate
           >
             <label htmlFor={`book-title-${book.id}`}>Book title</label>
@@ -292,8 +295,15 @@ export function BookEditor({
         </div>
       </div>
       <div className="modal-actions">
-        <button className="button primary" onClick={onClose}>
-          Done
+        <button
+          className="button primary"
+          disabled={busy}
+          onClick={() => {
+            if (title !== book.title) void rename(true);
+            else onClose();
+          }}
+        >
+          {busy ? "Saving…" : "Done"}
         </button>
       </div>
     </Modal>
