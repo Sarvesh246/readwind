@@ -82,6 +82,25 @@ function identityMatches(expected, actual) {
     b = new Set(words(actual));
   return !!a.length && a.filter((w) => b.has(w)).length / a.length >= 0.75;
 }
+export function authorIdentityMatches(expected, actual) {
+  const authors = expected
+    .split(";")
+    .filter(
+      (name) =>
+        !/\[(?:illustrator|editor|translator|contributor|compiler|photographer)\]/i.test(
+          name,
+        ),
+    );
+  return (
+    authors.length > 0 &&
+    authors.every((name) =>
+      identityMatches(
+        name.replace(/\([^)]*\)|\[[^\]]*\]|[\d,()-]/g, " "),
+        actual,
+      ),
+    )
+  );
+}
 export function finalizePrepared(record, prepared, sourceHash) {
   const version = `v${preparationVersion}-${record.id}-${sourceHash.slice(0, 20)}`,
     prefix = digest(version).slice(0, 16),
@@ -239,12 +258,7 @@ export async function runJob(queue, job, { publish = false } = {}) {
       errors.push("A real book cover is required.");
     if (!identityMatches(record.title, prepared.book.title))
       errors.push("Source title differs from provider metadata.");
-    if (
-      !identityMatches(
-        record.author.replace(/[\d,;()-]/g, " "),
-        prepared.book.author,
-      )
-    )
+    if (!authorIdentityMatches(record.author, prepared.book.author))
       errors.push("Source author differs from provider metadata.");
     if (
       prepared.warnings.some((w) =>
