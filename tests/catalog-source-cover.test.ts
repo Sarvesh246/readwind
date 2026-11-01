@@ -35,6 +35,15 @@ it("holds unknown author attribution and explicitly partial editions", () => {
   expect(validateCandidate({ title: "Grania, vol. 1/2" }).errors).toContain(
     "Not an approved complete edition",
   );
+  expect(
+    validateCandidate({ title: "A View of Society (Vol. 1 of 2)" }).errors,
+  ).toContain("Not an approved complete edition");
+  expect(
+    validateCandidate({ title: "A View of Society, Vol. 1 (of 2)" }).errors,
+  ).toContain("Not an approved complete edition");
+  expect(validateCandidate({ title: "A Novel in 3 volumes" }).errors).toContain(
+    "Not an approved complete edition",
+  );
 });
 
 it("matches documented initials without treating other contributors as authors", () => {

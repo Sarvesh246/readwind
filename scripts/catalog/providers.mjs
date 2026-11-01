@@ -106,7 +106,7 @@ export function validateCandidate(record) {
   if (record.coverNote && !record.coverEditionEvidence)
     errors.push("Alternate cover edition needs evidence");
   if (
-    /\b(sample|preview|excerpt|abridged|incomplete|partial)\b|\b\d+(?:st|nd|rd|th)?\s+\d*\s*pages\b|\bvol\.?\s*\d+\s*\/\s*\d+\b/i.test(
+    /\b(sample|preview|excerpt|abridged|incomplete|partial)\b|\b\d+(?:st|nd|rd|th)?\s+\d*\s*pages\b|\b(?:vol(?:ume)?|part)\.?\s*(?:\d+|[ivx]+)\.?\s*[,([]?\s*(?:\/|of)\s*(?:\d+|[ivx]+)\b|\bin (?:\d+|two|three|four|five|six|seven|eight|nine|ten) volumes\b/i.test(
       `${record.edition || ""} ${record.title || ""}`,
     )
   )
