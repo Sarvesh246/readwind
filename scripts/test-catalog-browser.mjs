@@ -149,6 +149,10 @@ for (const engine of [chromium, webkit]) {
       await page.goto(`${origin}/discover`);
       await page.getByRole("heading", { name: "Explore books" }).waitFor();
       await page.locator(".catalog-row").first().waitFor();
+      await page.waitForFunction(() => {
+        const image = document.querySelector(".catalog-cover img");
+        return image?.complete && image.naturalWidth > 0;
+      });
       for (const theme of ["light", "dark"]) {
         await page.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
@@ -186,6 +190,41 @@ for (const engine of [chromium, webkit]) {
       assert.equal(await page.locator(".catalog-row").count(), 1);
       await page.getByRole("button", { name: "Clear search" }).click();
       await page.getByRole("heading", { name: "Explore books" }).waitFor();
+      await input.fill("Fixture");
+      await page.waitForFunction(
+        () => document.querySelectorAll(".catalog-row").length === 24,
+      );
+      await page
+        .getByRole("button", { name: "Load more", exact: true })
+        .click();
+      await page.waitForFunction(
+        () => document.querySelectorAll(".catalog-row").length === 29,
+      );
+      await page.evaluate(() => window.scrollTo(0, 700));
+      await page.waitForFunction(
+        () =>
+          JSON.parse(sessionStorage.getItem("readwind-discover") || "{}")
+            .scroll >= 650,
+      );
+      await page.reload();
+      await page.waitForFunction(
+        () =>
+          document.querySelectorAll(".catalog-row").length === 29 &&
+          window.scrollY >= 650,
+      );
+      assert.equal(await page.getByRole("searchbox").inputValue(), "Fixture");
+      await page
+        .getByRole("button", { name: "Upload a file", exact: true })
+        .click();
+      await page
+        .locator("input[type=file]")
+        .first()
+        .waitFor({ state: "attached" });
+      await page.goBack();
+      await page.waitForFunction(
+        () => document.querySelectorAll(".catalog-row").length === 29,
+      );
+      assert.equal(await page.getByRole("searchbox").inputValue(), "Fixture");
       await input.fill("not-in-catalog");
       await page
         .getByRole("heading", { name: "No matching books yet." })

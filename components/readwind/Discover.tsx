@@ -15,6 +15,14 @@ type SearchPage = {
   total: number;
   nextOffset: number | null;
 };
+function rememberView(query: string, limit: number) {
+  try {
+    sessionStorage.setItem(
+      "readwind-discover",
+      JSON.stringify({ query, limit, scroll: window.scrollY }),
+    );
+  } catch {}
+}
 export function Discover({
   library: l,
   navigate,
@@ -37,6 +45,9 @@ export function Discover({
     alive = useRef(true),
     inflight = useRef(new Set<string>()),
     scroll = useRef(0),
+    restoring = useRef(true),
+    leaving = useRef(false),
+    restoredSearch = useRef<{ query: string; limit: number } | null>(null),
     input = useRef<HTMLInputElement>(null);
   useEffect(() => {
     alive.current = true;
@@ -48,6 +59,15 @@ export function Discover({
       );
       if (typeof saved.query === "string") setQuery(saved.query);
       scroll.current = Number(saved.scroll) || 0;
+      restoredSearch.current = {
+        query: typeof saved.query === "string" ? saved.query : "",
+        limit:
+          Number.isInteger(saved.limit) &&
+          saved.limit >= 24 &&
+          saved.limit <= 10000
+            ? saved.limit
+            : 24,
+      };
       const cached = JSON.parse(
         sessionStorage.getItem("readwind-catalog-index") || "[]",
       );
@@ -72,7 +92,6 @@ export function Discover({
             JSON.stringify(data.items),
           );
         } catch {}
-        requestAnimationFrame(() => window.scrollTo(0, scroll.current));
       })
       .catch((e) => {
         if (!stopped) {
@@ -88,36 +107,61 @@ export function Discover({
   }, []);
   useEffect(() => {
     const save = () => {
-      try {
-        sessionStorage.setItem(
-          "readwind-discover",
-          JSON.stringify({ query, scroll: window.scrollY }),
-        );
-      } catch {}
+      if (!restoring.current && !leaving.current) rememberView(query, limit);
     };
     window.addEventListener("scroll", save, { passive: true });
     save();
     return () => window.removeEventListener("scroll", save);
-  }, [query]);
+  }, [query, limit]);
+  useEffect(() => {
+    if (!loaded || !restoring.current) return;
+    const frame = requestAnimationFrame(() => {
+      window.scrollTo(0, scroll.current);
+      restoring.current = false;
+      window.dispatchEvent(new Event("scroll"));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [loaded, limit]);
+  function leave(path: string) {
+    rememberView(query, limit);
+    leaving.current = true;
+    navigate(path);
+  }
   useEffect(() => {
     const run = ++sequence.current,
       controller = new AbortController();
     setResult(null);
-    setLoading(false);
-    setLimit(24);
+    setLoading(!!query.trim());
+    const target =
+      restoredSearch.current?.query === query
+        ? restoredSearch.current.limit
+        : 24;
+    if (restoredSearch.current?.query === query) restoredSearch.current = null;
+    setLimit(target);
     if (!query.trim()) return;
     const timer = setTimeout(() => {
       setLoading(true);
-      void fetch(`/api/catalog?q=${encodeURIComponent(query)}`, {
-        signal: controller.signal,
-      })
-        .then(async (r) => {
+      void (async () => {
+        let page: SearchPage;
+        const items: CatalogEntry[] = [];
+        let offset = 0;
+        do {
+          const r = await fetch(
+            `/api/catalog?q=${encodeURIComponent(query)}&offset=${offset}`,
+            { signal: controller.signal },
+          );
           if (!r.ok)
             throw new Error("Search could not connect. Showing saved matches.");
-          return r.json() as Promise<SearchPage>;
-        })
+          page = (await r.json()) as SearchPage;
+          if (run !== sequence.current || !alive.current) return;
+          items.push(...page.items);
+          if (page.nextOffset === null || page.nextOffset <= offset) break;
+          offset = page.nextOffset;
+        } while (items.length < target);
+        return { ...page, items };
+      })()
         .then((data) => {
-          if (run === sequence.current) {
+          if (data && run === sequence.current && alive.current) {
             setResult(data);
             setError("");
           }
@@ -185,6 +229,8 @@ export function Discover({
       if (!r.ok) throw new Error("Could not load more books. Please retry.");
       const data = (await r.json()) as SearchPage;
       if (alive.current && run === sequence.current)
+        setLimit(result.items.length + data.items.length);
+      if (alive.current && run === sequence.current)
         setResult((previous) =>
           previous
             ? { ...data, items: [...previous.items, ...data.items] }
@@ -211,10 +257,7 @@ export function Discover({
             {job.percent}%
           </button>
         ) : owned ? (
-          <button
-            className="button"
-            onClick={() => navigate(`/book/${owned.id}`)}
-          >
+          <button className="button" onClick={() => leave(`/book/${owned.id}`)}>
             Read<span className="sr-only"> {entry.title}</span>
           </button>
         ) : (
@@ -233,7 +276,7 @@ export function Discover({
         <button
           className="icon-button"
           aria-label="Back to library"
-          onClick={() => navigate("/")}
+          onClick={() => leave("/")}
         >
           <Icon name="back" />
         </button>
@@ -243,7 +286,7 @@ export function Discover({
       <div className="discover-content">
         <div className="discover-tabs">
           <span aria-current="page">Find books</span>
-          <button onClick={() => navigate("/import")}>Upload a file</button>
+          <button onClick={() => leave("/import")}>Upload a file</button>
         </div>
         <div className="discover-search">
           <label htmlFor="catalog-search">Find your next book</label>
@@ -292,7 +335,7 @@ export function Discover({
             <button className="button" onClick={() => window.location.reload()}>
               Try again
             </button>{" "}
-            <button className="button" onClick={() => navigate("/import")}>
+            <button className="button" onClick={() => leave("/import")}>
               Upload a file
             </button>
           </div>
@@ -364,7 +407,7 @@ export function Discover({
                 ? "Only complete books available to add appear here. You can also upload your own copy."
                 : "You can upload a PDF or EPUB while the collection grows."}
             </p>
-            <button className="button" onClick={() => navigate("/import")}>
+            <button className="button" onClick={() => leave("/import")}>
               Upload a file
             </button>
           </div>
