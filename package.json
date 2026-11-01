@@ -29,6 +29,7 @@
     "test:deletion": "node scripts/test-deletion-browser.mjs",
     "test:import-status": "node scripts/test-import-status-browser.mjs",
     "test:book-title": "node scripts/test-book-title-browser.mjs",
+    "test:rename": "node scripts/test-book-rename-browser.mjs",
     "test:cloud": "node --env-file=.env.local scripts/test-cloud.mjs",
     "typecheck": "next typegen && tsc --noEmit",
     "db:migrate": "node --env-file=.env.local scripts/migrate-readwind.mjs",

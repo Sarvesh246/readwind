@@ -18,14 +18,10 @@ export type CatalogEntry = {
   bytes: number;
   format: "pdf" | "epub" | "html";
 };
-export function catalogMetadataUpdate(book: Book) {
+export function bookMetadataUpdate(book: Book) {
   return {
-    kind: "catalog-metadata" as const,
+    kind: "book-metadata" as const,
     id: book.id,
-    catalog: {
-      editionId: book.catalog!.editionId,
-      version: book.catalog!.version,
-    },
     metadata: {
       title: book.title,
       author: book.author,
@@ -34,6 +30,16 @@ export function catalogMetadataUpdate(book: Book) {
       cover: book.cover,
       customCoverBlobId: book.customCoverBlobId ?? null,
       readingMode: book.readingMode,
+    },
+  };
+}
+export function catalogMetadataUpdate(book: Book) {
+  return {
+    ...bookMetadataUpdate(book),
+    kind: "catalog-metadata" as const,
+    catalog: {
+      editionId: book.catalog!.editionId,
+      version: book.catalog!.version,
     },
   };
 }

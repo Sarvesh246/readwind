@@ -1,6 +1,6 @@
 "use client";
 import { validateFile } from "./file-validation";
-import {bookAssets,privateBookAssets,verifiedAsset,catalogMetadataUpdate} from './catalog';
+import {bookAssets,privateBookAssets,verifiedAsset,catalogMetadataUpdate,bookMetadataUpdate} from './catalog';
 import {book as catalogBookSchema} from './schemas';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -187,11 +187,14 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
           }
           if(!active())return false;
           if(await db.pending.get(`delete-book:${book.id}`))continue;
-          const response = await api(`/api/library${change.restoreDeleted?'?restore=true':''}`, {
+          let response = await api(`/api/library${change.restoreDeleted?'?restore=true':''}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(book.catalog?catalogMetadataUpdate(book):book),
+            body: JSON.stringify(book.catalog?catalogMetadataUpdate(book):change.uploadFiles===false?bookMetadataUpdate(book):book),
           });
+          if (response.status === 428 && !book.catalog && active()) {
+            response = await api(`/api/library${change.restoreDeleted?'?restore=true':''}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(book) });
+          }
           if(response.status===410){
             await db.transaction('rw',[db.books,db.progress,db.annotations,db.pending],async()=>{
               if(await db.pending.get(`delete-book:${book.id}`))return;
@@ -643,6 +646,21 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     });
     void sync();
   };
+  const renameBook = async (bookId: string, title: string) => {
+    const normalized = title.trim();
+    if (!normalized || normalized.length > 500) throw new Error("Enter a book title between 1 and 500 characters.");
+    if (!alive.current || lifetime.current.signal.aborted) throw new Error("Account changed. Please try again.");
+    await db.transaction("rw", [db.books, db.pending], async () => {
+      const current = await db.books.get(bookId);
+      if (!current || await db.pending.get(`delete-book:${bookId}`)) throw new Error("This book is no longer in your library.");
+      const queued = await db.pending.get(`book:${bookId}`);
+      if (!alive.current || lifetime.current.signal.aborted) throw new Error("Account changed. Please try again.");
+      const value = { ...current, title: normalized };
+      await db.books.put(value);
+      if (!guest) await db.pending.put({ ...queued, id: `book:${bookId}`, entity: "book", bookId, value, uploadFiles: queued ? queued.uploadFiles !== false : false });
+    });
+    void sync();
+  };
   const loadBlob = useCallback(
     async (id: string) => {
       let file = await db.blobs.get(id);
@@ -780,6 +798,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       await addBook({ ...b, addedAt: now - i, lastOpenedAt: now - i },[],true);
   };
   return {
+    renameBook,
     deleteBook,
     db,
     books,

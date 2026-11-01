@@ -35,7 +35,10 @@ import { GET as asset } from "../app/api/catalog/assets/[id]/route";
 import { GET as search } from "../app/api/catalog/route";
 import { catalogEntries } from "../lib/readwind/catalog-server";
 import { POST as saveMetadata } from "../app/api/library/route";
-import { catalogMetadataUpdate } from "../lib/readwind/catalog";
+import {
+  catalogMetadataUpdate,
+  bookMetadataUpdate,
+} from "../lib/readwind/catalog";
 let originalFlag: string | undefined;
 const tag = async (strings: TemplateStringsArray, ...values: unknown[]) =>
   (
@@ -115,6 +118,66 @@ afterEach(async () => {
   else process.env.READWIND_CATALOG_ENABLED = originalFlag;
 });
 describe("catalog persistence and access", () => {
+  it("renames a large private book through metadata without replacing its body or source", async () => {
+    const value = {
+      ...structuredClone(prepared),
+      catalog: undefined,
+      id: "private-book",
+      sourceBlobId: "private-source",
+      cover: { kind: "typeset" as const, color: "#123456", fg: "#ffffff" },
+    };
+    value.sections[0].blocks = Array.from({ length: 30 }, () => ({
+      type: "p" as const,
+      text: "Complete private text. ".repeat(8000),
+    }));
+    await saveLiveBook(tag, "alice", value);
+    const patch = bookMetadataUpdate({ ...value, title: "  My new title  " });
+    expect(JSON.stringify(patch).length).toBeLessThan(2000);
+    const response = await saveMetadata(
+      new Request("https://readwind.test/api/library", {
+        method: "POST",
+        headers: { "x-test-user": "alice", "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      }),
+    );
+    expect(response.status).toBe(200);
+    const saved = (
+      await state.pg!.query<{ data: Book }>(
+        "SELECT data FROM folio_books WHERE owner_id='alice'",
+      )
+    ).rows[0].data;
+    expect(saved.title).toBe("My new title");
+    expect(saved.sections).toEqual(value.sections);
+    expect(saved.sourceBlobId).toBe("private-source");
+  });
+  it("does not let a metadata rename recreate deleted books or change another account's book", async () => {
+    const value = { ...prepared, catalog: undefined, id: "private-book" };
+    await saveLiveBook(tag, "alice", value);
+    const request = (user: string) =>
+      new Request("https://readwind.test/api/library", {
+        method: "POST",
+        headers: { "x-test-user": user, "Content-Type": "application/json" },
+        body: JSON.stringify(
+          bookMetadataUpdate({ ...value, title: "Renamed" }),
+        ),
+      });
+    expect((await saveMetadata(request("bob"))).status).toBe(428);
+    await markBookDeleted(tag, "alice", value.id, []);
+    expect((await saveMetadata(request("alice"))).status).toBe(410);
+    expect(
+      (await state.pg!.query("SELECT * FROM folio_books")).rows,
+    ).toHaveLength(0);
+  });
+  it("rejects an empty metadata title", async () => {
+    const response = await saveMetadata(
+      new Request("https://readwind.test/api/library", {
+        method: "POST",
+        headers: { "x-test-user": "alice", "Content-Type": "application/json" },
+        body: JSON.stringify(bookMetadataUpdate({ ...prepared, title: "   " })),
+      }),
+    );
+    expect(response.status).toBe(400);
+  });
   it("updates a large catalog book through a small metadata request and keeps its body intact", async () => {
     const large: Book = {
       ...prepared,

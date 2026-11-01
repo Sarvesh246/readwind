@@ -28,7 +28,7 @@ const catalogMetadata = z
       .strict(),
     metadata: z
       .object({
-        title: book.shape.title,
+        title: book.shape.title.trim().min(1),
         author: book.shape.author,
         addedAt: book.shape.addedAt,
         lastOpenedAt: book.shape.lastOpenedAt,
@@ -39,6 +39,14 @@ const catalogMetadata = z
       .strict(),
   })
   .strict();
+const privateMetadata = catalogMetadata
+  .omit({ catalog: true })
+  .extend({ kind: z.literal("book-metadata") })
+  .strict();
+const metadataPatch = z.discriminatedUnion("kind", [
+  catalogMetadata,
+  privateMetadata,
+]);
 export const GET = safeRoute(async (request: Request) => {
   const id = await owner(request);
   if (!id) return unauthorized();
@@ -101,8 +109,12 @@ export const POST = safeRoute(async (request: Request) => {
   if (!id) return unauthorized();
   await rateLimit(`library:${id}`, 30);
   let input = await readJson(request, 12_000_000);
-  if ((input as { kind?: unknown })?.kind === "catalog-metadata") {
-    const patch = catalogMetadata.safeParse(input);
+  if (
+    ["catalog-metadata", "book-metadata"].includes(
+      (input as { kind?: string })?.kind || "",
+    )
+  ) {
+    const patch = metadataPatch.safeParse(input);
     if (!patch.success) throw new HttpError(400, "Invalid book metadata.");
     const value = patch.data,
       db = sql(id),
@@ -111,6 +123,7 @@ export const POST = safeRoute(async (request: Request) => {
     let base = existing[0]?.data;
     if (
       base &&
+      value.kind === "catalog-metadata" &&
       (base.catalog?.version !== value.catalog.version ||
         base.catalog?.editionId !== value.catalog.editionId)
     )
@@ -119,6 +132,18 @@ export const POST = safeRoute(async (request: Request) => {
         "This book version has changed. Refresh your library and retry.",
       );
     if (!base) {
+      if (value.kind === "book-metadata") {
+        const deleted =
+          await db`SELECT data->'_bookDeletions'->${value.id} AS deletion FROM folio_settings WHERE owner_id=${id}`;
+        return Response.json(
+          {
+            error: deleted[0]?.deletion
+              ? "This book has been deleted."
+              : "The complete book is required for its first sync.",
+          },
+          { status: deleted[0]?.deletion ? 410 : 428 },
+        );
+      }
       const versions =
         await db`SELECT id,manifest_id,manifest_sha256 FROM folio_catalog_versions WHERE id=${value.catalog.version} AND edition_id=${value.catalog.editionId} AND ready AND NOT cleaning`;
       if (!versions.length)

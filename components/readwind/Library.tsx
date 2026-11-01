@@ -15,7 +15,7 @@ import { dailyTotals, dayKey, streakOf } from "@/lib/readwind/reading-log";
 import { deviceId } from "@/lib/readwind/db";
 import { ReadwindLockup } from "./Logo";
 import { ThemeToggleButton } from "./Theme";
-import { CoverEditor } from "./CoverPicker";
+import { BookEditor } from "./CoverPicker";
 import { hasReadableContent } from '@/lib/readwind/content';
 export function Cover({
   book,
@@ -512,11 +512,11 @@ export function Library({
                   <div className="shelf-actions">
                     <button
                       className="button shelf-cover-action"
-                      aria-label={`Change cover for ${b.title}`}
+                      aria-label={`Edit ${b.title}`}
                       onClick={() => setCoverBook(b)}
                     >
                       <Icon name="image" size={14} />
-                      Cover
+                      Edit
                     </button>
                     <button
                       className="button shelf-delete"
@@ -567,7 +567,7 @@ export function Library({
         </footer>
       </main>
       {coverTarget && (
-        <CoverEditor
+        <BookEditor
           book={coverTarget}
           library={l}
           onClose={() => setCoverBook(null)}

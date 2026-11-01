@@ -28,7 +28,7 @@ import { SelectionToolbar } from "./SelectionToolbar";
 import { Comfort } from "./Comfort";
 import { ReaderHeader } from "./ReaderHeader";
 import { ChapterNavigation } from "./ChapterNavigation";
-import { CoverEditor } from "./CoverPicker";
+import { BookEditor } from "./CoverPicker";
 import { Highlighter } from "lucide-react";
 import { hasReadableContent } from '@/lib/readwind/content';
 import { searchBook } from '@/lib/readwind/search';
@@ -1116,7 +1116,7 @@ export function Reader({
         </Modal>
       )}
       {panel === "cover" && (
-        <CoverEditor book={book} library={l} onClose={() => setPanel(null)} />
+        <BookEditor book={book} library={l} onClose={() => setPanel(null)} />
       )}
       {panel === "search" && (
         <Modal title="Search in book" onClose={() => setPanel(null)}>

@@ -194,7 +194,7 @@ export function ReaderHeader(props: Props) {
             </button>
             <button onClick={props.onCover}>
               <Icon name="image" size={18} />
-              Change cover
+              Edit book
             </button>
             <button onClick={props.onCloseBook}>
               <Icon name="book" size={18} />

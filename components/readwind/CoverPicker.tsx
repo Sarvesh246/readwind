@@ -52,7 +52,10 @@ export function CoverPicker({
           disabled={busy}
           onClick={() => onChange("typeset")}
         >
-          <span className="cover-choice-art cover-choice-typeset" aria-hidden="true">
+          <span
+            className="cover-choice-art cover-choice-typeset"
+            aria-hidden="true"
+          >
             <span>Aa</span>
           </span>
           <span className="cover-choice-copy">
@@ -68,7 +71,11 @@ export function CoverPicker({
           className="cover-choice"
           aria-pressed={book.cover.kind === "pdfPage"}
           disabled={busy || !pdfId}
-          title={pdfId ? "Use the first page of the PDF" : "The PDF preview is unavailable"}
+          title={
+            pdfId
+              ? "Use the first page of the PDF"
+              : "The PDF preview is unavailable"
+          }
           onClick={() => onChange("pdfPage")}
         >
           <span className="cover-choice-art" aria-hidden="true">
@@ -143,7 +150,7 @@ export function CoverPicker({
   );
 }
 
-export function CoverEditor({
+export function BookEditor({
   book,
   library,
   onClose,
@@ -154,6 +161,23 @@ export function CoverEditor({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [title, setTitle] = useState(book.title);
+  const [titleMessage, setTitleMessage] = useState("");
+  const rename = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setTitleMessage("");
+    try {
+      await library.renameBook(book.id, title);
+      setTitle(title.trim());
+      setTitleMessage("Title saved.");
+    } catch (e) {
+      setError((e as Error).message || "Could not rename this book.");
+    } finally {
+      setBusy(false);
+    }
+  };
   const hasArt = book.cover.kind === "image" || book.cover.kind === "pdfPage";
   const choose = async (kind: CoverKind) => {
     const { pdfId, customId } = coverIds(book);
@@ -197,7 +221,7 @@ export function CoverEditor({
     }
   };
   return (
-    <Modal title="Book cover" className="cover-modal" onClose={onClose}>
+    <Modal title="Edit book" className="cover-modal" onClose={onClose}>
       <div className="cover-editor">
         <div
           className="shelf-cover cover-editor-preview"
@@ -218,6 +242,37 @@ export function CoverEditor({
           )}
         </div>
         <div className="cover-editor-copy">
+          <form
+            className="book-title-form"
+            onSubmit={(event) => void rename(event)}
+            noValidate
+          >
+            <label htmlFor={`book-title-${book.id}`}>Book title</label>
+            <input
+              id={`book-title-${book.id}`}
+              type="text"
+              value={title}
+              maxLength={500}
+              disabled={busy}
+              onChange={(event) => {
+                setTitle(event.target.value);
+                setTitleMessage("");
+                setError("");
+              }}
+            />
+            <button
+              className="button"
+              type="submit"
+              disabled={busy || title === book.title}
+            >
+              {busy ? "Saving…" : "Save title"}
+            </button>
+            {titleMessage && (
+              <p className="muted" role="status">
+                {titleMessage}
+              </p>
+            )}
+          </form>
           <p>
             Choose a fresh face for <strong>{book.title}</strong>. Your pick
             appears on the shelf, the cover, and every device.
