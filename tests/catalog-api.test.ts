@@ -34,6 +34,8 @@ import { POST as add } from "../app/api/catalog/[editionId]/add/route";
 import { GET as asset } from "../app/api/catalog/assets/[id]/route";
 import { GET as search } from "../app/api/catalog/route";
 import { catalogEntries } from "../lib/readwind/catalog-server";
+import { POST as saveMetadata } from "../app/api/library/route";
+import { catalogMetadataUpdate } from "../lib/readwind/catalog";
 let originalFlag: string | undefined;
 const tag = async (strings: TemplateStringsArray, ...values: unknown[]) =>
   (
@@ -113,6 +115,61 @@ afterEach(async () => {
   else process.env.READWIND_CATALOG_ENABLED = originalFlag;
 });
 describe("catalog persistence and access", () => {
+  it("updates a large catalog book through a small metadata request and keeps its body intact", async () => {
+    const large: Book = {
+      ...prepared,
+      id: "catalog-edition",
+      customCoverBlobId: "old-cover",
+      sections: [
+        {
+          id: "large",
+          title: "Chapter",
+          heading: false,
+          blocks: Array.from({ length: 30 }, () => ({
+            type: "p" as const,
+            text: "a".repeat(190000),
+          })),
+        },
+      ],
+    };
+    await saveLiveBook(tag, "alice", large);
+    const patch = catalogMetadataUpdate({
+      ...large,
+      title: "My title",
+      customCoverBlobId: undefined,
+    });
+    const body = JSON.stringify(patch);
+    expect(body.length).toBeLessThan(2000);
+    const response = await saveMetadata(
+      new Request("https://readwind.test/api/library", {
+        method: "POST",
+        headers: { "x-test-user": "alice", "Content-Type": "application/json" },
+        body,
+      }),
+    );
+    expect(response.status).toBe(200);
+    const saved = (
+      await state.pg!.query<{ data: Book }>("SELECT data FROM folio_books")
+    ).rows[0].data;
+    expect(saved.title).toBe("My title");
+    expect(saved.sections).toEqual(large.sections);
+    expect(saved.customCoverBlobId).toBeUndefined();
+  });
+  it("restores a catalog copy from its immutable manifest using metadata alone", async () => {
+    const patch = catalogMetadataUpdate({ ...prepared, id: "catalog-edition" });
+    const response = await saveMetadata(
+      new Request("https://readwind.test/api/library?restore=true", {
+        method: "POST",
+        headers: { "x-test-user": "alice", "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(
+      (await state.pg!.query<{ data: Book }>("SELECT data FROM folio_books"))
+        .rows[0].data.sections,
+    ).toEqual(prepared.sections);
+  });
   it("fails closed behind the feature flag", async () => {
     process.env.READWIND_CATALOG_ENABLED = "false";
     await expect(catalogEntries()).rejects.toThrow("not available");

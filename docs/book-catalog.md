@@ -44,7 +44,7 @@ Before any production write, verify the actual Vercel project, deployed database
 
 Use a separate schema-owner connection for `npm run catalog:migrate`. The existing `db:migrate` applies the base library schema first. The catalog migration grants read-only catalog access to `readwind_runtime` if that role exists. If creating the role later, apply `db/runtime-role.sql` and the catalog migration again. Apply `db/catalog-worker-role.sql` once as a role administrator and set its password separately. Use that distinct publication credential for `CATALOG_DATABASE_URL`; do not expose it to the app runtime. The publisher needs catalog table writes; the app runtime must not receive those grants.
 
-Required local publication settings are documented in `.env.example`:
+Keep publication credentials in ignored `work/catalog/worker.env`, loaded only by the catalog CLI and scheduled worker. The app runtime must not load this file. Required publication settings are documented in `.env.example`:
 
 - `READWIND_CATALOG_TARGET_VERIFIED=true` only after matching the actual deployment resources.
 - `CATALOG_DATABASE_URL` for catalog writes.
@@ -82,3 +82,5 @@ The per-user scheduled task starts a hidden PowerShell runner. It prepares queue
 Run `npm test`, `npm run typecheck`, `npx next build`, the portable `npm run build`, and the affected import/reader/sync/deletion/offline browser suites. Run `npm run test:catalog` against the local development server for EPUB conversion and Chromium/WebKit discovery checks at phone, tablet, and desktop sizes. Browser screenshots go to ignored `work/catalog-qa`.
 
 Before enabling production, inspect representative complete source editions and their prepared opening, middle, ending, covers, contents, notes, and complex content. Record actual prepared/published counts and source-access failures. A pushed implementation, a running local worker, a prepared local collection, and a verified live catalog are separate completion checks.
+
+Large catalog downloads and library pages use streamed JSON responses. Catalog metadata edits send only a small patch; the server retains or restores the immutable prepared body, so large books do not cross Vercel's request-body limit during synchronization.

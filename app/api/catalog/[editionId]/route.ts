@@ -1,5 +1,6 @@
 import { catalogVersion, preparedBook } from "@/lib/readwind/catalog-server";
 import { safeRoute } from "@/lib/readwind/security";
+import { streamJson } from "@/lib/readwind/json-stream";
 export const GET = safeRoute(
   async (
     request: Request,
@@ -7,7 +8,7 @@ export const GET = safeRoute(
   ) => {
     const { editionId } = await params,
       row = await catalogVersion(editionId);
-    return Response.json(
+    return streamJson(
       {
         entry: row.entry,
         ...(new URL(request.url).searchParams.has("content")

@@ -2,6 +2,7 @@ import { catalogVersion, preparedBook } from "@/lib/readwind/catalog-server";
 import { owner, sql, unauthorized, rateLimit } from "@/lib/readwind/server";
 import { safeRoute, HttpError } from "@/lib/readwind/security";
 import { saveLiveBook } from "@/lib/readwind/book-deletion";
+import { streamJson } from "@/lib/readwind/json-stream";
 export const POST = safeRoute(
   async (
     request: Request,
@@ -17,7 +18,11 @@ export const POST = safeRoute(
     const id = `catalog-${editionId}`;
     const existing =
       await db`SELECT data FROM folio_books WHERE owner_id=${user} AND id=${id}`;
-    if (existing.length) return Response.json({ book: existing[0].data });
+    if (existing.length)
+      return streamJson(
+        { book: existing[0].data },
+        { headers: { "Cache-Control": "no-store" } },
+      );
     const markers =
       await db`SELECT data->'_bookDeletions'->${id} AS deletion FROM folio_settings WHERE owner_id=${user}`;
     const prepared = await preparedBook(row),
@@ -56,7 +61,7 @@ export const POST = safeRoute(
     // Return the winning data; a simultaneous add must not reset later user changes.
     const saved =
       await db`SELECT data FROM folio_books WHERE owner_id=${user} AND id=${id}`;
-    return Response.json(
+    return streamJson(
       { book: saved[0].data },
       { headers: { "Cache-Control": "no-store" } },
     );

@@ -35,7 +35,7 @@
     "audit:security": "npm audit --audit-level=low",
     "db:check": "node --env-file-if-exists=.env.local scripts/check-readwind-schema.mjs",
     "test:auth": "node scripts/test-auth-browser.mjs",
-    "catalog": "node --env-file-if-exists=.env.local scripts/catalog/worker.mjs",
+    "catalog": "node --env-file-if-exists=.env.local --env-file-if-exists=work/catalog/worker.env scripts/catalog/worker.mjs",
     "catalog:migrate": "node --env-file-if-exists=.env.local scripts/catalog/migrate.mjs",
     "test:catalog": "node scripts/test-catalog-browser.mjs"
   },

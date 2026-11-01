@@ -17,6 +17,25 @@ export type CatalogEntry = {
   bytes: number;
   format: "pdf" | "epub" | "html";
 };
+export function catalogMetadataUpdate(book: Book) {
+  return {
+    kind: "catalog-metadata" as const,
+    id: book.id,
+    catalog: {
+      editionId: book.catalog!.editionId,
+      version: book.catalog!.version,
+    },
+    metadata: {
+      title: book.title,
+      author: book.author,
+      addedAt: book.addedAt,
+      lastOpenedAt: book.lastOpenedAt,
+      cover: book.cover,
+      customCoverBlobId: book.customCoverBlobId ?? null,
+      readingMode: book.readingMode,
+    },
+  };
+}
 export const catalogKey = (text: string) =>
   text
     .normalize("NFKD")

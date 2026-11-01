@@ -1,6 +1,6 @@
 "use client";
 import { validateFile } from "./file-validation";
-import {bookAssets,privateBookAssets,verifiedAsset} from './catalog';
+import {bookAssets,privateBookAssets,verifiedAsset,catalogMetadataUpdate} from './catalog';
 import {book as catalogBookSchema} from './schemas';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -190,7 +190,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
           const response = await api(`/api/library${change.restoreDeleted?'?restore=true':''}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(book),
+            body: JSON.stringify(book.catalog?catalogMetadataUpdate(book):book),
           });
           if(response.status===410){
             await db.transaction('rw',[db.books,db.progress,db.annotations,db.pending],async()=>{
