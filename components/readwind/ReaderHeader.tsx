@@ -127,8 +127,8 @@ export function ReaderHeader(props: Props) {
       <nav aria-label="Reader tools">
         <button
           className="reader-tool chapter-tool"
-          aria-label="Contents and go to page"
-          title="Contents and go to page"
+          aria-label={book.pagination==='flow'?'Contents':'Contents and go to page'}
+          title={book.pagination==='flow'?'Contents':'Contents and go to page'}
           onClick={props.onContents}
         >
           <Icon name="contents" size={19} />

@@ -9,6 +9,7 @@ import {
 import { rateLimit } from "@/lib/readwind/server";
 import {markBookDeleted,finishBookCleanup,saveLiveBook} from '@/lib/readwind/book-deletion';
 import {z} from 'zod';
+import {validateCatalogReference} from '@/lib/readwind/catalog-server';
 export const GET = safeRoute(async (request: Request) => {
   const id = await owner(request);
   if (!id) return unauthorized();
@@ -66,6 +67,7 @@ export const POST = safeRoute(async (request: Request) => {
   if (!parsed.success)
     return Response.json({ error: "Invalid book data." }, { status: 400 });
   const b = parsed.data;
+  await validateCatalogReference(b);
   const restore=new URL(request.url).searchParams.get('restore')==='true';
   const rows=await saveLiveBook(sql(id,`library:${id}`),id,b,restore);
   if(!Array.isArray(rows)||!rows.length)return Response.json({error:restore?'Deletion cleanup is still pending. Restoration will retry.':'This book has been deleted.'},{status:restore?409:410});
@@ -87,6 +89,7 @@ export const DELETE = safeRoute(async (request: Request) => {
   const refs = (data: import("@/lib/readwind/types").Book) =>
     [
       data.sourcePdfBlobId,
+      data.sourceBlobId,
       data.cover.blobId,
       data.pdfCoverBlobId,
       data.customCoverBlobId,

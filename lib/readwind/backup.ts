@@ -69,7 +69,7 @@ export function decodeBackup(input: unknown) {
     // Decode bytes directly. Never fetch a URL supplied by an archive.
 
     const match =
-      /^data:(application\/pdf|image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]*={0,2})$/.exec(
+      /^data:(application\/pdf|application\/epub\+zip|text\/plain|image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]*={0,2})$/.exec(
         b.data,
       );
 
@@ -98,6 +98,7 @@ export function decodeBackup(input: unknown) {
     )
       throw new Error("Original attachment must be a PDF.");
 
+    if(b.sourceBlobId && !['application/epub+zip','text/plain'].includes(lookup.get(b.sourceBlobId)?.type||''))throw new Error('Invalid source attachment.');
     const images = [
       b.cover.blobId,
       b.pdfCoverBlobId,

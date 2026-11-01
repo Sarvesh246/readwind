@@ -59,7 +59,7 @@ export async function owner(request: Request) {
     const id = data.user?.id;
     if (
       !id ||
-      !safeId.test(id) ||
+    !safeId.test(id) || id === 'catalog' ||
       !data.user?.emailVerified ||
       !data.session?.expiresAt ||
       !Number.isFinite(Date.parse(data.session.expiresAt)) ||
@@ -104,7 +104,9 @@ function storageUrl(key: string) {
   )
     throw new HttpError(400, "Invalid storage path.");
   const endpoint = process.env.AWS_ENDPOINT_URL_S3!.replace(/\/$/, "");
-  return `${endpoint}/${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
+  const storageBucket=key.startsWith('catalog/')?process.env.CATALOG_BUCKET||bucket:bucket;
+  if(!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(storageBucket))throw new Error('Invalid object storage bucket.');
+  return `${endpoint}/${storageBucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
 }
 export function storageFetch(key: string, init: RequestInit = {}) {
   // Validate the object path before touching credentials.

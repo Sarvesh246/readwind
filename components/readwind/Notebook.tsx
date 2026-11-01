@@ -81,7 +81,7 @@ export function Notebook({
                 g.items
                   .map(
                     (a) =>
-                      `> ${a.quote.replace(/\n/g, "\n> ")}\n\n${a.note ? `${a.note}\n\n` : ""}p. ${labelAt(g.book, a.range.start)} · ${new Date(a.createdAt).toISOString().slice(0, 10)}\n`,
+                      `> ${a.quote.replace(/\n/g, "\n> ")}\n\n${a.note ? `${a.note}\n\n` : ""}${g.book.pagination==='flow'?'Chapter '+(a.range.start.section+1):'p. '+labelAt(g.book,a.range.start)} · ${new Date(a.createdAt).toISOString().slice(0, 10)}\n`,
                   )
                   .join("\n"),
             )
@@ -137,8 +137,8 @@ export function Notebook({
             className="button ink"
             onClick={() => navigate(`/book/${book.id}`)}
           >
-            Back to page{" "}
-            {labelAt(
+            {book.pagination==='flow'?'Back to reading':'Back to page'}{" "}
+            {book.pagination!=='flow'&&labelAt(
               book,
               l.progress.find((p) => p.bookId === book.id)?.at || start,
             )}
@@ -213,7 +213,7 @@ export function Notebook({
                     {a.note && <p>{a.note}</p>}
                     <div className="note-meta">
                       <span>
-                        p. {labelAt(g.book, a.range.start)} ·{" "}
+                        {g.book.pagination==='flow'?`Chapter ${a.range.start.section+1}`:`p. ${labelAt(g.book,a.range.start)}`} ·{" "}
                         {a.kind === "bookmark"
                           ? "Bookmark"
                           : a.note
@@ -226,7 +226,7 @@ export function Notebook({
                         })}
                       </span>
                       <button onClick={() => onJump(g.book, a.range.start)}>
-                        Open on page
+                        {g.book.pagination==='flow'?'Open passage':'Open on page'}
                       </button>
                       <button
                         aria-label="Edit note"

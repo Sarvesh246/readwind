@@ -124,6 +124,7 @@ export function Library({
   onStats,
   name,
   view = "library",
+  catalogEnabled = false,
 }: {
   library: LibraryData;
   navigate: (path: string) => void;
@@ -132,6 +133,7 @@ export function Library({
   onStats: () => void;
   name?: string;
   view?: "library" | "collections";
+  catalogEnabled?: boolean;
 }) {
   const [calendar, setCalendar] = useState(false);
   const readDays = useMemo(() => dailyTotals(l.readingLog), [l.readingLog]);
@@ -282,11 +284,11 @@ export function Library({
         </label>
         <button
           className="button primary library-import"
-          aria-label="Import PDF"
-          onClick={() => navigate("/import")}
+          aria-label="Add book"
+          onClick={() => navigate(catalogEnabled?"/discover":"/import")}
         >
           <Icon name="plus" size={18} />
-          <span className="import-label">Import PDF</span>
+          <span className="import-label">Add book</span>
         </button>
         <div className="library-utility">
           <StreakChip streak={streak} onClick={() => setCalendar(true)} />
@@ -359,7 +361,7 @@ export function Library({
               <div className="chapter-label">
                 {started
                   ? `Chapter ${at.section + 1} · ${current.sections[at.section]?.title}`
-                  : `${current.author} · ${current.printPageCount} pages · ${readTime(current, l.readingSpeed)}`}
+                  : `${current.author} · ${current.pagination==='flow'?'':`${current.printPageCount} pages · `}${readTime(current, l.readingSpeed)}`}
               </div>
               {started && (
                 <div className="continue-progress">
@@ -373,7 +375,7 @@ export function Library({
                   </div>
                   <div>
                     <span>
-                      Page {labelAt(current, at)} of {current.printPageCount}
+                      {current.pagination==='flow'?`${Math.round((reading?.pct||0)*100)}% read`:`Page ${labelAt(current, at)} of ${current.printPageCount}`}
                     </span>
                     <span title="Estimated from your reading pace">About {readDuration(reading!.bookMinutes)} left in book</span>
                   </div>
@@ -417,7 +419,7 @@ export function Library({
               </blockquote>
               <div>
                 {lastHighlight
-                  ? `p. ${labelAt(current, lastHighlight.range.start)} · ${new Date(lastHighlight.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                  ? `${current.pagination==='flow'?'Chapter '+(lastHighlight.range.start.section+1):'p. '+labelAt(current, lastHighlight.range.start)} · ${new Date(lastHighlight.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
                   : "Select a passage as you read. Keep what stays with you."}
               </div>
             </figure>
@@ -443,13 +445,13 @@ export function Library({
           {l.ready && !l.books.length && !l.imports.length && (
             <div className="empty-library">
               <h2>A shelf of your own.</h2>
-              <p>Import your first PDF, or start with a few classics.</p>
+              <p>Find your next book, or upload a PDF or EPUB.</p>
               <div className="inline-actions">
                 <button
                   className="button primary"
-                  onClick={() => navigate("/import")}
+                  onClick={() => navigate(catalogEnabled?"/discover":"/import")}
                 >
-                  Import PDF
+                  Add book
                 </button>
                 <button className="button" onClick={() => void l.addClassics()}>
                   Add the classics
@@ -530,12 +532,12 @@ export function Library({
               );
             })}
             </AnimatePresence>
-            <button className="drop-tile" onClick={() => navigate("/import")}>
+            <button className="drop-tile" onClick={() => navigate(catalogEnabled?"/discover":"/import")}>
               <Icon name="upload" size={28} />
               <span>
                 <strong>
-                  <span className="drop-fine">Drop a PDF</span>
-                  <span className="drop-coarse">Import a PDF</span>
+                  <span className="drop-fine">Drop a PDF or EPUB</span>
+                  <span className="drop-coarse">Add a book</span>
                 </strong>
                 <br />
                 It becomes a real book — chapters, type, the lot.

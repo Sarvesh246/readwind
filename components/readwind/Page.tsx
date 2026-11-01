@@ -35,6 +35,7 @@ export function textRuns(
   settings: Settings,
   onAnnotation?: Props["onAnnotation"],
   onFootnote?: (text: string) => void,
+  onNavigate?: (at:Anchor)=>void,
 ) {
   const hits = annotations.filter(
     (a) =>
@@ -71,6 +72,8 @@ export function textRuns(
   if (f.drop) boundaries.add(f.start + 1);
   const source = book.sections[f.section].blocks[f.block];
   const styles=source.type==='figure'?[]:source.styles || [];
+  const links=source.type==='figure'?[]:source.internalLinks||[];
+  links.forEach(r=>{if(r.start>f.start&&r.start<f.end)boundaries.add(r.start);if(r.end>f.start&&r.end<f.end)boundaries.add(r.end);});
   styles.forEach(r=>{if(r.start>f.start&&r.start<f.end)boundaries.add(r.start);if(r.end>f.start&&r.end<f.end)boundaries.add(r.end);});
   const refs =
     source.type === "figure"
@@ -137,7 +140,7 @@ export function textRuns(
               : undefined
           }
         >
-          {content}
+          {links.some(r=>r.start<=offset&&r.end>=end)&&onNavigate?<button className="inline-book-link" onClick={e=>{e.stopPropagation();onNavigate(links.find(r=>r.start<=offset&&r.end>=end)!.at);}}>{content}</button>:content}
         </span>
         {a?.note && end === a.range.end.offset && (
           <sup className="note-mark" aria-label="Has a note">
@@ -306,14 +309,14 @@ export const Page = memo(function Page({
                     ...blockLayout(book.sections[f.section].blocks[f.block]),
                   }}
                 >
-                  <ContentsText book={book} fragment={f} onNavigate={onNavigate} render={part=>textRuns(part,book,annotations,settings,onAnnotation,setFootnote)}/>
+                  <ContentsText book={book} fragment={f} onNavigate={onNavigate} render={part=>textRuns(part,book,annotations,settings,onAnnotation,setFootnote,onNavigate)}/>
 
                 </p>
               ),
             )}
           </div>
           <div className="folio" style={{ color: t.muted }}>
-            {page.folio}
+            {book.pagination==='flow'?'':page.folio}
           </div>
         </div>
       ) : null}

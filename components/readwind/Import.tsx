@@ -11,6 +11,7 @@ import { Cover } from "./Library";
 import { CoverPicker, coverIds } from "./CoverPicker";
 import { ChapterTitleInput } from "./ChapterTitleInput";
 import { PdfPreview } from "./PdfPreview";
+import {StructuredImportReview} from './StructuredImportReview';
 import {OcrLanguages} from "./OcrLanguages";
 export function Import({
   library: l,
@@ -68,7 +69,7 @@ export function Import({
     controller.current?.abort();
     controller.current = new AbortController();
     if (job.current) void l.clearImport(job.current.id);
-    const jobId = crypto.randomUUID(), title = f.name.replace(/\.pdf$/i, "").slice(0, 200) || "Untitled PDF";
+    const jobId = crypto.randomUUID(), title = f.name.replace(/\.(pdf|epub)$/i, "").slice(0, 200) || "Untitled book";
     job.current = { id: jobId, title, percent: 0, message: "Starting…", sent: 0 };
     const publish = (status: "running" | "ready" | "failed", percent: number, message: string, force = false) => {
       const current = job.current;
@@ -86,8 +87,8 @@ export function Import({
       if (current && current.id === jobId) publish("running", current.percent, current.message, true);
     }, 15000);
     try {
-      const { importPDF } = await import("@/lib/readwind/pdf");
-      const data = await importPDF(
+      const { importBook } = await import("@/lib/readwind/import-book");
+      const data = await importBook(
         f,
         {...options,password,ocrLanguage},
         (m, p) => {
@@ -106,11 +107,11 @@ export function Import({
       if(run!==request.current)return;
       if ((e as Error).name === "PasswordException") { setNeedsPassword(true); void l.clearImport(jobId); }
       else if ((e as Error).name !== "AbortError" && !controller.current?.signal.aborted)
-        publish("failed", job.current?.percent ?? 0, "Could not import this PDF", true);
+        publish("failed", job.current?.percent ?? 0, "Could not import this book", true);
       if ((e as Error).name !== "AbortError" && !controller.current?.signal.aborted)
         setError(
           (e as Error).message ||
-            "Could not open this PDF. It may be encrypted or damaged.",
+            "Could not open this book. It may be encrypted or damaged.",
         );
     } finally {
       clearInterval(heartbeat);
@@ -218,6 +219,7 @@ export function Import({
     );
     setBook(b);
   }
+  if(result?.book.pagination==='flow')return <StructuredImportReview result={result} busy={busy} error={error} onChange={setBook} onCancel={()=>navigate('/')} onReset={()=>{setResult(null);setStep(1);setFile(null);setError('');}} onAdd={()=>void create()}/>;
   return (
     <div className="app-shell import-screen">
       <header className="document-header">
@@ -231,7 +233,7 @@ export function Import({
         >
           <Icon name="close" />
         </button>
-        <h1>Turn this PDF into a book</h1>
+        <h1>Import your book</h1>
         <ol className="import-steps" aria-label="Steps">
           {["Upload", "Clean up", "Read"].map((v, i) => (
             <li key={v} aria-current={step === i + 1 ? "step" : undefined}>
@@ -257,7 +259,7 @@ export function Import({
             <Icon name="upload" size={36} />
             <h2>Your next good read starts here.</h2>
             <p>
-              Drop a PDF. We’ll find the chapters, clean up the text,{" "}
+              Drop a PDF or EPUB. We’ll find the chapters, clean up the text,{" "}
               <br />
               and give it room to breathe.
             </p>
@@ -266,18 +268,18 @@ export function Import({
               disabled={busy}
               onClick={() => input.current?.click()}
             >
-              {busy ? "Opening your PDF…" : "Choose a PDF"}
+              {busy ? "Opening your book…" : "Choose a PDF or EPUB"}
             </button>
             <input
               ref={input}
               hidden
               type="file"
-              accept="application/pdf,.pdf"
+              accept="application/pdf,.pdf,application/epub+zip,.epub"
               onChange={(e) => {
                 if (e.target.files?.[0]) void parse(e.target.files[0]);
               }}
             />
-            <small>Text PDFs and scanned books · up to 20 MB</small>
+            <small>PDFs, scanned books, and EPUBs · up to 20 MB</small>
             <div className="upload-options">
               {(['removeHeaders','joinHyphens','ocr'] as const).map(key => (
                 <label key={key}>

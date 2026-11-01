@@ -989,8 +989,8 @@ export function Reader({
                   />
                 </div>
                 <div className="footer-labels">
-                  <button className="reader-page-position" title="Go to a page" aria-label={`Go to page. Currently page ${a} of ${book.printPageCount}`} onClick={()=>setPanel("contents")}>
-                    {closed
+                  <button className="reader-page-position" title={book.pagination==='flow'?'Contents':'Go to a page'} aria-label={book.pagination==='flow'?'Contents':`Go to page. Currently page ${a} of ${book.printPageCount}`} onClick={()=>setPanel("contents")}>
+                    {book.pagination==='flow'?`${Math.round(wordProgress(book,anchor,l.readingSpeed).pct*100)}% read`:closed
                       ? `Closed · resume at p. ${a}`
                       : `${a === b ? "p." : "pp."} ${a === b ? a : `${a}–${b}`} of ${book.printPageCount}`}
                     <span className="page-position-chevron" aria-hidden="true">⌄</span>
@@ -1092,8 +1092,8 @@ export function Reader({
         />
       )}
       {panel === "contents" && (
-        <Modal title="Contents & go to page" onClose={() => setPanel(null)}>
-          <form
+        <Modal title={book.pagination==='flow'?'Contents':'Contents & go to page'} onClose={() => setPanel(null)}>
+          {book.pagination!=='flow'&&<form
             className="go-page"
             onSubmit={(e) => {
               e.preventDefault();
@@ -1111,7 +1111,7 @@ export function Reader({
               />
             </label>
             <button className="button primary">Go</button>
-          </form>
+          </form>}
           <ChapterNavigation book={book} currentSection={anchor.section} onSelect={(i,at)=>jump(at||sectionStart(book,i))}/>
         </Modal>
       )}
@@ -1131,7 +1131,7 @@ export function Reader({
           <div className="search-results">
             {results.map((r, i) => (
               <button key={i} onClick={() => jump(r.at)}>
-                <small>p. {labelAt(book, r.at)}</small>
+                <small>{book.pagination==='flow'?`Chapter ${r.at.section+1}`:`p. ${labelAt(book,r.at)}`}</small>
                 <p>…{r.text}…</p>
               </button>
             ))}

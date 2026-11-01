@@ -10,7 +10,7 @@ const classic=JSON.parse(fs.readFileSync('lib/readwind/classics.json','utf8'))[0
 const book={...classic,id:'reader-qa',title:'A Quiet Reading Room',sourcePdfBlobId:'qa-original',readingMode:'reflow',sections:[{id:'empty',title:'Front matter',heading:false,blocks:[{type:'p',text:legacy}]},{id:'chapter',title:'Where I Lived',heading:true,blocks:[{type:'p',text:legacy},...classic.sections[0].blocks.slice(0,18)]}],pageMarks:Array.from({length:7},(_,i)=>({label:String(i+1),index:i,at:i===0?{section:0,block:0,offset:0}:{section:1,block:1+(i-1)*3,offset:0}})),printPageCount:7};
 async function seed(page,settings={}){
  await page.route('**/api/config',r=>r.fulfill({json:{authUrl:null}}));
- await page.goto(origin); await page.getByRole('heading',{name:'Your shelf'}).waitFor();await page.getByRole('button',{name:'Read Walden',exact:true}).first().waitFor();
+ await page.goto(origin); await page.getByRole('heading',{name:'Your shelf'}).waitFor();await page.getByRole('button',{name:'Add the classics',exact:true}).click();await page.getByRole('button',{name:'Read Walden',exact:true}).first().waitFor();
  await page.evaluate(async({book,settings})=>{
   const db=await new Promise((res,rej)=>{const r=indexedDB.open('folio-preview');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});
   const value={paper:'Paper',font:'Literata',size:18,spacing:'Normal',turn:'Curl',wideLayout:'spread',warmLight:false,restNudge:false,focusParagraph:false,colorNames:{yellow:'Ideas',green:'Agree',blue:'Quotes',pink:'Question'},...settings};

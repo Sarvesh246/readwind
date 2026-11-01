@@ -1,6 +1,8 @@
 import { HttpError } from "./security";
 export const fileTypes = [
   "application/pdf",
+  "application/epub+zip",
+  "text/plain",
   "image/png",
   "image/jpeg",
   "image/webp",
@@ -9,6 +11,7 @@ export function validateFile(bytes: Uint8Array, type: string) {
   const ascii = (offset: number, text: string) =>
     [...text].every((c, i) => bytes[offset + i] === c.charCodeAt(0));
   const valid =
+    type === "text/plain" ? bytes.length>0 : type === "application/epub+zip" ? ascii(0,"PK\u0003\u0004") :
     type === "application/pdf"
       ? ascii(0, "%PDF-")
       : type === "image/png"
@@ -21,6 +24,6 @@ export function validateFile(bytes: Uint8Array, type: string) {
   if (!valid)
     throw new HttpError(
       415,
-      "Unsupported or invalid file. Use PDF, PNG, JPEG or WebP.",
+      "Unsupported or invalid file. Use PDF, EPUB, PNG, JPEG or WebP.",
     );
 }

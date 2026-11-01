@@ -12,6 +12,8 @@ import { Interactions } from "./Fx";
 import { BookReader } from "./BookReader";
 import { Notebook } from "./Notebook";
 import { Import } from "./Import";
+import {Discover} from './Discover';
+import {bookAssets} from '@/lib/readwind/catalog';
 import { Modal } from "./Modal";
 import { Icon } from "./Icon";
 import { Flame } from "./Flame";
@@ -247,6 +249,7 @@ function Workspace({
   path,
   onAccount,
   onSignOut,
+  catalogEnabled,
 }: {
   user: User | null;
   auth: AuthClient | null;
@@ -254,6 +257,7 @@ function Workspace({
   path: string;
   onAccount: () => void;
   onSignOut: () => void;
+  catalogEnabled: boolean;
 }) {
   const library = useLibrary(user?.id || "preview", auth),
     [file, setFile] = useState<File | null>(null),
@@ -269,8 +273,8 @@ function Workspace({
     navigate(`/book/${b.id}`);
   }
   function onFile(f: File) {
-    if (!/\.pdf$/i.test(f.name) && f.type !== "application/pdf") {
-      setNotice("Choose a PDF file to import.");
+    if (!/\.(pdf|epub)$/i.test(f.name) && !['application/pdf','application/epub+zip'].includes(f.type)) {
+      setNotice("Choose a PDF or EPUB file to import.");
       return;
     }
     setFile(f);
@@ -301,15 +305,7 @@ function Workspace({
     if (password.length < 12) { setNotice("Use a backup password with at least 12 characters."); return; }
     try {
       for (const b of library.books) {
-        const ids = [
-          b.sourcePdfBlobId,
-          b.cover.blobId,
-          b.pdfCoverBlobId,
-          b.customCoverBlobId,
-          ...b.sections.flatMap((s) =>
-            s.blocks.flatMap((b) => (b.type === "figure" ? [b.blobId] : [])),
-          ),
-        ].filter(Boolean) as string[];
+        const ids = bookAssets(b);
         for (const id of ids)
           if (!(await library.loadBlob(id)))
             throw new Error(
@@ -364,7 +360,7 @@ function Workspace({
     try {
       const {data,files} = await readBackup(f, () => window.prompt("Enter the backup password."));
       for (const b of data.books) {
-        const ids = new Set([b.sourcePdfBlobId,b.cover.blobId,b.pdfCoverBlobId,b.customCoverBlobId,...b.sections.flatMap(s=>s.blocks.map(x=>x.type === "figure" ? x.blobId : undefined))]);
+        const ids = new Set(bookAssets(b as Book));
         await library.addBook(b as Book, files.filter(f=>ids.has(f.id)),true);
       }
       for (const a of data.annotations || []) await library.saveAnnotation(a);
@@ -400,7 +396,7 @@ function Workspace({
           navigate={navigate}
           onJump={(b, at) => void jump(b, at)}
         />
-      ) : path === "/import" ? (
+      ) : path === '/discover' ? <Discover key={library.db.name} library={library} navigate={navigate}/> : path === "/import" ? (
         <Import
           key={file?.name || "new"}
           library={library}
@@ -426,6 +422,7 @@ function Workspace({
           onAccount={openAccount}
           onStats={() => setStats(true)}
           name={user?.name}
+          catalogEnabled={catalogEnabled}
           view={path === "/collections" ? "collections" : "library"}
         />
       )}
@@ -532,6 +529,7 @@ export default function ReadwindApp() {
     [user, setUser] = useState<User | null>(null),
     [path, setPath] = useState("/"),
     [showAuth, setShowAuth] = useState(false),
+    [catalogEnabled,setCatalogEnabled] = useState(false),
     [loaded, setLoaded] = useState(false);
   const navigate = (url: string) => {
     history.pushState(null, "", url);
@@ -546,8 +544,9 @@ export default function ReadwindApp() {
     setPath(location.pathname);
     if (new URLSearchParams(location.search).has("reset")) setShowAuth(true);
     const loadAuth = () => fetch("/api/config")
-      .then((r) => r.json() as Promise<{ authUrl: string | null }>)
+      .then((r) => r.json() as Promise<{ authUrl: string | null;catalogEnabled?:boolean }>)
       .then(async (config) => {
+        if(alive)setCatalogEnabled(config.catalogEnabled===true);
         if (!config.authUrl) return;
         const { createReadwindAuth } = await import("@/lib/readwind/auth");
         const client = createReadwindAuth();
@@ -641,6 +640,7 @@ export default function ReadwindApp() {
       <Workspace
         key={user?.id || "preview"}
         user={user}
+        catalogEnabled={catalogEnabled}
         auth={auth}
         navigate={navigate}
         path={path}

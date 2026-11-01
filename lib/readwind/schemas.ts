@@ -10,6 +10,11 @@ export const anchor = z.object({
 export const book = z
   .object({
     id: z.string().regex(safeId),
+    sourceFormat: z.enum(['pdf','epub','html']).optional(),
+    sourceBlobId: z.string().regex(safeId).optional(),
+    pagination: z.enum(['printed','flow']).optional(),
+    chapterLinks: z.array(z.object({title:z.string().max(5000),level:z.number().int().min(0).max(20),at:anchor})).max(20000).optional(),
+    catalog: z.object({editionId:z.string().regex(safeId),version:z.string().regex(safeId),subjects:z.array(z.string().max(300)).max(100),assets:z.array(z.object({id:z.string().regex(safeId),sha256:z.string().regex(/^[a-f0-9]{64}$/),bytes:z.number().int().positive().max(20971520),type:z.enum(['application/pdf','application/epub+zip','text/plain','image/png','image/jpeg','image/webp'])})).max(2000)}).optional(),
     title: z.string().max(200000).min(1).max(500),
     author: z.string().max(200000).max(500),
     sections: z
@@ -38,6 +43,7 @@ export const book = z
                     )
                     .max(2000)
                     .optional(),
+                  internalLinks:z.array(z.object({start:z.number().int().min(0).max(200000),end:z.number().int().min(0).max(200000),at:anchor})).max(2000).optional(),
                 }),
                 z.object({
                   type: z.literal("figure"),
@@ -129,13 +135,14 @@ export const book = z
           id: z.string().max(120),
           marker: z.string().max(120),
           text: z.string().max(200000),
-          pageIndex: z.number().int().min(0).max(9999),
+          pageIndex: z.number().int().min(0).max(9999).optional(),
         }),
       )
       .max(20000)
       .optional(),
   })
   .superRefine((book, ctx) => {
+    for(const link of book.chapterLinks||[]){const block=book.sections[link.at.section]?.blocks[link.at.block];if(!block||link.at.offset>(block.text?.length||0))ctx.addIssue({code:'custom',message:'Invalid chapter anchor'});}
     if (book.sections.reduce((n, s) => n + s.blocks.length, 0) > 100000)
       ctx.addIssue({ code: "custom", message: "Too many blocks" });
     for (const mark of book.pageMarks) {
@@ -150,6 +157,7 @@ export const book = z
     for(const section of book.sections) for(const block of section.blocks)
       if(block.type!=='figure' && block.targetPageIndex!==undefined && block.targetPageIndex>=book.printPageCount)
         ctx.addIssue({code:'custom',message:'Invalid contents destination'});
+    for(const section of book.sections)for(const block of section.blocks)if(block.type!=='figure')for(const link of block.internalLinks||[]){const target=book.sections[link.at.section]?.blocks[link.at.block];if(!target||link.start>=link.end||link.end>block.text.length||link.at.offset>(target.text?.length||0))ctx.addIssue({code:'custom',message:'Invalid internal link'});}
   });
 export const progress = z.object({
   bookId: z.string().regex(safeId),

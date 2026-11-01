@@ -9,6 +9,7 @@ export type Block =
       styles?:import('./rich-text').TextStyleRun[];
       layout?:'verse'|'code'|'list'|'dialogue';
       footnoteRefs?: { at: number; noteId: string }[];
+      internalLinks?: {start:number;end:number;at:Anchor}[];
     }
   | { type: "figure"; blobId: string; caption?: string; text?: string; aspectRatio?:number; sourcePageIndex?:number; fullPage?:boolean;sourcePdf?:boolean };
 export type Section = {
@@ -20,6 +21,11 @@ export type Section = {
 };
 export type PageMark = { label: string; index: number; at: Anchor };
 export type Book = {
+  sourceFormat?: 'pdf'|'epub'|'html';
+  sourceBlobId?: string;
+  pagination?: 'printed'|'flow';
+  chapterLinks?: {title:string;level:number;at:Anchor}[];
+  catalog?: {editionId:string;version:string;assets:{id:string;sha256:string;bytes:number;type:string}[];subjects:string[]};
   id: string;
   title: string;
   author: string;
@@ -45,7 +51,7 @@ export type Book = {
   revision?: number;
   readingMode?: 'original'|'reflow';
   importReport?: import('./pdf-layout').PdfImportReport;
-  footnotes?: { id: string; marker: string; text: string; pageIndex: number }[];
+  footnotes?: { id: string; marker: string; text: string; pageIndex?: number }[];
 };
 export type Annotation = {
   id: string;

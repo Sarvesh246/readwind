@@ -150,11 +150,11 @@ export function ScrollReader({
             };
             return b.type === "h" ? (
               <h3 key={block}>
-                {textRuns(f, book, annotations, s, onAnnotation, setFootnote)}
+                {textRuns(f, book, annotations, s, onAnnotation, setFootnote,onNavigate)}
               </h3>
             ) : (
               <p key={block} dir="auto" data-paragraph={`${section}:${block}`} style={{textAlign:contentsRanges(book,section,block)?'left':undefined,textIndent:contentsRanges(book,section,block)||b.type==='quote'?'0':undefined,whiteSpace:'pre-line',marginBlock:b.type==='quote'?'.6em':undefined,marginInline:b.type==='quote'?'1em':undefined,...blockLayout(b)}}>
-                <ContentsText book={book} fragment={f} onNavigate={onNavigate} render={part=>textRuns(part,book,annotations,s,onAnnotation,setFootnote)}/>
+                <ContentsText book={book} fragment={f} onNavigate={onNavigate} render={part=>textRuns(part,book,annotations,s,onAnnotation,setFootnote,onNavigate)}/>
               </p>
             );
           })}

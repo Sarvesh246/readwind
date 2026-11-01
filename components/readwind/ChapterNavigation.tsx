@@ -6,6 +6,7 @@ import {labelAt,sectionStart,compare} from '@/lib/readwind/anchors';
 export function ChapterNavigation({book,currentSection,onSelect}:{book:Book;currentSection:number;onSelect:(section:number,at?:Anchor,pageIndex?:number)=>void}) {
   const [query,setQuery]=useState('');
   const entries=book.sections.map((section,index)=>{const at=sectionStart(book,index),mark=[...book.pageMarks].reverse().find(m=>compare(m.at,at)<=0);return {section,index,at,pageIndex:mark?.index||0};});
+  if(book.chapterLinks?.length){entries.length=0;for(const link of book.chapterLinks){const section=book.sections[link.at.section];if(section)entries.push({section:{...section,title:link.title,level:link.level},index:link.at.section,at:link.at,pageIndex:0});}}
   for(const entry of book.navigation||[]){
     if(entries.some(e=>e.pageIndex===entry.pageIndex && e.section.title===entry.title))continue;
     const mark=book.pageMarks.find(m=>m.index===entry.pageIndex);if(!mark)continue;
@@ -18,10 +19,10 @@ export function ChapterNavigation({book,currentSection,onSelect}:{book:Book;curr
     }
     entries.push({section:{...book.sections[at.section],title:entry.title,level:entry.level},index:at.section,at,pageIndex:entry.pageIndex});
   }
-  const visible=entries.sort((a,b)=>a.pageIndex-b.pageIndex || a.at.block-b.at.block || a.at.offset-b.at.offset).filter(({section})=>section.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const visible=entries.sort((a,b)=>compare(a.at,b.at)).filter(({section})=>section.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return <nav className="chapter-navigation" aria-label="Chapters">
     <input type="search" aria-label="Search chapters" placeholder="Find a chapter" value={query} onChange={e=>setQuery(e.target.value)}/>
-    <div className="contents-list">{visible.map(({section,index,at,pageIndex},n)=><button type="button" key={`${section.id}:${n}`} style={{paddingInlineStart:`${16+Math.min(6,section.level||0)*14}px`}} aria-current={currentSection===index && section.title===book.sections[index].title?'location':undefined} onClick={()=>onSelect(index,at,pageIndex)}><span>{section.title}</span><small>p. {book.pageMarks.find(m=>m.index===pageIndex)?.label || labelAt(book,at)}</small></button>)}</div>
+    <div className="contents-list">{visible.map(({section,index,at,pageIndex},n)=><button type="button" key={`${section.id}:${n}`} style={{paddingInlineStart:`${16+Math.min(6,section.level||0)*14}px`}} aria-current={currentSection===index?'location':undefined} onClick={()=>onSelect(index,at,pageIndex)}><span>{section.title}</span>{book.pagination!=='flow'&&<small>p. {book.pageMarks.find(m=>m.index===pageIndex)?.label || labelAt(book,at)}</small>}</button>)}</div>
     {!visible.length&&<p className="muted">No chapters match that name.</p>}
   </nav>;
 }

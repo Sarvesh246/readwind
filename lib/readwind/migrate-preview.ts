@@ -1,4 +1,5 @@
 import { ReadwindDB, encodeFile } from "./db";
+import {bookAssets} from './catalog';
 /** Carry books imported before sign-in into the account's pending upload queue. */
 export async function migratePreview(userId: string) {
   const preview = new ReadwindDB("preview"),
@@ -13,19 +14,7 @@ export async function migratePreview(userId: string) {
       progress = await preview.progress
         .filter((p) => ids.has(p.bookId))
         .toArray();
-    const fileIds = new Set(
-      books
-        .flatMap((b) => [
-          b.sourcePdfBlobId,
-          b.cover.blobId,
-          b.pdfCoverBlobId,
-          b.customCoverBlobId,
-          ...b.sections.flatMap((s) =>
-            s.blocks.flatMap((b) => (b.type === "figure" ? [b.blobId] : [])),
-          ),
-        ])
-        .filter(Boolean) as string[],
-    );
+    const fileIds = new Set(books.flatMap(bookAssets));
     const cached = await preview.blobs
       .where("id")
       .anyOf([...fileIds])

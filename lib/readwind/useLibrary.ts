@@ -1,5 +1,7 @@
 "use client";
 import { validateFile } from "./file-validation";
+import {bookAssets,privateBookAssets,verifiedAsset} from './catalog';
+import {book as catalogBookSchema} from './schemas';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ReadwindDB, deviceId, encodeFile, storedBlob } from "./db";
@@ -27,17 +29,7 @@ type LibraryPage = {
   nextOffset?: number | null;
 };
 function bookFileIds(book: Book) {
-  return [
-    book.sourcePdfBlobId,
-    book.cover.blobId,
-    book.pdfCoverBlobId,
-    book.customCoverBlobId,
-    ...book.sections.flatMap((section) =>
-      section.blocks.map((block) =>
-        block.type === "figure" ? block.blobId : undefined,
-      ),
-    ),
-  ].filter((id): id is string => Boolean(id));
+  return bookAssets(book);
 }
 async function responseError(response: Response, fallback: string) {
   const data = (await response.json().catch(() => null)) as {
@@ -178,7 +170,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
             const state=await api(`/api/library?deletion=${encodeURIComponent(book.id)}`);if(!state.ok)throw new Error('Could not check restoration status.');
             if(((await state.json()) as {cleanupPending?:boolean}).cleanupPending)throw new Error('Deletion cleanup is still pending · restoration will retry.');
           }
-          const blobIds = bookFileIds(book);
+          const blobIds = privateBookAssets(book);
           const uploaded = new Set(change.uploaded || []);
           for (const id of new Set(change.uploadFiles === false ? [] : blobIds)) {
             if(!active())return false;
@@ -654,6 +646,10 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   const loadBlob = useCallback(
     async (id: string) => {
       let file = await db.blobs.get(id);
+      if(!file){
+        const shared=(await db.books.toArray()).flatMap(b=>b.catalog?.assets||[]).find(a=>a.id===id);
+        if(shared){const blob=await verifiedAsset(await fetch(`/api/catalog/assets/${encodeURIComponent(id)}`,{signal:lifetime.current.signal}),shared);if(!alive.current||lifetime.current.signal.aborted)throw new Error('Account changed.');file=await encodeFile({id,blob});await db.blobs.put(file);}
+      }
       if (!file && !guest) {
         const r = await api(`/api/files?id=${encodeURIComponent(id)}`);
         if (!r.ok) throw new Error("File unavailable. Connect to download it.");
@@ -689,6 +685,74 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     conflicted.current = null;
     setConflict(null);
     void sync();
+  };
+  const addCatalogBook = async (
+    editionId: string,
+    onProgress?: (percent: number) => void,
+  ) => {
+    const currentLifetime = lifetime.current,
+      check = () => {
+        if (!alive.current || currentLifetime.signal.aborted)
+          throw new Error("Account changed. Please retry.");
+      };
+    const response = guest
+      ? await fetch(`/api/catalog/${encodeURIComponent(editionId)}?content=1`, {
+          signal: currentLifetime.signal,
+        })
+      : await api(
+          `/api/catalog/${encodeURIComponent(editionId)}/add?restore=true`,
+          { method: "POST" },
+        );
+    if (!response.ok)
+      throw new Error(
+        await responseError(response, "Could not add this book."),
+      );
+    const data = (await response.json()) as { book: Book },
+      book = catalogBookSchema.parse(data.book) as Book;
+    check();
+    if (!book.catalog || book.catalog.editionId !== editionId)
+      throw new Error("Invalid catalog book.");
+    if (guest) {
+      book.id = `catalog-${editionId}`;
+      book.addedAt = Date.now();
+      book.lastOpenedAt = book.addedAt;
+      book.readingMode = "reflow";
+    }
+    const files: { id: string; blob: Blob }[] = [];
+    for (const [i, asset] of book.catalog.assets.entries()) {
+      check();
+      const cached = await db.blobs.get(asset.id);
+      const blob = await verifiedAsset(
+        cached
+          ? new Response(storedBlob(cached))
+          : await fetch(`/api/catalog/assets/${encodeURIComponent(asset.id)}`, {
+              signal: currentLifetime.signal,
+            }),
+        asset,
+      );
+      files.push({ id: asset.id, blob });
+      onProgress?.(Math.round(((i + 1) / book.catalog.assets.length) * 100));
+    }
+    const encoded = await Promise.all(files.map(encodeFile));
+    check();
+    await db.transaction("rw", [db.books, db.blobs, db.pending], async () => {
+      check();
+      if (await db.pending.get(`delete-book:${book.id}`))
+        throw new Error("Deletion is still syncing. Please retry.");
+      const existing = await db.books.get(book.id);
+      await db.books.put(existing || book);
+      await db.blobs.bulkPut(encoded);
+    });
+    if (alive.current)
+      setOptimisticDeletes((old) => ({
+        owner: db.name,
+        ids: new Set(
+          [...(old.owner === db.name ? old.ids : [])].filter(
+            (id) => id !== book.id,
+          ),
+        ),
+      }));
+    return book.id;
   };
   const deleteBook = async (id:string) => {
     setOptimisticDeletes(old=>({owner:db.name,ids:new Set([...(old.owner===db.name?old.ids:[]),id])}));
@@ -735,6 +799,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     saveAnnotation,
     saveSettings,
     addBook,
+    addCatalogBook,
     saveBook,
     saveReadingMode,
     loadBlob,
