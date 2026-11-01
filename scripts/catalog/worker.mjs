@@ -214,7 +214,10 @@ export async function runJob(queue, job, { publish = false } = {}) {
   const cached = existsSync(preparedPath)
     ? JSON.parse(readFileSync(preparedPath, "utf8"))
     : null;
-  if (cached?.report.converterVersion === preparationVersion) {
+  if (
+    cached?.report.converterVersion === preparationVersion &&
+    cached.report.sourceValidationVersion === 2
+  ) {
     prepared = cached;
     if (prepared.report.sourceSha256 !== digest(source))
       throw new Error(
@@ -255,6 +258,9 @@ export async function runJob(queue, job, { publish = false } = {}) {
       resources,
     });
     const errors = [];
+    errors.push(
+      ...validateCandidate({ ...record, title: prepared.book.title }).errors,
+    );
     if (!prepared.report.passed)
       errors.push("Conversion retention/fidelity checks did not pass.");
     if (!prepared.book.cover.blobId)
@@ -281,10 +287,13 @@ export async function runJob(queue, job, { publish = false } = {}) {
         .run(errors.join("; "), record.id);
       return;
     }
+    const sourceTitle = prepared.book.title;
     finalizePrepared(record, prepared, digest(source));
     prepared.report = {
       ...prepared.report,
       sourceSha256: digest(source),
+      sourceTitle,
+      sourceValidationVersion: 2,
       sourceEvidence: record.evidence,
       sourceValidatedAt: new Date().toISOString(),
       converterVersion: preparationVersion,

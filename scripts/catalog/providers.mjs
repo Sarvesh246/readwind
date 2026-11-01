@@ -66,6 +66,20 @@ export function validateCandidate(record) {
     errors.push("Verified author attribution is required.");
   if (/^index of (?:the )?project gutenberg\b/i.test(record.title || ""))
     errors.push("A navigation index is not a complete book.");
+  if (
+    Array.isArray(record.subjects) &&
+    record.subjects.some(
+      (subject) =>
+        typeof subject === "string" &&
+        (/--\s*Periodicals\s*$/i.test(subject) ||
+          /^(?:Booksellers|Publishers)['’]?\s+catalog(?:ue)?s\b/i.test(
+            subject,
+          )),
+    )
+  )
+    errors.push(
+      "Periodical issues and publishers' sales catalogs require separate collection review.",
+    );
   if (!["epub", "pdf", "html"].includes(record.format))
     errors.push("Unsupported source format");
   if (
@@ -116,8 +130,8 @@ export function validateCandidate(record) {
   if (record.coverNote && !record.coverEditionEvidence)
     errors.push("Alternate cover edition needs evidence");
   if (
-    /\b(sample|preview|excerpt|abridged|incomplete|partial)\b|\b\d+(?:st|nd|rd|th)?\s+\d*\s*pages\b|\b(?:vol(?:ume)?|part)\.?\s*(?:\d+|[ivx]+)\.?\s*[,([]?\s*(?:\/|of)\s*(?:\d+|[ivx]+)\b|\bin (?:\d+|two|three|four|five|six|seven|eight|nine|ten) volumes\b/i.test(
-      `${record.edition || ""} ${record.title || ""}`,
+    /\b(sample|preview|excerpt|abridged|incomplete|partial)\b|\b\d+(?:st|nd|rd|th)?\s+\d*\s*pages\b|\b(?:vol(?:ume)?|part)\.?\s*(?:\d+|[ivx]+)\b|\bin (?:\d+|two|three|four|five|six|seven|eight|nine|ten) volumes\b/i.test(
+      `${record.edition || ""} ${record.title || ""} ${record.evidence?.catalogTitle || ""}`,
     )
   )
     errors.push("Not an approved complete edition");

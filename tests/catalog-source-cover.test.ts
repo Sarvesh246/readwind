@@ -44,6 +44,26 @@ it("holds unknown author attribution and explicitly partial editions", () => {
   expect(validateCandidate({ title: "A Novel in 3 volumes" }).errors).toContain(
     "Not an approved complete edition",
   );
+  expect(validateCandidate({ title: "Roughing It, Part 4." }).errors).toContain(
+    "Not an approved complete edition",
+  );
+  expect(
+    validateCandidate({
+      title: "An edition",
+      evidence: { catalogTitle: "An edition, Volume III" },
+    }).errors,
+  ).toContain("Not an approved complete edition");
+  expect(
+    validateCandidate({ subjects: ["Education -- Periodicals"] }).errors,
+  ).toContain(
+    "Periodical issues and publishers' sales catalogs require separate collection review.",
+  );
+  expect(
+    validateCandidate({ subjects: ["Booksellers' catalogs -- England"] })
+      .errors,
+  ).toContain(
+    "Periodical issues and publishers' sales catalogs require separate collection review.",
+  );
 });
 
 it("matches documented initials without treating other contributors as authors", () => {
