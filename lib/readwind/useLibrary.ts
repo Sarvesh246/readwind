@@ -2,6 +2,7 @@
 import { validateFile } from "./file-validation";
 import {bookAssets,privateBookAssets,verifiedAsset,catalogMetadataUpdate,bookMetadataUpdate} from './catalog';
 import {book as catalogBookSchema} from './schemas';
+import { recoverDevice } from './device-recovery';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ReadwindDB, deviceId, encodeFile, storedBlob } from "./db";
@@ -23,6 +24,7 @@ export type SyncConflict = {
 };
 type LibraryPage = {
   books?: Book[];
+  bookIds?: string[];
   progress?: Progress[];
   annotations?: Annotation[];
   settings?: Settings | null;
@@ -48,6 +50,9 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   const running = useRef(false),
     alive = useRef(true),
     conflicted = useRef<string | null>(null);
+  const recoveredDevice = useRef<string | null>(null);
+  const remoteRevision = useRef<{ owner: string; etag: string; books: string | null } | null>(null);
+  const syncFailures = useRef(0), nextAutomaticSync = useRef(0), lastActivity = useRef(0);
   const syncAgain = useRef<() => void>(() => {});
   const lifetime = useRef(new AbortController());
   const [optimisticDeletes,setOptimisticDeletes]=useState<{owner:string;ids:Set<string>}>({owner:db.name,ids:new Set()});
@@ -148,6 +153,10 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     const signal=lifetime.current.signal,active=()=>alive.current&&!signal.aborted;
     setStatus("Syncing…");
     try {
+      if (recoveredDevice.current !== db.name) {
+        await recoverDevice(db, userId, deviceId(), api, uploadFile);
+        recoveredDevice.current = db.name;
+      }
       const pending = await db.pending.toArray();
       const processedDeletes=new Set<string>();
       for (const change of pending.sort(
@@ -279,11 +288,34 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         settings: Settings | null;
       } = { books: [], progress: [], annotations: [], settings: null };
       let offset: number | null = 0;
+      let unchanged = false;
+      let receivedRevision: string | null = null;
+      let receivedBooksRevision: string | null = null;
       while (offset !== null) {
         if(!active())return false;
-        const response = await api(`/api/library?offset=${offset}`);
+        const etag = offset === 0 && remoteRevision.current?.owner === db.name ? remoteRevision.current.etag : undefined;
+        const headers: Record<string, string> = {};
+        if (etag) headers['If-None-Match'] = etag;
+        if (remoteRevision.current?.owner === db.name && remoteRevision.current.books !== null) headers['X-Readwind-Books-Revision'] = remoteRevision.current.books;
+        const response = await api(`/api/library?offset=${offset}&device=${encodeURIComponent(deviceId())}`, { headers });
+        if (offset === 0 && response.status === 304) { unchanged = true; break; }
         if (!response.ok) throw new Error("Could not load your library.");
+        if (offset === 0) {
+          receivedRevision = response.headers.get('etag');
+          receivedBooksRevision = response.headers.get('x-readwind-books-revision');
+        }
         const page = (await response.json()) as LibraryPage;
+        if (page.bookIds) {
+          const cached = await db.books.bulkGet(page.bookIds);
+          if (cached.some(book => !book)) {
+            // A cache eviction needs a complete pull before authoritative reconciliation.
+            remoteRevision.current = null;
+            data.books = []; data.annotations = []; data.progress = []; data.settings = null;
+            offset = 0;
+            continue;
+          }
+          data.books.push(...cached.filter((book): book is Book => !!book));
+        }
         data.books.push(...(page.books || []));
         data.annotations.push(...(page.annotations || []));
         // Progress and settings arrive with the first page only.
@@ -294,7 +326,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         offset = typeof next === "number" && next > offset ? next : null;
       }
       if (!active()) return false;
-      await db.transaction(
+      if (!unchanged) await db.transaction(
         "rw",
         [
           db.books,
@@ -351,6 +383,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
           for(const change of changes.filter(p=>p.entity==='delete-book'))if(processedDeletes.has(change.id)&&!data.books.some(b=>b.id===change.bookId))await db.pending.delete(change.id);
         },
       );
+      if (!unchanged) remoteRevision.current = receivedRevision ? { owner: db.name, etag: receivedRevision, books: receivedBooksRevision } : null;
       const remaining = await db.pending.count();
       if (alive.current)
         setStatus(
@@ -362,8 +395,12 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       // never acknowledge a snapshot as though it included these newer edits.
       if (remaining && active() && (await db.pending.toArray()).some(p=>p.entity!=='progress'||!conflicted.current))
         setTimeout(() => syncAgain.current(), 0);
+      syncFailures.current = 0;
+      nextAutomaticSync.current = 0;
       return true;
     } catch (e) {
+      syncFailures.current = Math.min(syncFailures.current + 1, 6);
+      nextAutomaticSync.current = Date.now() + Math.min(300000, 12000 * 2 ** syncFailures.current);
       if (alive.current)
         setStatus(
           navigator.onLine
@@ -375,10 +412,11 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       running.current = false;
       if (alive.current) setReady(true);
     }
-  }, [db, guest, auth, api, uploadFile,lifetime]);
+  }, [db, guest, auth, api, uploadFile,lifetime,userId]);
   useEffect(() => { syncAgain.current = () => void sync(); }, [sync]);
   useEffect(() => {
     alive.current = true;
+    lastActivity.current = Date.now();
     if (lifetime.current.signal.aborted) lifetime.current = new AbortController();
     (async () => {
       await db.open();
@@ -408,12 +446,17 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       setReady(true);
     });
     const id = setInterval(() => {
-      if (document.visibilityState === "visible") void sync();
+      if (document.visibilityState === "visible" && Date.now() - lastActivity.current < 120000 && Date.now() >= nextAutomaticSync.current) void sync();
     }, 12000);
     const wake = () => {
-      if (document.visibilityState === "visible") void sync();
+      lastActivity.current = Date.now();
+      if (document.visibilityState === "visible" && Date.now() >= nextAutomaticSync.current) void sync();
     };
-    window.addEventListener("online", sync);
+    const activity = () => { const idle = Date.now() - lastActivity.current >= 120000; lastActivity.current = Date.now(); if (idle) wake(); };
+    const reconnect = () => { nextAutomaticSync.current = 0; wake(); };
+    window.addEventListener("online", reconnect);
+    window.addEventListener('pointerdown', activity);
+    window.addEventListener('keydown', activity);
     window.addEventListener("focus", wake);
     document.addEventListener("visibilitychange", wake);
     const offline = () => setStatus("Offline · saved on this device");
@@ -422,7 +465,9 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       alive.current = false;
       lifetime.current.abort();
       clearInterval(id);
-      window.removeEventListener("online", sync);
+      window.removeEventListener("online", reconnect);
+      window.removeEventListener('pointerdown', activity);
+      window.removeEventListener('keydown', activity);
       window.removeEventListener("focus", wake);
       document.removeEventListener("visibilitychange", wake);
       window.removeEventListener("offline", offline);
@@ -452,7 +497,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   useEffect(() => {
     const first = setTimeout(() => void refreshImports(), 0);
     const id = setInterval(() => {
-      if (document.visibilityState === "visible") void refreshImports();
+      if (document.visibilityState === "visible" && (watching || Date.now() - lastActivity.current < 120000)) void refreshImports();
     }, watching ? 4000 : 20000);
     const wake = () => {
       if (document.visibilityState === "visible") void refreshImports();

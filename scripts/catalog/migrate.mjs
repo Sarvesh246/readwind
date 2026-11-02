@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { neon } from "@neondatabase/serverless";
+import { createDatabase, closeDatabase } from '../backend-database.mjs';
 import { splitSqlStatements } from "../sql-statements.mjs";
 if (
   process.env.READWIND_CATALOG_TARGET_VERIFIED !== "true" ||
@@ -10,11 +10,9 @@ if (
   );
 const source = readFileSync("db/catalog.sql", "utf8");
 const statements = splitSqlStatements(source);
-await neon(process.env.MIGRATION_DATABASE_URL).transaction(
-  statements.map((statement) =>
-    neon(process.env.MIGRATION_DATABASE_URL).query(statement),
-  ),
-);
+const database=createDatabase(process.env.MIGRATION_DATABASE_URL);
+await database.transaction(statements.map(statement=>database.query(statement)));
+await closeDatabase(database);
 console.log(
   "Readwind catalog schema applied. Catalog remains disabled until explicitly enabled.",
 );

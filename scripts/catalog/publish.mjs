@@ -1,4 +1,4 @@
-import { neon } from "@neondatabase/serverless";
+import { createDatabase } from '../backend-database.mjs';
 import { AwsClient } from "aws4fetch";
 import { createHash } from "node:crypto";
 export const digest = (bytes) =>
@@ -29,17 +29,28 @@ function configuration() {
     throw paused(
       "Set CATALOG_DATABASE_URL to the separate publication credential.",
     );
-  const endpoint = new URL(process.env.AWS_ENDPOINT_URL_S3 || "");
+  const endpoint = new URL((process.env.READWIND_BACKEND==='supabase' ? process.env.SUPABASE_URL : process.env.AWS_ENDPOINT_URL_S3) || "");
   if (endpoint.protocol !== "https:")
     throw new Error("Storage must use HTTPS.");
   return {
     budget: Math.floor(budget * 0.8) - baseline,
-    db: neon(process.env.CATALOG_DATABASE_URL),
+    db: createDatabase(process.env.CATALOG_DATABASE_URL),
     endpoint: endpoint.href.replace(/\/$/, ""),
     bucket: process.env.CATALOG_BUCKET || "folio-books",
   };
 }
 function client() {
+  if (process.env.READWIND_BACKEND==='supabase') return {
+    fetch(input,init={}) {
+      const parts=new URL(input).pathname.split('/').filter(Boolean);
+      if(parts.length!==3||parts[0] !== (process.env.CATALOG_BUCKET||'folio-books') || parts[1]!=='catalog')throw new Error('Invalid catalog object path');
+      if(!process.env.SUPABASE_URL||!process.env.READWIND_STORAGE_TOKEN)throw new Error('Catalog storage is not configured');
+      const url=new URL(process.env.SUPABASE_URL.replace(/\/$/,'')+'/functions/v1/readwind-storage');
+      url.searchParams.set('key',parts.slice(1).join('/'));
+      const headers=new Headers(init.headers);headers.set('x-readwind-storage-token',process.env.READWIND_STORAGE_TOKEN);
+      return fetch(url,{...init,headers,redirect:'error',signal:AbortSignal.timeout(30000)});
+    }
+  };
   return new AwsClient({
     service: "s3",
     region: process.env.AWS_REGION || "us-east-2",

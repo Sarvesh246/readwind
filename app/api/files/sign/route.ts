@@ -49,7 +49,7 @@ export const POST = safeRoute(async (request: Request) => {
     throw error;
   }
   try {
-    return Response.json(await storagePresign(`${user}/${id}`, type));
+    return Response.json(await storagePresign(`${user}/${id}`, type, 300, bytes, new URL(request.url).origin));
   } catch (error) {
     if (!existing.length)
       await db`DELETE FROM folio_files WHERE owner_id=${user} AND id=${id}`;

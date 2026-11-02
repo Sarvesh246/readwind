@@ -9,6 +9,7 @@ export function createReadwindAuth() {
   return {
     getSession: () => client.getSession(),
     signOut: () => client.signOut(),
+    changePassword: (input: { currentPassword: string; newPassword: string }) => client.changePassword(input),
     signIn: {
       email: (input: { email: string; password: string }) =>
         client.signIn.email(input),

@@ -19,6 +19,7 @@ const routes: Record<string, string> = {
   "sign-in/email": "POST",
   "sign-up/email": "POST",
   "sign-out": "POST",
+  "change-password": "POST",
 
   "request-password-reset": "POST",
   "reset-password": "POST",
@@ -87,7 +88,7 @@ const handle = safeRoute(async (req: NextRequest, ctx: Context) => {
     const password = data.newPassword ?? data.password;
 
     if (
-      (name === "sign-up/email" || name.includes("reset-password")) &&
+      (name === "sign-up/email" || name === "change-password" || name.includes("reset-password")) &&
       password !== undefined &&
       (typeof password !== "string" ||
         password.length < 12 ||
@@ -103,6 +104,11 @@ const handle = safeRoute(async (req: NextRequest, ctx: Context) => {
     body = new TextEncoder().encode(JSON.stringify(data));
   } else {
     await readBytes(req, 0);
+  }
+
+  if (process.env.READWIND_BACKEND === 'supabase') {
+    const { handleSupabaseAuth } = await import('@/lib/readwind/supabase-auth');
+    return handleSupabaseAuth(req, name, body ? JSON.parse(new TextDecoder().decode(body)) : {});
   }
 
   const base = process.env.NEON_AUTH_BASE_URL;

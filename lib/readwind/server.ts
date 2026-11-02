@@ -1,7 +1,10 @@
-import { neon } from "@neondatabase/serverless";
+import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { AwsClient } from "aws4fetch";
 import { HttpError, safeId, sameOrigin } from "./security";
-export function sql(user?: string,serialize?:string) {
+import { postgresSql } from './postgres';
+import { supabaseStorageFetch, supabaseStoragePresign } from './supabase-storage';
+export function sql(user?: string,serialize?:string): NeonQueryFunction<false, false> {
+  if (process.env.READWIND_BACKEND === 'supabase') return postgresSql(user, serialize) as unknown as NeonQueryFunction<false, false>;
   if (!process.env.DATABASE_URL) throw new Error("Database is not configured");
   const db = neon(process.env.DATABASE_URL);
   if (!user) return db;
@@ -20,6 +23,10 @@ export async function owner(request: Request) {
   // immediate session revocation. Never trust the SDK's signed session_data cache.
   if (request.headers.has("authorization")) return null;
   if (request.method !== "GET" && !sameOrigin(request)) return null;
+  if (process.env.READWIND_BACKEND === 'supabase') {
+    const { resolveSession } = await import('./supabase-auth');
+    return (await resolveSession(request))?.user.id || null;
+  }
   const cookie = request.headers
     .get("cookie")
     ?.split(";")
@@ -109,6 +116,7 @@ function storageUrl(key: string) {
   return `${endpoint}/${storageBucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
 }
 export function storageFetch(key: string, init: RequestInit = {}) {
+  if (process.env.READWIND_BACKEND === 'supabase') return supabaseStorageFetch(key, init);
   // Validate the object path before touching credentials.
   const url = storageUrl(key);
   // Vercel's runtime streams outbound bodies without a Content-Length, which
@@ -126,7 +134,10 @@ export async function storagePresign(
   key: string,
   contentType: string,
   expires = 300,
+  bytes?: number,
+  origin?: string,
 ) {
+  if (process.env.READWIND_BACKEND === 'supabase') return supabaseStoragePresign(key, contentType, bytes, origin);
   const url = new URL(storageUrl(key));
   url.searchParams.set("X-Amz-Expires", String(expires));
   const signed = await storageClient().sign(url, {

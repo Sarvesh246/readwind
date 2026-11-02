@@ -2,6 +2,7 @@ import { owner, sql, unauthorized, storageFetch } from "@/lib/readwind/server";
 import { book } from "@/lib/readwind/schemas";
 import {
   readJson,
+  readBytes,
   safeRoute,
   safeId,
   HttpError,
@@ -74,8 +75,57 @@ export const GET = safeRoute(async (request: Request) => {
   const BOOKS = 10;
   const ANNOTATIONS = 100;
   const db = sql(id);
+  const recoveryEpoch =
+    process.env.READWIND_BACKEND === "supabase"
+      ? process.env.READWIND_RECOVERY_EPOCH
+      : undefined;
+  if (recoveryEpoch) {
+    const device = new URL(request.url).searchParams.get("device") || "";
+    if (!safeId.test(device))
+      return Response.json(
+        {
+          code: "DEVICE_RECOVERY_REQUIRED",
+          error: "Refresh Readwind to preserve this device before syncing.",
+        },
+        { status: 428 },
+      );
+    const recovery =
+      await db`SELECT 1 FROM folio_recovery_snapshots WHERE owner_id=${id} AND device_id=${device} AND epoch=${recoveryEpoch} AND entity='complete'`;
+    if (!recovery.length)
+      return Response.json(
+        {
+          code: "DEVICE_RECOVERY_REQUIRED",
+          error: "Preserve this device before syncing.",
+        },
+        { status: 428 },
+      );
+  }
+  let etag: string | undefined;
+  let booksRevision: string | undefined;
+  if (process.env.READWIND_BACKEND === "supabase") {
+    const revisions =
+      await db`SELECT revision, books_revision FROM folio_account_revisions WHERE owner_id=${id}`;
+    booksRevision = String(revisions[0]?.books_revision || 0);
+    if (offset === 0) {
+      etag = `"rw-${id}-${revisions[0]?.revision || 0}"`;
+      if (request.headers.get("if-none-match") === etag)
+        return new Response(null, {
+          status: 304,
+          headers: {
+            ETag: etag,
+            "Cache-Control": "private, no-store",
+            Vary: "Cookie",
+          },
+        });
+    }
+  }
+  const booksUnchanged =
+    booksRevision !== undefined &&
+    request.headers.get("x-readwind-books-revision") === booksRevision;
   const [books, annotations, progress, settings] = await Promise.all([
-    db`SELECT data FROM folio_books WHERE owner_id=${id} ORDER BY id LIMIT ${BOOKS + 1} OFFSET ${offset}`,
+    booksUnchanged
+      ? db`SELECT id FROM folio_books WHERE owner_id=${id} ORDER BY id LIMIT ${BOOKS + 1} OFFSET ${offset}`
+      : db`SELECT data FROM folio_books WHERE owner_id=${id} ORDER BY id LIMIT ${BOOKS + 1} OFFSET ${offset}`,
     db`SELECT data FROM folio_annotations WHERE owner_id=${id} ORDER BY id LIMIT ${ANNOTATIONS + 1} OFFSET ${offset * (ANNOTATIONS / BOOKS)}`,
     offset === 0
       ? db`SELECT book_id AS "bookId", at, revision, device_id AS "deviceId", words_read AS "wordsRead", EXTRACT(EPOCH FROM updated_at)*1000 AS "updatedAt" FROM folio_progress WHERE owner_id=${id}`
@@ -90,7 +140,9 @@ export const GET = safeRoute(async (request: Request) => {
       : null;
   return streamJson(
     {
-      books: books.slice(0, BOOKS).map((r) => r.data),
+      ...(booksUnchanged
+        ? { bookIds: books.slice(0, BOOKS).map((r) => r.id) }
+        : { books: books.slice(0, BOOKS).map((r) => r.data) }),
       // Progress and settings only need to travel once per sync.
       ...(offset === 0
         ? {
@@ -101,7 +153,16 @@ export const GET = safeRoute(async (request: Request) => {
       annotations: annotations.slice(0, ANNOTATIONS).map((r) => r.data),
       nextOffset,
     },
-    { headers: { "Cache-Control": "no-store" } },
+    {
+      headers: {
+        "Cache-Control": "private, no-store",
+        Vary: "Cookie",
+        ...(etag ? { ETag: etag } : {}),
+        ...(booksRevision !== undefined
+          ? { "X-Readwind-Books-Revision": booksRevision }
+          : {}),
+      },
+    },
   );
 });
 export const POST = safeRoute(async (request: Request) => {
@@ -183,13 +244,13 @@ export const DELETE = safeRoute(async (request: Request) => {
   const id = new URL(request.url).searchParams.get("id");
   if (!id || !safeId.test(id)) throw new HttpError(400, "Invalid book ID.");
   const db = sql(user, `library:${user}`);
-  const incoming = request.body
-    ? z
-        .object({
-          files: z.array(z.string().regex(safeId)).max(20000).optional(),
-        })
-        .safeParse(await readJson(request, 2_000_000))
-    : { success: true as const, data: { files: [] as string[] } };
+  let deletionInput: unknown = {};
+  if (request.headers.has("content-type"))
+    deletionInput = await readJson(request, 2_000_000);
+  else await readBytes(request, 0);
+  const incoming = z
+    .object({ files: z.array(z.string().regex(safeId)).max(20000).optional() })
+    .safeParse(deletionInput);
   if (!incoming.success) throw new HttpError(400, "Invalid deletion data.");
   // Remove the book and cascading notes immediately; retain a retryable cleanup record.
   const marked = (await markBookDeleted(

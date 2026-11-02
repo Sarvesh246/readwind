@@ -40,10 +40,17 @@ function AuthForm({
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [info, setInfo] = useState("");
+  const [resetToken, setResetToken] = useState('');
   useEffect(() => {
     // URL is only readable on the client, so this is read after mount.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (new URLSearchParams(location.search).has("token")) setMode("reset");
+    const fragment = new URLSearchParams(location.hash.slice(1));
+    if (fragment.get('type') === 'recovery' && fragment.get('access_token')) {
+      setResetToken(fragment.get('access_token')!);
+      setMode('reset');
+      history.replaceState(null, '', location.pathname + location.search);
+    }
   }, []);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -72,7 +79,7 @@ function AuthForm({
         return;
       }
       if (mode === "reset") {
-        const token = new URLSearchParams(location.search).get("token") || "";
+        const token = resetToken || new URLSearchParams(location.search).get("token") || "";
         const r = await auth.resetPassword({ newPassword: password, token });
         if (r.error) throw new Error(r.error.message);
         const cleanUrl = new URL(location.href); cleanUrl.searchParams.delete("token");
@@ -241,6 +248,23 @@ function AuthForm({
       </div>
     </Modal>
   );
+}
+function AccountPassword({ auth }: { auth: AuthClient }) {
+  const [current, setCurrent] = useState(''), [next, setNext] = useState(''), [confirm, setConfirm] = useState(''), [busy, setBusy] = useState(false), [message, setMessage] = useState('');
+  return <details><summary>Change password</summary><form className="auth-form" onSubmit={async event => {
+    event.preventDefault(); setMessage('');
+    if (next !== confirm) { setMessage('The new passwords do not match.'); return; }
+    setBusy(true);
+    try { const result = await auth.changePassword({ currentPassword: current, newPassword: next }); if (result.error) throw new Error(result.error.message || 'Could not change your password.'); setCurrent(''); setNext(''); setConfirm(''); setMessage('Password updated.'); }
+    catch (error) { setMessage((error as Error).message); }
+    finally { setBusy(false); }
+  }}>
+    <label>Current password<input type="password" autoComplete="current-password" required value={current} onChange={event => setCurrent(event.target.value)} /></label>
+    <label>New password<input type="password" autoComplete="new-password" required minLength={12} maxLength={128} value={next} onChange={event => setNext(event.target.value)} /></label>
+    <label>Confirm new password<input type="password" autoComplete="new-password" required minLength={12} maxLength={128} value={confirm} onChange={event => setConfirm(event.target.value)} /></label>
+    {message && <p role="status">{message}</p>}
+    <button className="button" disabled={busy}>{busy ? 'Saving…' : 'Save new password'}</button>
+  </form></details>;
 }
 function Workspace({
   user,
@@ -484,6 +508,7 @@ function Workspace({
             <Icon name="next" size={18} />
           </button>
           <AppearanceControl />
+          {auth && <AccountPassword auth={auth} />}
           <p className="muted">
             Your books and notes belong to this account. Sign out removes downloaded
             books and notes from this device. Sync first to save your latest changes.
@@ -615,6 +640,8 @@ export default function ReadwindApp() {
       await cached.transaction("rw",cached.tables,async()=>{ for (const table of cached.tables) await table.clear(); });
       cached.close();
       await cached.delete();
+      const { default: Dexie } = await import('dexie');
+      await Dexie.delete(`readwind-recovery-${previous}`);
     }
     navigate("/");
   }

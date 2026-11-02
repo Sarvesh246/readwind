@@ -1,1 +1,1 @@
-export function GET() { return Response.json({authUrl:process.env.NEON_AUTH_BASE_URL ? "/api/auth" : null,catalogEnabled:process.env.READWIND_CATALOG_ENABLED==='true'}, {headers:{"Cache-Control":"no-store"}}); }
+export function GET() { return Response.json({authUrl:(process.env.READWIND_BACKEND==='supabase' ? process.env.SUPABASE_URL&&process.env.SUPABASE_ANON_KEY&&process.env.READWIND_SESSION_SECRET : process.env.NEON_AUTH_BASE_URL) ? "/api/auth" : null,catalogEnabled:process.env.READWIND_CATALOG_ENABLED==='true'}, {headers:{"Cache-Control":"no-store"}}); }

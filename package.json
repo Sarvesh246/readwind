@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=22.13.0"
+    "node": "24.x"
   },
   "scripts": {
     "install:ci": "node scripts/install-ci.mjs",
@@ -37,6 +37,8 @@
     "audit:security": "npm audit --audit-level=low",
     "db:check": "node --env-file-if-exists=.env.local scripts/check-readwind-schema.mjs",
     "test:auth": "node scripts/test-auth-browser.mjs",
+    "test:recovery": "node scripts/test-device-recovery-browser.mjs",
+    "test:supabase": "node --experimental-strip-types scripts/test-supabase-backend.mjs",
     "catalog": "node --env-file-if-exists=.env.local --env-file-if-exists=work/catalog/worker.env scripts/catalog/worker.mjs",
     "catalog:migrate": "node --env-file-if-exists=.env.local scripts/catalog/migrate.mjs",
     "test:catalog": "node scripts/test-catalog-browser.mjs"
@@ -81,7 +83,8 @@
     "tesseract.js": "^7.0.0",
     "vaul": "^1.1.2",
     "zod": "^4.6.7",
-    "better-auth": "1.7.14"
+    "better-auth": "1.7.14",
+    "postgres": "4.0.0"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.66.0",

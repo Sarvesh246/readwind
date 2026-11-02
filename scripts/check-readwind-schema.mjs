@@ -1,4 +1,4 @@
-import { neon } from '@neondatabase/serverless';
+import { createDatabase, closeDatabase } from './backend-database.mjs';
 import { pathToFileURL } from 'node:url';
 export const readinessSql = `
   SELECT name, to_regclass('public.' || name) IS NOT NULL AS ready
@@ -16,8 +16,15 @@ export function assertSchemaReady(rows) {
 }
 async function main() {
   if (!process.env.DATABASE_URL) throw new Error('Set DATABASE_URL to check the target runtime database.');
-  const rows=await neon(process.env.DATABASE_URL).query(readinessSql);
-  assertSchemaReady(rows);
+  const database=createDatabase(process.env.DATABASE_URL);
+  try {
+    const rows=await database.query(readinessSql);
+    assertSchemaReady(rows);
+    if(process.env.READWIND_BACKEND==='supabase') {
+      const additional=await database.query("SELECT name,to_regclass('public.'||name) IS NOT NULL AS ready FROM unnest(ARRAY['folio_identities','folio_sessions','folio_recovery_snapshots','folio_account_revisions']) name");
+      assertSchemaReady(additional);
+    }
+  } finally { await closeDatabase(database); }
   console.log('Readwind database schema is ready.');
 }
 if (process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href) {
