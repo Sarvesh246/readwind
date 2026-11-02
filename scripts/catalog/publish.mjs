@@ -29,18 +29,22 @@ function configuration() {
     throw paused(
       "Set CATALOG_DATABASE_URL to the separate publication credential.",
     );
-  const endpoint = new URL((process.env.READWIND_BACKEND==='supabase' ? process.env.SUPABASE_URL : process.env.AWS_ENDPOINT_URL_S3) || "");
+  const endpoint = new URL((supabaseStorage() ? process.env.SUPABASE_URL : process.env.AWS_ENDPOINT_URL_S3) || "");
   if (endpoint.protocol !== "https:")
     throw new Error("Storage must use HTTPS.");
   return {
     budget: Math.floor(budget * 0.8) - baseline,
     db: createDatabase(process.env.CATALOG_DATABASE_URL),
     endpoint: endpoint.href.replace(/\/$/, ""),
-    bucket: process.env.CATALOG_BUCKET || "folio-books",
+    bucket: process.env.READWIND_S3_BUCKET || process.env.CATALOG_BUCKET || "folio-books",
   };
 }
+// Backblaze B2 (or any S3 store) can hold the files while the database is on Supabase.
+function supabaseStorage() {
+  return process.env.READWIND_BACKEND === "supabase" && process.env.READWIND_STORAGE !== "s3";
+}
 function client() {
-  if (process.env.READWIND_BACKEND==='supabase') return {
+  if (supabaseStorage()) return {
     fetch(input,init={}) {
       const parts=new URL(input).pathname.split('/').filter(Boolean);
       if(parts.length!==3||parts[0] !== (process.env.CATALOG_BUCKET||'folio-books') || parts[1]!=='catalog')throw new Error('Invalid catalog object path');

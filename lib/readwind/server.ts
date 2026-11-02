@@ -96,6 +96,10 @@ function bodyLength(body: BodyInit | null | undefined) {
   if (typeof Blob !== "undefined" && body instanceof Blob) return body.size;
   return null;
 }
+/** S3-compatible object storage (Backblaze B2) can serve files for any database backend. */
+export const usesS3Storage = () =>
+  process.env.READWIND_BACKEND !== "supabase" ||
+  process.env.READWIND_STORAGE === "s3";
 function storageClient() {
   return new AwsClient({
     service: "s3",
@@ -111,12 +115,12 @@ function storageUrl(key: string) {
   )
     throw new HttpError(400, "Invalid storage path.");
   const endpoint = process.env.AWS_ENDPOINT_URL_S3!.replace(/\/$/, "");
-  const storageBucket=key.startsWith('catalog/')?process.env.CATALOG_BUCKET||bucket:bucket;
+  const storageBucket=process.env.READWIND_S3_BUCKET||(key.startsWith('catalog/')?process.env.CATALOG_BUCKET||bucket:bucket);
   if(!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(storageBucket))throw new Error('Invalid object storage bucket.');
   return `${endpoint}/${storageBucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
 }
 export function storageFetch(key: string, init: RequestInit = {}) {
-  if (process.env.READWIND_BACKEND === 'supabase') return supabaseStorageFetch(key, init);
+  if (!usesS3Storage()) return supabaseStorageFetch(key, init);
   // Validate the object path before touching credentials.
   const url = storageUrl(key);
   // Vercel's runtime streams outbound bodies without a Content-Length, which
@@ -137,13 +141,17 @@ export async function storagePresign(
   bytes?: number,
   origin?: string,
 ) {
-  if (process.env.READWIND_BACKEND === 'supabase') return supabaseStoragePresign(key, contentType, bytes, origin);
+  if (!usesS3Storage()) return supabaseStoragePresign(key, contentType, bytes, origin);
   const url = new URL(storageUrl(key));
   url.searchParams.set("X-Amz-Expires", String(expires));
   const signed = await storageClient().sign(url, {
     method: "PUT",
-    headers: { "Content-Type": contentType },
-    aws: { signQuery: true },
+    // Signing the length pins the upload to the exact size that was reserved.
+    headers: {
+      "Content-Type": contentType,
+      ...(bytes ? { "Content-Length": String(bytes) } : {}),
+    },
+    aws: { signQuery: true, allHeaders: Boolean(bytes) },
   });
   return {
     url: signed.url.toString(),

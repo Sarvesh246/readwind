@@ -50,6 +50,10 @@ function AuthForm({
       setResetToken(fragment.get('access_token')!);
       setMode('reset');
       history.replaceState(null, '', location.pathname + location.search);
+    } else if (fragment.get('error_code')) {
+      setMode('forgot');
+      setError('That reset link has expired or was already used. Request a new one.');
+      history.replaceState(null, '', location.pathname + location.search);
     }
   }, []);
   async function submit(e: React.FormEvent) {
@@ -62,9 +66,8 @@ function AuthForm({
       if (mode === "forgot") {
         const r = await auth.emailOtp.requestPasswordReset({ email });
         if (r.error) throw new Error(r.error.message);
-        setMode("reset-code");
-        setPassword("");
-        setInfo("If this account exists, a reset code is on its way.");
+        // The provider email carries a link, not a code.
+        setInfo("If this account exists, a reset link is on its way. Open it on this device.");
         return;
       }
       if (mode === "reset-code") {
@@ -215,7 +218,7 @@ function AuthForm({
             : {
                 signin: "Sign in",
                 signup: "Create your account",
-                forgot: "Send reset code",
+                forgot: "Send reset link",
                 verify: "Verify email",
                 reset: "Save new password",
                 "reset-code": "Save new password",
@@ -556,6 +559,13 @@ export default function ReadwindApp() {
     [showAuth, setShowAuth] = useState(false),
     [catalogEnabled,setCatalogEnabled] = useState(false),
     [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    // A reset email lands on the home page with the result in the URL; open the form that handles it.
+    const fragment = new URLSearchParams(location.hash.slice(1));
+    if (fragment.get("type") === "recovery" || fragment.get("error_code") || new URLSearchParams(location.search).has("token"))
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setShowAuth(true);
+  }, []);
   const navigate = (url: string) => {
     history.pushState(null, "", url);
     setPath(url.split("?")[0]);
