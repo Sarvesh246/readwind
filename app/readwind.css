@@ -1360,11 +1360,16 @@ legend {
   will-change: transform;
   pointer-events: none;
 }
+.book-box:has(.turning-leaf) .book-backdrop,
+.book-box:has(.turning-leaf) .under-page {
+  will-change: transform;
+}
 .leaf-face {
   position: absolute;
   inset: 0;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+  will-change: transform, opacity;
 }
 .leaf-back {
   transform: rotateY(180deg);
@@ -1373,6 +1378,10 @@ legend {
   position: absolute;
   inset: 0;
   pointer-events: none;
+}
+.slide-leaf,
+.reduced-leaf {
+  transform-style: flat;
 }
 .reduced-leaf {
   transform: none !important;
@@ -2868,10 +2877,6 @@ legend {
 .spine-hairline,
 .contact-dip {
   opacity: var(--fold-opacity, 1);
-}
-.leaf-face {
-  box-shadow: 0 0 calc(28px * var(--turn-sin, 0))
-    rgba(40, 28, 14, calc(0.13 * var(--turn-sin, 0)));
 }
 .fill-reader {
   min-height: 0;

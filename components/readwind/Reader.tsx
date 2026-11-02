@@ -15,7 +15,6 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { Book, Anchor, Annotation, Color } from "@/lib/readwind/types";
 import { themes } from "@/lib/readwind/types";
 import { geometry, paginate, pageIndex } from "@/lib/readwind/pagination";
-import type { CurlRenderer } from "@/lib/readwind/curl";
 import type { ScreenPage } from "@/lib/readwind/pagination";
 import { compare, labelAt, wordProgress, start, sectionStart } from "@/lib/readwind/anchors";
 import type { Library } from "@/lib/readwind/useLibrary";
@@ -70,9 +69,9 @@ export function Reader({
   const [turn, setTurn] = useState<Turn | null>(null),
     turnRef = useRef<Turn | null>(null),
     anim = useRef(0),
+    effects = useRef<Animation[]>([]),
+    pendingTurn = useRef<number | null>(null),
     [reduced, setReduced] = useState(false);
-  const turnKind = turn?.kind,
-    turnDir = turn?.dir;
   const [selection, setSelection] = useState<{
       start: Anchor;
       end: Anchor;
@@ -90,8 +89,6 @@ export function Reader({
     [originalUrl, setOriginalUrl] = useState("");
   const [originalBlob, setOriginalBlob] = useState<Blob | null>(null);
   const [originalPageIndex,setOriginalPageIndex]=useState<number|null>(null);
-  const curl = useRef<CurlRenderer | null>(null),
-    pointerY = useRef(0.5);
   const drag = useRef<{
     x: number;
     y: number;
@@ -209,7 +206,10 @@ export function Reader({
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);
   }, [full]);
-  useEffect(() => () => cancelAnimationFrame(anim.current), []);
+  useEffect(() => () => {
+    cancelAnimationFrame(anim.current);
+    effects.current.forEach(effect => effect.cancel());
+  }, []);
   useEffect(() => {
     if (!s.restNudge) return;
     let active = 0,
@@ -233,50 +233,6 @@ export function Reader({
     }, 1000);
     return () => clearInterval(id);
   }, [s.restNudge, closed, panel]);
-  useEffect(() => {
-    if (
-      !turnKind ||
-      turnKind !== "page" ||
-      s.turn !== "Curl" ||
-      reduced ||
-      !box.current ||
-      !leaf.current
-    )
-      return;
-    let cancelled = false;
-    const raf = requestAnimationFrame(() => {
-      import("@/lib/readwind/curl")
-        .then(({ paperCurl }) =>
-          paperCurl(box.current!, leaf.current!, {
-            width: g.bookW,
-            height: g.bookH,
-            pageWidth: g.pw,
-            spread,
-            backward: spread && turnDir === -1,
-          }),
-        )
-        .then((renderer) => {
-          if (!renderer) return;
-          const active = turnRef.current;
-          if (cancelled || !active || active.p > 0.3) {
-            renderer.dispose();
-            return;
-          }
-          curl.current = renderer;
-          renderer.draw(
-            spread ? active.p : active.dir === 1 ? active.p : 1 - active.p,
-            pointerY.current,
-          );
-        })
-        .catch(() => {});
-    });
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(raf);
-      curl.current?.dispose();
-      curl.current = null;
-    };
-  }, [turnKind, turnDir, s.turn, reduced, g, spread]);
   const canTurn = (dir: number) =>
     dir > 0 ? index + (spread ? 2 : 1) < pages.length : index > 0;
   // Toasts clear themselves so a hint never lingers over the page controls.
@@ -292,6 +248,38 @@ export function Reader({
     turnRef.current = value;
     setTurn(value);
   };
+  // Keep pointer and animation frames out of React. Only mounting and completing
+  // a leaf changes state; all intermediate frames update compositor properties.
+  const paintTurn = (next: Turn) => {
+    // Animate only the leaf transform; page text stays memoized. Opacity
+    // goes on the front face, never the 3D leaf: opacity on the leaf forces
+    // transform-style to flat and shows its mirrored backface.
+    if (leaf.current) {
+      const q = spread ? next.p : next.dir === 1 ? next.p : 1 - next.p;
+      leaf.current.style.transform =
+        s.turn === "Slide"
+          ? `translateX(${-next.dir * next.p * 100}%)`
+          : `rotateY(${(spread && next.dir === -1 ? 180 : -180) * q}deg)`;
+      const frontFace = leaf.current.firstElementChild as HTMLElement | null;
+      if (frontFace)
+        frontFace.style.opacity = String(
+          reduced
+            ? 1 - next.p
+            : next.kind === "page" &&
+                s.turn !== "Slide" &&
+                !spread &&
+                !fill &&
+                q > 0.55
+              ? Math.max(0, 1 - (q - 0.55) / 0.45)
+              : 1,
+        );
+    }
+    if (next.kind !== "page" && box.current && spread)
+      box.current.style.transform = `translateX(${(-g.pw / 2) * (1 - next.p)}px)`;
+  };
+  useLayoutEffect(() => {
+    if (turnRef.current) paintTurn(turnRef.current);
+  });
   const animate = (
     value: Turn,
     to: number,
@@ -299,67 +287,43 @@ export function Reader({
     done: () => void,
   ) => {
     cancelAnimationFrame(anim.current);
-    const from = value.p,
-      begin = performance.now(),
-      D = reduced ? 150 : Math.max(160, duration * Math.abs(to - from));
+    effects.current.forEach(effect => effect.cancel());
+    effects.current = [];
+    const from = value.p;
+    const D = reduced ? 120 : Math.max(100, duration * Math.abs(to - from));
     updateTurn(value);
-    const step = (now: number) => {
-      const k = Math.min(1, (now - begin) / D),
-        e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
-      const next = { ...value, p: from + (to - from) * e };
-      turnRef.current = next;
-      const q = spread ? next.p : value.dir === 1 ? next.p : 1 - next.p;
-      curl.current?.draw(q, pointerY.current);
-      if (box.current) {
-        box.current.style.setProperty("--turn-q", String(q));
-        box.current.style.setProperty(
-          "--turn-sin",
-          String(Math.sin(q * Math.PI)),
-        );
-        box.current.style.setProperty(
-          "--fold-opacity",
-          String(
-            value.kind === "page"
-              ? 1
-              : Math.max(0, Math.min(1, (next.p - 0.55) / 0.45)),
-          ),
-        );
+    // Mount the leaf first, then let the browser compositor run the motion.
+    // Frame updates stay independent of React renders and JavaScript timers.
+    anim.current = requestAnimationFrame(() => {
+      const el = leaf.current;
+      if (!el) { anim.current = 0; updateTurn(null); return; }
+      const frames: Keyframe[] = [], opacity: Keyframe[] = [], shifts: Keyframe[] = [];
+      for (let i = 0; i <= 30; i++) {
+        const p = from + (to - from) * (i / 30);
+        const q = spread ? p : value.dir === 1 ? p : 1 - p;
+        frames.push({transform: s.turn === "Slide"
+          ? `translateX(${-value.dir * p * 100}%)`
+          : `rotateY(${(spread && value.dir === -1 ? 180 : -180) * q}deg)`});
+        opacity.push({opacity: reduced ? 1 - p : value.kind === "page" && s.turn !== "Slide" && !spread && !fill && q > 0.55
+          ? Math.max(0, 1 - (q - 0.55) / 0.45) : 1});
+        shifts.push({transform: `translateX(${(-g.pw / 2) * (1 - p)}px)`});
       }
-      // Animate only the leaf transform; page text stays memoized. Opacity
-      // goes on the front face, never the 3D leaf: opacity on the leaf forces
-      // transform-style to flat and shows its mirrored backface.
-      if (leaf.current) {
-        const q = spread ? next.p : value.dir === 1 ? next.p : 1 - next.p;
-        leaf.current.style.transform =
-          s.turn === "Slide"
-            ? `translateX(${-next.dir * next.p * 100}%)`
-            : `rotateY(${(spread && value.dir === -1 ? 180 : -180) * q}deg)`;
-        const frontFace = leaf.current.firstElementChild as HTMLElement | null;
-        if (frontFace)
-          frontFace.style.opacity = String(
-            reduced
-              ? 1 - next.p
-              : value.kind === "page" &&
-                  s.turn !== "Slide" &&
-                  !spread &&
-                  !fill &&
-                  q > 0.55
-                ? Math.max(0, 1 - (q - 0.55) / 0.45)
-                : 1,
-          );
-      }
-      if (value.kind !== "page" && box.current && spread)
-        box.current.style.transform = `translateX(${(-g.pw / 2) * (1 - next.p)}px)`;
-      if (k < 1) anim.current = requestAnimationFrame(step);
-      else {
+      const timing: KeyframeAnimationOptions = {duration: D, easing: "cubic-bezier(0.215, 0.61, 0.355, 1)", fill: "forwards"};
+      const motion = el.animate(frames, timing);
+      const active = [motion];
+      if (el.firstElementChild) active.push(el.firstElementChild.animate(opacity, timing));
+      if (value.kind !== "page" && box.current && spread) active.push(box.current.animate(shifts, timing));
+      effects.current = active;
+      void motion.finished.then(() => {
+        // Commit the end pose before releasing the compositor animations.
+        paintTurn({...value, p: to});
+        active.forEach(effect => effect.cancel());
+        effects.current = [];
         anim.current = 0;
-        curl.current?.dispose();
-        curl.current = null;
         done();
         updateTurn(null);
-      }
-    };
-    anim.current = requestAnimationFrame(step);
+      }, () => {});
+    });
   };
   const finish = (value: Turn) => {
     if (value.kind === "open") {
@@ -375,14 +339,21 @@ export function Reader({
     if (pages[n]) commitAnchor(pages[n].start);
   };
   const turnPage = (dir: number) => {
-    if (anim.current || turnRef.current || busy || selection || editing) return;
+    if (busy || selection || editing) return;
+    if (anim.current || turnRef.current) {
+      if (turnRef.current?.kind === "page" && anim.current) {
+        pendingTurn.current = dir;
+        effects.current.forEach(effect => { effect.playbackRate = 2; });
+      }
+      return;
+    }
     if (closed) {
       if (dir > 0) openClose();
       return;
     }
     if (!canTurn(dir)) return;
     const value: Turn = { dir, p: 0, kind: "page" };
-    animate(value, 1, 720, () => finish(value));
+    animate(value, 1, 420, () => finish(value));
   };
   const openClose = () => {
     if (anim.current || busy) return;
@@ -393,6 +364,15 @@ export function Reader({
     };
     animate(value, closed ? 1 : 0, closed ? 1100 : 950, () => finish(value));
   };
+  // Coalesce repeated presses into the latest direction, then use the newly
+  // committed anchor. A press during a turn must never silently disappear.
+  useEffect(() => {
+    if (!turn && !anim.current && pendingTurn.current !== null) {
+      const dir = pendingTurn.current;
+      pendingTurn.current = null;
+      turnPage(dir);
+    }
+  });
   function down(e: ReactPointerEvent) {
     if (
       selectMode ||
@@ -419,10 +399,8 @@ export function Reader({
     // Capture after a horizontal drag begins, preserving taps on highlights.
   }
   function move(e: ReactPointerEvent) {
-    const bounds = box.current?.getBoundingClientRect();
-    if (bounds) pointerY.current = (e.clientY - bounds.top) / bounds.height;
     const d = drag.current;
-    if (!d) return;
+    if (!d || d.pointerId !== e.pointerId) return;
     d.dx = e.clientX - d.x;
     if (
       !d.started &&
@@ -440,21 +418,31 @@ export function Reader({
     }
     if (d.started) {
       const p = Math.max(0, Math.min(1, (-d.dx * d.dir) / (g.pw * 1.05)));
-      updateTurn({ kind: "page", dir: d.dir, p });
-      curl.current?.draw(
-        spread ? p : d.dir === 1 ? p : 1 - p,
-        pointerY.current,
-      );
+      const value: Turn = { kind: "page", dir: d.dir, p };
+      if (!turnRef.current) updateTurn(value);
+      else turnRef.current = value;
+      paintTurn(value);
     }
   }
-  function up() {
+  function cancelDrag(e: ReactPointerEvent) {
+    // Touch begins with implicit capture on the touched child. Its loss bubbles
+    // when we transfer capture to the book; the gesture still belongs to us.
+    if (e.type === "lostpointercapture" && e.target !== e.currentTarget) return;
     const d = drag.current;
+    drag.current = null;
+    if (d?.started && turnRef.current && !anim.current) {
+      animate(turnRef.current, 0, 240, () => {});
+    }
+  }
+  function up(e: ReactPointerEvent) {
+    const d = drag.current;
+    if (d && d.pointerId !== e.pointerId) return;
     drag.current = null;
     if (!d) return;
     if (d.started) {
       const value = turnRef.current!;
       const commit = value.p > 0.28;
-      animate(value, commit ? 1 : 0, commit ? 560 : 380, () => {
+      animate(value, commit ? 1 : 0, commit ? 360 : 240, () => {
         if (commit) finish(value);
       });
       return;
@@ -682,8 +670,9 @@ export function Reader({
         back = P(index - 1);
       }
     } else {
-      ur = forward ? P(index + 1) : P(index);
-      front = forward ? P(index) : P(index - 1);
+      const outgoing = forward || s.turn === "Slide" || reduced;
+      ur = outgoing ? P(index + (forward ? 1 : -1)) : P(index);
+      front = outgoing ? P(index) : P(index - 1);
     }
   } else {
     ul = spread ? P(index) : null;
@@ -837,8 +826,6 @@ export function Reader({
               className="book-box"
               style={
                 {
-                  "--turn-q": q,
-                  "--turn-sin": qs,
                   "--fold-opacity": closed ? 0 : 1,
                   width: g.bookW,
                   height: g.bookH,
@@ -850,10 +837,8 @@ export function Reader({
               onPointerDown={down}
               onPointerMove={move}
               onPointerUp={up}
-              onPointerCancel={() => {
-                drag.current = null;
-                if (turnRef.current && !anim.current) updateTurn(null);
-              }}
+              onPointerCancel={cancelDrag}
+              onLostPointerCapture={cancelDrag}
               onClick={(e) => {
                 if ((e.target as HTMLElement).closest("[data-highlight]"))
                   return;
@@ -925,7 +910,7 @@ export function Reader({
               {hasLeaf && (
                 <div
                   ref={leaf}
-                  className={`turning-leaf ${reduced ? "reduced-leaf" : ""}`}
+                  className={`turning-leaf ${reduced ? "reduced-leaf" : s.turn === "Slide" ? "slide-leaf" : ""}`}
                   style={{
                     left: spread && forward ? g.pw : 0,
                     width: g.pw,
