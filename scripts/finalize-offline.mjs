@@ -9,13 +9,4 @@ if(next){const root='.next/static';function chunks(dir){for(const item of fs.rea
 files.sort();const digest=crypto.createHash('sha256').update(JSON.stringify(files));for(const file of files)digest.update(fs.readFileSync(file.startsWith('/_next/static/')?'.next/static/'+file.slice('/_next/static/'.length):path.join(base,file.slice(1))));const version=digest.digest('hex').slice(0,12);
 let worker=fs.readFileSync('scripts/offline-worker.js','utf8').replace(/const CACHE='[^']+';/,`const CACHE='readwind-${version}';`);
 worker=worker.replace("['/','/manifest.webmanifest','/favicon.svg']",JSON.stringify(['/', '/manifest.webmanifest',...files]));fs.writeFileSync(path.join(base,'sw.js'),worker);
-// Vercel's Next adapter packages static files in onBuildComplete, before the
-// custom build command resumes. Update that already-packaged worker as well.
-if(next && process.env.VERCEL){
- const roots=[path.resolve('.vercel/output/static'),path.resolve('../output/static'),'/vercel/output/static'];
- const targets=[...new Set(roots)].filter(dir=>fs.existsSync(path.join(dir,'sw.js')));
- if(!targets.length)throw new Error('Vercel static output was not found; offline worker packaging is incomplete.');
- for(const dir of targets)fs.writeFileSync(path.join(dir,'sw.js'),worker);
- console.log('Updated the packaged Vercel offline worker.');
-}
 console.log(`Offline app shell prepared: ${files.length} local assets.`);

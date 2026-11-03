@@ -36,7 +36,7 @@ The Windows task "Readwind catalog preparation" is disabled and the publisher is
 
 ## Verification done
 
-Isolated real-Supabase accounts (uploads, range reads, cross-account denial, conflicts, deletion cleanup, password change, revocation, books-revision delta), recovery retry in Chromium and WebKit, a recovered six-book cache with a real login, and an authenticated smoke check on the production deployment. That historical migration run had 216 tests. The November 3 implementation passes 230 tests with bounded concurrency; see QA.md for current commands.
+Isolated real-Supabase accounts (uploads, range reads, cross-account denial, conflicts, deletion cleanup, password change, revocation, books-revision delta), recovery retry in Chromium and WebKit, a recovered six-book cache with a real login, and an authenticated smoke check on the production deployment. That historical migration run had 216 tests. The November 3 implementation passes 231 tests with bounded concurrency; see QA.md for current commands.
 
 ## Still open
 
