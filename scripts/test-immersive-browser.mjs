@@ -27,7 +27,8 @@ async function tap(page, rel) {
   await page.touchscreen.tap(b.x + b.width * rel, b.y + b.height / 2);
 }
 async function turn(page, dir) {
-  await tap(page, dir > 0 ? .92 : .08);
+  await page.locator('.book-root').focus();
+  await page.keyboard.press(dir>0?'ArrowRight':'ArrowLeft');
   await page.locator('.turning-leaf').waitFor({ state: 'detached' });
 }
 for (const [engine,type] of [['chromium',chromium],['webkit',webkit]]) {
@@ -76,7 +77,7 @@ for (const [engine,type] of [['chromium',chromium],['webkit',webkit]]) {
       assert.ok(before.box.x>=insets[3]&&before.box.y>=insets[0],label+' notch');
       assert.ok(before.box.y+before.box.height<=viewport.height-insets[2]+1,label+' home indicator');
       await page.screenshot({path:`${out}/${label}.png`});
-      await tap(page,.5);
+      if(await page.locator('.controls-hidden').count())await tap(page,.5);
       await page.getByRole('button',{name:'Type and comfort settings',exact:true}).waitFor();
       assert.deepEqual((await metrics(page)).box,before.box,label+' controls do not repaginate');
       const toolsOutside=await page.locator('.reader-bottom-tools button').evaluateAll(buttons=>buttons.some(e=>{const r=e.getBoundingClientRect();return r.left<0||r.right>innerWidth+1||r.bottom>innerHeight+1;}));
@@ -105,7 +106,7 @@ for (const [engine,type] of [['chromium',chromium],['webkit',webkit]]) {
         await page.locator('.book-box').dispatchEvent('pointercancel');await page.mouse.up();
         await page.locator('.turning-leaf').waitFor({state:'detached'});
         assert.deepEqual(await page.locator('.under-page .page-text').allTextContents(),initial,label+' canceled drag preserves passage');
-        await tap(page,.92);await page.setViewportSize({width:h,height:250});
+        await turn(page,1);await page.setViewportSize({width:h,height:250});
         await page.waitForTimeout(300);await settled(page);await page.locator('.turning-leaf').waitFor({state:'detached'});
         await page.screenshot({path:`${out}/${label}-short-landscape.png`});
         const short=await metrics(page);assert.equal(short.clipping,0,label+' short browser viewport');

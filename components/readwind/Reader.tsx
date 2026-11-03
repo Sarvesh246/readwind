@@ -92,19 +92,20 @@ export function Reader({
   const drag = useRef<{
     x: number;
     y: number;
-    rel: number;
     dx: number;
     started: boolean;
     dir: number;
     pointerId: number;
     t: number;
+    touch: boolean;
+    text: boolean;
   } | null>(null);
   const spread = !phone && s.wideLayout === "spread" && s.turn !== "Scroll";
   const immersive = full && fill && s.turn !== "Scroll";
   const controlsHidden = immersive && navIdle && !selectMode && !closed && !panel;
   const g = useMemo(
-    () => geometry(size.w, size.h, { size: s.size, spacing: s.spacing }, fill, spread, !full, immersive),
-    [size, s.size, s.spacing, fill, spread, full, immersive],
+    () => geometry(size.w, size.h, { size: s.size, spacing: s.spacing }, fill, spread, false, immersive),
+    [size, s.size, s.spacing, fill, spread, immersive],
   );
   const annotations = l.annotations.filter((a) => a.bookId === book.id);
   const index = pageIndex(pages, anchor, spread),
@@ -389,7 +390,12 @@ export function Reader({
     }
   });
   function down(e: ReactPointerEvent) {
+    if (!e.isPrimary) {
+      cancelDrag(e);
+      return;
+    }
     if (
+      e.button !== 0 ||
       selectMode ||
       s.turn === "Scroll" ||
       anim.current ||
@@ -399,24 +405,32 @@ export function Reader({
       (e.target as HTMLElement).closest("button,a,[data-highlight]")
     )
       return;
-    if (e.pointerType === 'mouse' && (e.target as HTMLElement).closest('.page-text')) return;
-    const r = box.current!.getBoundingClientRect();
     drag.current = {
       x: e.clientX,
       y: e.clientY,
-      rel: (e.clientX - r.left) / r.width,
       dx: 0,
       started: false,
       dir: 1,
       pointerId: e.pointerId,
       t: e.timeStamp,
+      touch: e.pointerType !== "mouse",
+      text: e.pointerType === "mouse" && !!(e.target as HTMLElement).closest(".page-text"),
     };
     // Capture after a horizontal drag begins, preserving taps on highlights.
   }
   function move(e: ReactPointerEvent) {
     const d = drag.current;
     if (!d || d.pointerId !== e.pointerId) return;
+    // Let long presses and native selection handles keep ownership of the text.
+    if (!d.started && (e.timeStamp - d.t > 350 || window.getSelection()?.toString().trim())) {
+      drag.current = null;
+      return;
+    }
     d.dx = e.clientX - d.x;
+    if (d.text && Math.hypot(d.dx, e.clientY - d.y) > 4) {
+      drag.current = null;
+      return;
+    }
     if (
       !d.started &&
       Math.abs(e.clientY - d.y) > Math.abs(d.dx) &&
@@ -425,7 +439,7 @@ export function Reader({
       drag.current = null;
       return;
     }
-    if (!d.started && Math.abs(d.dx) > 8 && !closed) {
+    if (!d.started && Math.abs(d.dx) > (d.touch ? 24 : 8) && Math.abs(d.dx) > Math.abs(e.clientY - d.y) * 1.5 && !closed) {
       d.dir = d.dx < 0 ? 1 : -1;
       if (!canTurn(d.dir)) return;
       d.started = true;
@@ -456,7 +470,10 @@ export function Reader({
     if (!d) return;
     if (d.started) {
       const value = turnRef.current!;
-      const commit = value.p > 0.28;
+      const distance = Math.max(0, -d.dx * d.dir);
+      const speed = distance / Math.max(1, e.timeStamp - d.t);
+      const commit = distance >= Math.max(48, Math.min(96, g.pw * 0.16)) ||
+        (distance >= 48 && speed > 0.35);
       animate(value, commit ? 1 : 0, commit ? 360 : 240, () => {
         if (commit) finish(value);
       });
@@ -469,14 +486,15 @@ export function Reader({
       openClose();
       return;
     }
-    if (immersive && d.rel >= 0.3 && d.rel <= 0.7) {
+    // Taps only operate chrome. Page turns have explicit buttons and swipes,
+    // so reaching for a word or waking controls cannot lose the passage.
+    if (immersive) {
       if (navIdle) wakeNav();
       else { window.clearTimeout(navTimer.current); setNavIdle(true); }
-    } else if (spread) {
-      turnPage(d.rel < 0.5 ? -1 : 1);
-    } else if (d.rel < 0.3) turnPage(-1);
-    else if (d.rel > 0.62) turnPage(1);
-    else setChrome((c) => !c);
+    } else {
+      setChrome(true);
+      wakeNav();
+    }
   }
   function onSelect() {
     const sel = window.getSelection();
@@ -555,7 +573,7 @@ export function Reader({
     window.clearTimeout(navTimer.current);
     navTimer.current = window.setTimeout(() => {
       // Keyboard users keep their controls until focus returns to the book.
-      if (document.activeElement?.matches(':focus-visible') && document.activeElement.closest('.reader-bottom-tools,.exit-full,.full-page-nav-rail')) return;
+      if (document.activeElement?.matches(':focus-visible') && document.activeElement.closest('.reader-controls,.exit-full')) return;
       setNavIdle(true);
     }, 2600);
   }, []);
@@ -802,7 +820,7 @@ export function Reader({
           ref={root}
           className="book-root"
           tabIndex={0}
-          aria-label={immersive ? "Book. Tap the center for controls. Swipe or tap the outer edges to turn pages. Arrow keys turn pages." : "Book. Arrow keys turn pages."}
+          aria-label={immersive ? "Book. Tap for controls. Swipe or use the page buttons to turn pages. Arrow keys turn pages." : "Book. Arrow keys turn pages."}
           onKeyDown={(e) => {
             if ((e.target as HTMLElement).closest("input,textarea,button"))
               return;
@@ -977,11 +995,10 @@ export function Reader({
               )}
             </div>
           )}
-          {!full && (
-            <footer
-              className="book-footer"
-              style={{ width: fill ? Math.min(g.bookW, 760) - 24 : g.bookW }}
-            >
+        </div>
+        <div className="reader-controls" inert={controlsHidden} aria-hidden={controlsHidden || undefined} onPointerDown={wakeNav}>
+          {(!full || s.turn !== "Scroll") && (
+            <footer className="book-footer">
               <button
                 className="icon-button"
                 aria-label="Previous page"
@@ -1020,29 +1037,6 @@ export function Reader({
               </button>
             </footer>
           )}
-        </div>
-        {full && !closed && s.turn !== "Scroll" && (
-          <div className={`full-page-nav-rail ${navIdle ? "idle" : ""}`} inert={controlsHidden} aria-hidden={controlsHidden || undefined}>
-            <button
-              className="full-page-nav prev"
-              aria-label="Previous page"
-              disabled={index === 0}
-              onFocus={wakeNav}
-              onClick={() => { wakeNav(); turnPage(-1); }}
-            >
-              <Icon name="back" size={22} />
-            </button>
-            <button
-              className="full-page-nav next"
-              aria-label="Next page"
-              disabled={!canTurn(1)}
-              onFocus={wakeNav}
-              onClick={() => { wakeNav(); turnPage(1); }}
-            >
-              <Icon name="next" size={22} />
-            </button>
-          </div>
-        )}
         {!closed && (
           <div className="reader-bottom-tools" role="toolbar" aria-label="Reading actions" inert={controlsHidden} aria-hidden={controlsHidden || undefined} onPointerDown={wakeNav}>
             <button onClick={bookmark} aria-label={bookmarked ? 'Remove bookmark' : 'Bookmark this passage'} aria-pressed={!!bookmarked}>
@@ -1076,6 +1070,7 @@ export function Reader({
             </span>
           </div>
         )}
+        </div>
         {full && (
           <button
             className="exit-full icon-button"

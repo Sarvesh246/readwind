@@ -67,7 +67,7 @@ export function geometry(
   immersive = false,
 ): Geometry {
   const fs = !immersive && fill && aw > ah ? Math.max(14, settings.size - 2) : settings.size;
-  const availH = Math.max(immersive ? 120 : 240, ah - (footer ? 56 : 0) - (fill ? 0 : 24));
+  const availH = Math.max(120, ah - (footer ? 56 : 0) - (fill ? 0 : 24));
   const bookW = fill
     ? aw
     : spread

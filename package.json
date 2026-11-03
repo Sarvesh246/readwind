@@ -16,6 +16,7 @@
     "test:immersive": "node scripts/test-immersive-browser.mjs",
     "test:offline": "node scripts/test-offline-browser.mjs",
     "test:page-turn": "node scripts/test-page-turn-browser.mjs",
+    "test:mobile-reader": "node scripts/test-mobile-reader-browser.mjs",
     "test:reader": "node scripts/test-reader-browser.mjs",
     "test:pdf": "node scripts/test-pdf-browser.mjs",
     "test:import": "node scripts/test-import-browser.mjs",
