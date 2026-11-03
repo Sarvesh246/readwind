@@ -69,12 +69,15 @@ export function Discover({
             : 24,
       };
       const cached = JSON.parse(
-        sessionStorage.getItem("readwind-catalog-index") || "[]",
+        localStorage.getItem("readwind-catalog-index") || "[]",
       );
       if (Array.isArray(cached)) setEntries(cached);
     } catch {}
-    void fetch("/api/catalog/index", { signal: controller.signal })
+    const cachedEtag=localStorage.getItem('readwind-catalog-etag');
+    void fetch("/api/catalog/index", { signal: controller.signal,headers:cachedEtag && localStorage.getItem('readwind-catalog-index') ? {'If-None-Match':cachedEtag}:{} })
       .then(async (r) => {
+        if(r.status===304)return {items:JSON.parse(localStorage.getItem('readwind-catalog-index') || '[]') as CatalogEntry[]};
+        if(r.headers.get('etag'))localStorage.setItem('readwind-catalog-etag',r.headers.get('etag')!);
         if (!r.ok) {
           const data = (await r.json()) as { error?: string };
           throw new Error(data.error || "Could not load books.");
@@ -87,7 +90,7 @@ export function Discover({
         setLoaded(true);
         setError("");
         try {
-          sessionStorage.setItem(
+          localStorage.setItem(
             "readwind-catalog-index",
             JSON.stringify(data.items),
           );

@@ -17,6 +17,7 @@ export function Notebook({
   navigate: (path: string) => void;
   onJump: (book: Book, at: Annotation["range"]["start"]) => void;
 }) {
+  const [search,setSearch]=useState("");
   const [kind, setKind] = useState("Everything"),
     [color, setColor] = useState<Color | null>(null),
     [review, setReview] = useState(false),
@@ -39,7 +40,8 @@ export function Notebook({
           (kind === "Highlights" && a.kind === "highlight") ||
           (kind === "Notes" && !!a.note) ||
           (kind === "Bookmarks" && a.kind === "bookmark")) &&
-        (!color || a.color === color),
+        (!color || a.color === color) &&
+        [a.note,a.quote,l.books.find(b=>b.id===a.bookId)?.title || ""].some(text=>text.toLocaleLowerCase().includes(search.toLocaleLowerCase())),
     );
   const due = all.filter(
       (a) =>
@@ -110,6 +112,7 @@ export function Notebook({
   }
   return (
     <div className="app-shell notebook-screen">
+      <label className="library-search">Search notes and quotes<input type="search" value={search} onChange={e=>setSearch(e.target.value)}/></label>
       <header className="document-header">
         <button
           className="icon-button"

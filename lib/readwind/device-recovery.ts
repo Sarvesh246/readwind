@@ -1,3 +1,4 @@
+import { checkPayloadSize, MAX_API_JSON_BYTES } from './sync-safety';
 import Dexie from "dexie";
 import { bookAssets } from "./catalog";
 import { storedBlob, type ReadwindDB, type StoredFile } from "./db";
@@ -68,6 +69,7 @@ export async function recoverDevice(
       value: unknown,
       extra = {},
     ) => {
+      checkPayloadSize({epoch:config.epoch,deviceId:device,kind,value,...extra}, MAX_API_JSON_BYTES);
       const response = await api("/api/recovery", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

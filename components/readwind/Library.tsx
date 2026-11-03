@@ -136,6 +136,9 @@ export function Library({
   catalogEnabled?: boolean;
 }) {
   const [calendar, setCalendar] = useState(false);
+  const [selected,setSelected]=useState<string[]>([]);
+  const [batchError,setBatchError]=useState('');
+  const organizeSelected=async(patch:Partial<Pick<Book,'readingStatus'|'tags'>>)=>{try{for(const b of l.books.filter(b=>selected.includes(b.id)))await l.saveBook({...b,...patch});setSelected([]);}catch(error){setBatchError((error as Error).message);}};
   const readDays = useMemo(() => dailyTotals(l.readingLog), [l.readingLog]);
   // Read per render so the chip rolls over at midnight on the next interaction.
   const today = dayKey();
@@ -152,64 +155,57 @@ export function Library({
     void l.deleteBook(book.id).catch(e=>setDeleteError((e as Error).message||'Could not delete this book. Please retry.'));
     if(dontAskAgain)void l.saveSettings({...l.settings,confirmBookDeletion:false}).catch(()=>setDeleteError('The book was removed, but your confirmation preference could not be saved.'));
   };
+  const progressByBook=useMemo(()=>new Map(l.progress.map(p=>[p.bookId,p])),[l.progress]);
+  const summaries=useMemo(()=>{
+    const noteText=new Map<string,string>();
+    for(const a of l.annotations)noteText.set(a.bookId,(noteText.get(a.bookId)||'')+' '+a.note+' '+a.quote);
+    return new Map(l.books.map(b=>[b.id,{info:wordProgress(b,progressByBook.get(b.id)?.at || start,l.readingSpeed),text:(b.title+' '+b.author+' '+(noteText.get(b.id)||'')).toLowerCase()}]));
+  },[l.books,l.annotations,progressByBook,l.readingSpeed]);
   const books = useMemo(
     () =>
       l.books
         .filter((b) => {
           const q = search.toLowerCase();
-          const matches = [
-            b.title,
-            b.author,
-            ...l.annotations
-              .filter((a) => a.bookId === b.id)
-              .flatMap((a) => [a.note, a.quote]),
-          ].some((t) => t.toLowerCase().includes(q));
-          const p = l.progress.find((p) => p.bookId === b.id);
-          const percent = wordProgress(b, p?.at || start).pct;
+          const matches = summaries.get(b.id)!.text.includes(q);
+          const percent = summaries.get(b.id)!.info.pct;
+          const status=b.readingStatus || (percent>=.99?'finished':percent>0?'reading':'to-read');
           return (
             matches &&
-            (collection === "All books" ||
-              (collection === "Reading" && percent > 0 && percent < 0.99) ||
-              (collection === "To read" && percent === 0) ||
-              (collection === "Finished" && percent >= 0.99))
+            (collection === "All books" || b.tags?.includes(collection) ||
+              (collection === "Reading" && status === "reading") ||
+              (collection === "To read" && status === "to-read") ||
+              (collection === "Finished" && status === "finished"))
           );
         })
         .sort((a, b) =>
           sort === "Title"
             ? a.title.localeCompare(b.title)
             : sort === "Progress"
-              ? wordProgress(
-                  b,
-                  l.progress.find((p) => p.bookId === b.id)?.at || start,
-                ).pct -
-                wordProgress(
-                  a,
-                  l.progress.find((p) => p.bookId === a.id)?.at || start,
-                ).pct
+              ? summaries.get(b.id)!.info.pct - summaries.get(a.id)!.info.pct
               : Math.max(
                   b.lastOpenedAt,
-                  l.progress.find((p) => p.bookId === b.id)?.updatedAt || 0,
+                  progressByBook.get(b.id)?.updatedAt || 0,
                 ) -
                 Math.max(
                   a.lastOpenedAt,
-                  l.progress.find((p) => p.bookId === a.id)?.updatedAt || 0,
+                  progressByBook.get(a.id)?.updatedAt || 0,
                 ),
         ),
-    [l.books, l.annotations, l.progress, sort, search, collection],
+    [l.books, summaries, progressByBook, sort, search, collection],
   );
   const current = [...l.books].sort(
       (a, b) =>
         Math.max(
           b.lastOpenedAt,
-          l.progress.find((p) => p.bookId === b.id)?.updatedAt || 0,
+          progressByBook.get(b.id)?.updatedAt || 0,
         ) -
         Math.max(
           a.lastOpenedAt,
-          l.progress.find((p) => p.bookId === a.id)?.updatedAt || 0,
+          progressByBook.get(a.id)?.updatedAt || 0,
         ),
     )[0],
     progress = current
-      ? l.progress.find((p) => p.bookId === current.id)
+      ? progressByBook.get(current.id)
       : undefined,
     at = progress?.at || start;
   const reading = current ? wordProgress(current, at, l.readingSpeed) : null;
@@ -321,7 +317,7 @@ export function Library({
             <h1>Collections</h1>
             <p>A little order, so you can get back to reading.</p>
             <div className="collection-tabs">
-              {["All books", "Reading", "To read", "Finished"].map((c) => (
+              {["All books", "Reading", "To read", "Finished", ...new Set(l.books.flatMap(b=>b.tags || []))].map((c) => (
                 <button
                   key={c}
                   className="button"
@@ -462,14 +458,15 @@ export function Library({
           {!l.ready && <p role="status">Opening your library…</p>}
           {deleteError&&<p className="form-error" role="alert">{deleteError}</p>}
           {l.settings.confirmBookDeletion===false&&<button className="delete-confirm-reset" onClick={()=>void l.saveSettings({...l.settings,confirmBookDeletion:true}).catch(()=>setDeleteError('Could not update deletion confirmations.'))}>Turn on deletion confirmations</button>}
+          {!!selected.length&&<div role="group" aria-label="Organize selected books"><span>{selected.length} selected</span><button className="button" onClick={()=>void organizeSelected({readingStatus:'finished'})}>Mark finished</button><button className="button" onClick={()=>void organizeSelected({readingStatus:'to-read'})}>Mark to read</button><button className="button" onClick={()=>{const value=window.prompt('Set collections for selected books, separated by commas');if(value!==null)void organizeSelected({tags:[...new Set(value.split(',').map(t=>t.trim()).filter(Boolean))].slice(0,30)});}}>Set collections</button><button className="button" onClick={()=>setSelected([])}>Clear selection</button></div>}
+          {batchError&&<p role="alert">{batchError}</p>}
           <div className="shelf-grid">
             {l.imports.map((job) => (
               <ImportingBook key={job.id} job={job} thisDevice={job.deviceId === deviceId()} onDismiss={() => void l.clearImport(job.id)} />
             ))}
             <AnimatePresence initial={false} mode="popLayout">
             {books.map((b, i) => {
-              const p = l.progress.find((p) => p.bookId === b.id),
-                info = wordProgress(b, p?.at || start, l.readingSpeed);
+              const info = summaries.get(b.id)!.info;
               return (
                 <motion.div
                   key={b.id}
@@ -510,6 +507,10 @@ export function Library({
                     </div>
                   </button>
                   <div className="shelf-actions">
+                    <label><input type="checkbox" aria-label={`Select ${b.title}`} checked={selected.includes(b.id)} onChange={e=>setSelected(ids=>e.target.checked?[...ids,b.id]:ids.filter(id=>id!==b.id))}/>Select</label>
+                    <select aria-label={`Reading status for ${b.title}`} value={b.readingStatus || ''} onChange={e=>void l.saveBook({...b,readingStatus:(e.target.value || undefined) as Book['readingStatus']})}><option value="">Automatic status</option><option value="to-read">To read</option><option value="reading">Reading</option><option value="finished">Finished</option></select>
+                    <button className="button" onClick={()=>{const tags=window.prompt('Collections, separated by commas',b.tags?.join(', ') || '');if(tags!==null)void l.saveBook({...b,tags:[...new Set(tags.split(',').map(t=>t.trim()).filter(Boolean))].slice(0,30)});}}>Collections</button>
+
                     <button
                       className="button shelf-cover-action"
                       aria-label={`Edit ${b.title}`}
@@ -549,7 +550,7 @@ export function Library({
           )}
         </section>
         <footer className={`library-footer${l.guest?'':' has-sync'}`}>
-          <span>
+          <span role="status" aria-live="polite">
             {l.guest
               ? "Guest shelf · saved on this device · sign in to sync"
               : l.status}
@@ -559,7 +560,7 @@ export function Library({
               Make yourself at home <span aria-hidden="true">↗</span>
             </button>
           ) : (
-            <button onClick={() => void l.sync()}>
+            <button onClick={() => void l.sync(true)}>
               <Icon name="cloud" size={15} />
               Sync now
             </button>

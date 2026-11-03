@@ -90,6 +90,9 @@ export const book = z
     printPageCount: z.number().int().positive().max(10000),
     sourcePdfBlobId: z.string().regex(safeId).optional(),
     sample: z.boolean().optional(),
+    revision: z.number().int().min(0).max(2147483646).optional(),
+    readingStatus: z.enum(["reading","to-read","finished"]).optional(),
+    tags: z.array(z.string().trim().min(1).max(60)).max(30).optional(),
     readingMode: z.enum(["original", "reflow"]).optional(),
     importReport: z
       .object({
@@ -167,6 +170,7 @@ export const progress = z.object({
   revision: z.number().int().min(0).max(2147483646),
 });
 export const annotation = z.object({
+  revision: z.number().int().min(0).max(2147483646).optional(),
   id: z.string().regex(safeId),
   bookId: z.string().regex(safeId),
   kind: z.enum(["highlight", "bookmark"]),

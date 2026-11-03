@@ -1,9 +1,9 @@
 "use client";
-import { encryptBackup, readBackup } from "@/lib/readwind/backup";
+import {AccountStorage} from './AccountStorage';
+import { createArchive, readBackup } from "@/lib/readwind/backup";
 import { useEffect, useState } from "react";
 import type { Book, Anchor } from "@/lib/readwind/types";
 import { useLibrary } from "@/lib/readwind/useLibrary";
-import { storedBlob } from '@/lib/readwind/db';
 import type { AuthClient } from "@/lib/readwind/useLibrary";
 import { Library } from "./Library";
 import { MotionConfig, motion } from "motion/react";
@@ -283,7 +283,7 @@ function Workspace({
   navigate: (path: string) => void;
   path: string;
   onAccount: () => void;
-  onSignOut: () => void;
+  onSignOut: () => Promise<void>;
   catalogEnabled: boolean;
 }) {
   const library = useLibrary(user?.id || "preview", auth),
@@ -291,6 +291,12 @@ function Workspace({
     [account, setAccount] = useState(false),
     [stats, setStats] = useState(false),
     [notice, setNotice] = useState("");
+  const [signingOut,setSigningOut]=useState(false);
+  const [selectedExport,setSelectedExport]=useState<string[]>([]);
+  useEffect(()=>{
+    const id=requestAnimationFrame(()=>{ const heading=document.querySelector<HTMLElement>('h1, main, [role="main"]'); if(heading){heading.tabIndex=-1;heading.focus({preventScroll:true});} });
+    return ()=>cancelAnimationFrame(id);
+  },[path]);
   const match = path.match(/^\/book\/([^/]+)(\/notebook)?/),
     book = match
       ? library.books.find((b) => b.id === decodeURIComponent(match[1]))
@@ -330,8 +336,12 @@ function Workspace({
     const password = window.prompt("Choose a backup password (at least 12 characters). Keep it safe: it cannot be recovered.");
     if (!password) return;
     if (password.length < 12) { setNotice("Use a backup password with at least 12 characters."); return; }
+    type Sink={write:(part:BlobPart)=>Promise<void>;close:()=>Promise<void>;abort:()=>Promise<void>};
+    let sink:Sink|undefined;
     try {
-      for (const b of library.books) {
+      const picker=(window as unknown as {showSaveFilePicker?: (options:unknown)=>Promise<{createWritable:()=>Promise<Sink>}>}).showSaveFilePicker;
+      if(picker)sink=await (await picker.call(window,{suggestedName:'readwind-backup.readwind'})).createWritable();
+      for (const b of library.books.filter(b=>!selectedExport.length || selectedExport.includes(b.id))) {
         const ids = bookAssets(b);
         for (const id of ids)
           if (!(await library.loadBlob(id)))
@@ -340,60 +350,33 @@ function Workspace({
             );
       }
     } catch (e) {
+      await sink?.abort().catch(()=>{});
       setNotice((e as Error).message);
       return;
     }
-    const books = await library.db.books.toArray(),
-      annotations = await library.db.annotations.toArray(),
-      progress = await library.db.progress.toArray(),
-      blobs = await library.db.blobs.toArray();
-    if (blobs.reduce((n,b)=>n+storedBlob(b).size,0) > 55*1024*1024) { setNotice("Attached files exceed the backup limit of 55 MB."); return; }
-    const encoded = await Promise.all(
-      blobs.map(async (b) => ({
-        id: b.id,
-        type: storedBlob(b).type,
-        data: await new Promise<string>((resolve, reject) => {
-          const r = new FileReader();
-          r.onload = () => resolve(r.result as string);
-          r.onerror = () => reject(new Error("Could not read a backup attachment."));
-          r.readAsDataURL(storedBlob(b));
-        }),
-      })),
-    );
+    const books = (await library.db.books.toArray()).filter(b=>!selectedExport.length || selectedExport.includes(b.id));
+    const selected=new Set(books.map(b=>b.id));
+    const used=new Set(books.flatMap(bookAssets));
     try {
-      const url = URL.createObjectURL(
-        new Blob(
-          [
-            await encryptBackup(JSON.stringify({
-              format: "folio-backup-1",
-              books,
-              annotations,
-              progress,
-              settings: library.settings,
-              blobs: encoded,
-            }), password),
-          ],
-          { type: "application/json" },
-        ),
-      );
+      const annotations=(await library.db.annotations.toArray()).filter(a=>selected.has(a.bookId));
+      const progress=(await library.db.progress.toArray()).filter(p=>selected.has(p.bookId));
+      const files=[];
+      for(const id of used)files.push({id,load:async()=>{const blob=await library.loadBlob(id);if(!blob)throw new Error('An attachment is unavailable. Connect before exporting.');return blob;}});
+      const archive=await createArchive({format:'folio-backup-1',books,annotations,progress,settings:library.settings},files,password,sink);
+      if(sink){await sink.close();setNotice('Encrypted backup saved.');return;}
+      const url=URL.createObjectURL(archive);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "readwind-backup.json";
+      a.download = "readwind-backup.readwind";
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (e) { setNotice((e as Error).message); }
+    } catch (e) { await sink?.abort().catch(()=>{});setNotice((e as Error).message); }
   }
   async function restore(f: File) {
     try {
       const {data,files} = await readBackup(f, () => window.prompt("Enter the backup password."));
-      for (const b of data.books) {
-        const ids = new Set(bookAssets(b as Book));
-        await library.addBook(b as Book, files.filter(f=>ids.has(f.id)),true);
-      }
-      for (const a of data.annotations || []) await library.saveAnnotation(a);
-      for (const p of data.progress || [])
-        await library.saveProgress(p.bookId, p.at, p.wordsRead);
-      if (data.settings) await library.saveSettings(data.settings);
+      if(!window.confirm(`Restore ${data.books.length} books? Matching IDs replace local copies; other books stay. Settings and reading statistics are merged. The entire restore is applied together.`))return;
+      await library.restoreArchive(data,files);
       setNotice("Backup restored. Your library is syncing.");
     } catch (e) {
       setNotice((e as Error).message);
@@ -401,6 +384,7 @@ function Workspace({
   }
   return (
     <>
+      <span className="sr-only" role="status" aria-live="polite">{book ? book.title : path.includes("notebook") ? "Notebook" : path.includes("collections") ? "Collections" : "Library"}</span>
       {match && book ? (
         match[2] ? (
           <Notebook
@@ -492,7 +476,7 @@ function Workspace({
               <p>{user?.email}</p>
             </div>
           </div>
-          <div className="account-status">
+          <div className="account-status" role="status" aria-live="polite">
             <Icon name="cloud" />
             <span>{library.status}</span>
           </div>
@@ -510,8 +494,16 @@ function Workspace({
             </span>
             <Icon name="next" size={18} />
           </button>
+          {library.failedChanges.map(change=><div key={change.id} role="alert"><p>{change.entity} · {change.error}</p>{!!change.alternate && <><details><summary>Review local and other-device versions</summary><pre style={{maxHeight:240,overflow:'auto',whiteSpace:'pre-wrap'}}>{JSON.stringify({local:change.value,otherDevice:change.alternate},null,2)}</pre></details><button className="button" onClick={()=>void library.resolveFailedChange(change.id,true)}>Keep this device’s version</button><button className="button" onClick={()=>void library.resolveFailedChange(change.id,false)}>Use other device’s version</button></>}</div>)}
           <AppearanceControl />
+          <label><input type="checkbox" defaultChecked={typeof window!=='undefined' && localStorage.getItem('readwind-offline-enabled')==='true'} onChange={event=>{
+            localStorage.setItem('readwind-offline-enabled',String(event.target.checked));
+            if(event.target.checked && user)localStorage.setItem('folio-offline-user',JSON.stringify({...user,offlineUntil:Date.now()+30*86400000}));
+            else localStorage.removeItem('folio-offline-user');
+          }}/> Keep offline access between launches for 30 days</label>
+          <p className="muted">Anyone using this browser can open downloaded books when offline. Enable this only on a personal device. Cloud sync always requires a valid sign-in.</p>
           {auth && <AccountPassword auth={auth} />}
+          <AccountStorage library={library} onDeleted={()=>{location.href=new URL('/',location.origin).href;}}/>
           <p className="muted">
             Your books and notes belong to this account. Sign out removes downloaded
             books and notes from this device. Sync first to save your latest changes.
@@ -519,18 +511,19 @@ function Workspace({
           <div className="conflict-options">
             <button
               className="button primary"
-              onClick={() => void library.sync()}
+              onClick={() => void library.sync(true)}
             >
               Sync now
             </button>
+            <details><summary>Select books for backup (all by default)</summary>{library.books.map(b=><label key={b.id} style={{display:'block'}}><input type="checkbox" checked={selectedExport.includes(b.id)} onChange={event=>setSelectedExport(ids=>event.target.checked?[...ids,b.id]:ids.filter(id=>id!==b.id))}/>{b.title}</label>)}</details>
             <button className="button" onClick={() => void backup()}>
-              Download a full backup
+              Download encrypted backup
             </button>
             <label className="button backup-restore">
               Restore a backup
               <input
                 type="file"
-                accept="application/json,.json"
+                accept="application/json,.json,.readwind"
                 hidden
                 onChange={(e) => {
                   if (e.target.files?.[0]) void restore(e.target.files[0]);
@@ -539,9 +532,14 @@ function Workspace({
             </label>
             <button
               className="button"
-              onClick={() => {
-                setAccount(false);
-                onSignOut();
+              disabled={signingOut}
+              onClick={async () => {
+                setSigningOut(true);
+                try {
+                  if(!await library.prepareSignOut())throw new Error('Sign-out paused: changes or recovery still need to sync. Resolve conflicts or download a backup, then retry. Your local work is preserved.');
+                  await onSignOut();
+                } catch(error){setNotice((error as Error).message);library.resumeEditing();}
+                finally{setSigningOut(false);}
               }}
             >
               Sign out
@@ -573,7 +571,6 @@ export default function ReadwindApp() {
   };
   useEffect(() => {
     let alive = true;
-    localStorage.removeItem("folio-offline-user");
     // Location is only readable on the client, so the path is synced after mount.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPath(location.pathname);
@@ -588,12 +585,15 @@ export default function ReadwindApp() {
         if (!alive) return;
         setAuth(() => client);
         const session = await client.getSession();
+        if(session.error){if(navigator.onLine && alive)setUser(null);throw new Error("Could not validate the account session.");}
         if (alive && session.data?.user?.emailVerified) {
           const u = session.data.user as User;
           setUser(u);
           sessionStorage.setItem("folio-offline-user", JSON.stringify({...u, offlineUntil:Date.now()+86400000}));
+          if(localStorage.getItem("readwind-offline-enabled")==="true")localStorage.setItem("folio-offline-user",JSON.stringify({...u,offlineUntil:Date.now()+30*86400000}));
         } else if (alive && !session.error) {
           sessionStorage.removeItem("folio-offline-user");
+          localStorage.removeItem("folio-offline-user");
           setUser(null);
         }
       })
@@ -601,9 +601,9 @@ export default function ReadwindApp() {
         if (!navigator.onLine) {
           try {
             const u = JSON.parse(
-              sessionStorage.getItem("folio-offline-user") || "null",
+              localStorage.getItem("folio-offline-user") || sessionStorage.getItem("folio-offline-user") || "null",
             );
-            if (alive && u?.offlineUntil > Date.now()) setUser(u);
+            if (alive && typeof u?.id==='string' && u?.offlineUntil > Date.now()) {setUser(u);setAuth(null);}
           } catch {}
         }
       })
@@ -633,25 +633,33 @@ export default function ReadwindApp() {
     }
     setUser(u);
     sessionStorage.setItem("folio-offline-user", JSON.stringify({...u, offlineUntil:Date.now()+86400000}));
+          if(localStorage.getItem("readwind-offline-enabled")==="true")localStorage.setItem("folio-offline-user",JSON.stringify({...u,offlineUntil:Date.now()+30*86400000}));
     setShowAuth(false);
     navigate("/");
   }
   async function signOut() {
-    const result = await auth?.signOut();
-    if (result?.error) return;
+    if(!auth)throw new Error('Reconnect and sign in before signing out, or lock offline access by disabling it in your account.');
+    const {ReadwindDB}=await import('@/lib/readwind/db');
+    const before=user?new ReadwindDB(user.id):null;
+    try{if(before && await before.pending.count())throw new Error('Another tab has pending changes. Sync that tab before signing out.');}finally{before?.close();}
+    const result = await auth.signOut();
+    if (result?.error) throw new Error(result.error.message || 'Could not sign out.');
     sessionStorage.removeItem("folio-offline-user");
     localStorage.removeItem("folio-offline-user");
-    localStorage.removeItem("folio-device");
+    localStorage.removeItem("readwind-offline-enabled");
     const previous = user?.id;
     setUser(null);
     if (previous) {
       const { ReadwindDB } = await import("@/lib/readwind/db");
       const cached = new ReadwindDB(previous);
-      await cached.transaction("rw",cached.tables,async()=>{ for (const table of cached.tables) await table.clear(); });
+      const cleared=await cached.transaction("rw",cached.tables,async()=>{
+        if(await cached.pending.count())return false;
+        for(const table of cached.tables)await table.clear();
+        return true;
+      });
       cached.close();
-      await cached.delete();
-      const { default: Dexie } = await import('dexie');
-      await Dexie.delete(`readwind-recovery-${previous}`);
+      if(!cleared)window.alert('Signed out. Newer changes from another tab were retained privately on this device. Sign back into the same account to sync them.');
+      // Recovery archives retain their owner-scoped safety copy until explicitly retired.
     }
     navigate("/");
   }
@@ -682,7 +690,7 @@ export default function ReadwindApp() {
         navigate={navigate}
         path={path}
         onAccount={() => setShowAuth(true)}
-        onSignOut={() => void signOut()}
+        onSignOut={signOut}
       />
       {showAuth && (
         <AuthForm

@@ -1,3 +1,4 @@
+import { wordProgress, start } from '@/lib/readwind/anchors';
 import { owner, sql, unauthorized } from "@/lib/readwind/server";
 import { z } from "zod";
 import type { Anchor, Book } from "@/lib/readwind/types";
@@ -33,12 +34,7 @@ export const POST = safeRoute(async (request: Request) => {
     const book = await getBook(db, user, p.bookId);
     if (!book)
       return Response.json({ error: "Book not found" }, { status: 404 });
-    const wordCount = book.sections.reduce(
-      (n, s) =>
-        n +
-        s.blocks.reduce((n, b) => n + (b.text?.match(/\S+/g)?.length || 0), 0),
-      0,
-    );
+    const wordCount = wordProgress(book, start).total;
     if (!validAnchor(book, p.at) || p.wordsRead > wordCount)
       return Response.json(
         { error: "Invalid reading position or word count" },
@@ -82,8 +78,12 @@ export const POST = safeRoute(async (request: Request) => {
         { error: "Invalid annotation position" },
         { status: 400 },
       );
-    await db`INSERT INTO folio_annotations(owner_id,id,book_id,data) VALUES(${user},${a.id},${a.bookId},${JSON.stringify(a)}::jsonb) ON CONFLICT(owner_id,id) DO UPDATE SET data=EXCLUDED.data,updated_at=now()`;
-    return Response.json({ ok: true });
+    const rows=await db`INSERT INTO folio_annotations(owner_id,id,book_id,data) VALUES(${user},${a.id},${a.bookId},${JSON.stringify({...a,revision:(a.revision || 0)+1})}::jsonb) ON CONFLICT(owner_id,id) DO UPDATE SET data=EXCLUDED.data,updated_at=now() WHERE COALESCE((folio_annotations.data->>'revision')::int,0)=${a.revision || 0} RETURNING id`;
+    if(!rows.length){
+      const current=await db`SELECT data FROM folio_annotations WHERE owner_id=${user} AND id=${a.id}`;
+      return Response.json({error:'This note changed on another device. Review both versions in your account.',alternate:current[0]?.data},{status:409});
+    }
+    return Response.json({ ok: true,revision:(a.revision || 0)+1 });
   }
   if (body.entity === "settings") {
     const parsed = settings.safeParse(body.value);

@@ -11,6 +11,7 @@ beforeAll(async () => {
   for (const file of ["db/folio.sql", "db/catalog.sql", "db/supabase.sql"])
     for (const statement of splitSqlStatements(readFileSync(file, "utf8")))
       await db.exec(statement);
+  await db.exec("UPDATE folio_storage_capacity SET limit_bytes=858993459 WHERE id");
 }, 30000);
 afterAll(() => db.close());
 async function tenant<T>(

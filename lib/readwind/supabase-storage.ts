@@ -81,3 +81,16 @@ export async function supabaseSessionLive(
     );
   return (await response.json()) === true;
 }
+
+export async function finishAccountDeletion(authUserId:string) {
+ const {base,token}=endpoint();
+ const result=await fetch(base+'?action=delete-account',{method:'POST',headers:{'Content-Type':'application/json','x-readwind-storage-token':token},body:JSON.stringify({authUserId}),signal:AbortSignal.timeout(30000)});
+ if(!result.ok)throw new HttpError(503,'Account deletion is pending. Retry to finish removing the identity.');
+}
+
+export async function pruneEphemeral() {
+ const {base,token}=endpoint();
+ const response=await fetch(base+'?action=maintenance',{method:'POST',headers:{'x-readwind-storage-token':token},signal:AbortSignal.timeout(15000)});
+ if(!response.ok)throw new HttpError(503,'Maintenance could not finish.');
+ return response.json();
+}

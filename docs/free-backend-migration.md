@@ -36,9 +36,12 @@ The Windows task "Readwind catalog preparation" is disabled and the publisher is
 
 ## Verification done
 
-Isolated real-Supabase accounts (uploads, range reads, cross-account denial, conflicts, deletion cleanup, password change, revocation, books-revision delta), recovery retry in Chromium and WebKit, a recovered six-book cache with a real login, and an authenticated smoke check on the production deployment. The unit suite is 216 tests; two heavy database tests can hit a 10 s hook timeout when the machine is under load and pass when run alone.
+Isolated real-Supabase accounts (uploads, range reads, cross-account denial, conflicts, deletion cleanup, password change, revocation, books-revision delta), recovery retry in Chromium and WebKit, a recovered six-book cache with a real login, and an authenticated smoke check on the production deployment. That historical migration run had 216 tests. The November 3 implementation passes 230 tests with bounded concurrency; see QA.md for current commands.
 
 ## Still open
 
-- Close the temporary `readwind-recovery-import` function (redeploy it as a stub that returns 410). It's protected by JWT, an admin token and a 48 h expiry, but should not be left to expire on its own.
+- Completed: the temporary `readwind-recovery-import` function now returns HTTP 410.
 - Phone recovery (above) and, optionally, a later Neon export to reconcile cloud-only records. See `neon-export-access-request.md`; nothing has been sent and the restored app doesn't depend on it.
+
+
+November 3 update: the temporary recovery import bridge is already closed (HTTP 410). No cleanup deployment is needed for that bridge. Owner-scoped local recovery archives are retained until verified recovery plus backup or explicit account deletion; phone-only recovery still requires the original phone browser/PWA. See README for current build, storage, backup and maintenance commands.

@@ -50,10 +50,13 @@ export type Book = {
   sample?: boolean;
   revision?: number;
   readingMode?: 'original'|'reflow';
+  readingStatus?: 'reading'|'to-read'|'finished';
+  tags?: string[];
   importReport?: import('./pdf-layout').PdfImportReport;
   footnotes?: { id: string; marker: string; text: string; pageIndex?: number }[];
 };
 export type Annotation = {
+  revision?: number;
   id: string;
   bookId: string;
   kind: "highlight" | "bookmark";

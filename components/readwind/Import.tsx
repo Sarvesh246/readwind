@@ -87,6 +87,7 @@ export function Import({
       if (current && current.id === jobId) publish("running", current.percent, current.message, true);
     }, 15000);
     try {
+      await l.checkImportCapacity(f.size);
       const { importBook } = await import("@/lib/readwind/import-book");
       const data = await importBook(
         f,

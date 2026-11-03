@@ -21,13 +21,13 @@ export async function markBookDeleted(db:SqlTag,owner:string,id:string,files:str
 export async function finishBookCleanup(db:SqlTag,owner:string,id:string){
  return db`UPDATE folio_settings SET data=jsonb_set(data,ARRAY['_bookDeletions',${id}::text,'files'],'[]'::jsonb),updated_at=now() WHERE owner_id=${owner}::text AND data->'_bookDeletions' ? ${id}::text`;
 }
-export async function saveLiveBook(db:SqlTag,owner:string,book:Book,restore=false,keepExisting=false,expectedDeletion?:unknown){
+export async function saveLiveBook(db:SqlTag,owner:string,book:Book,restore=false,keepExisting=false,expectedDeletion?:unknown,expectedRevision?:number){
  return db`WITH saved AS (
    INSERT INTO folio_books(owner_id,id,data) SELECT ${owner}::text,${book.id}::text,${JSON.stringify(book)}::jsonb
    WHERE (NOT EXISTS(SELECT 1 FROM folio_settings WHERE owner_id=${owner}::text AND data->'_bookDeletions' ? ${book.id}::text)
       OR (${restore}::boolean AND NOT EXISTS(SELECT 1 FROM folio_settings WHERE owner_id=${owner}::text AND jsonb_array_length(COALESCE(data->'_bookDeletions'->${book.id}::text->'files','[]'::jsonb))>0)))
      AND (${expectedDeletion===undefined}::boolean OR COALESCE((SELECT data->'_bookDeletions'->${book.id}::text FROM folio_settings WHERE owner_id=${owner}::text),'null'::jsonb)=${JSON.stringify(expectedDeletion??null)}::jsonb)
-   ON CONFLICT(owner_id,id) DO UPDATE SET data=CASE WHEN ${keepExisting}::boolean THEN folio_books.data ELSE EXCLUDED.data END,updated_at=now() RETURNING id
+   ON CONFLICT(owner_id,id) DO UPDATE SET data=CASE WHEN ${keepExisting}::boolean THEN folio_books.data ELSE EXCLUDED.data END,updated_at=now() WHERE (${expectedRevision===undefined}::boolean OR COALESCE((folio_books.data->>'revision')::int,0)=${expectedRevision??0}::int) RETURNING id
  ), cleared AS (
    UPDATE folio_settings SET data=jsonb_set(data,'{_bookDeletions}',COALESCE(data->'_bookDeletions','{}'::jsonb)-${book.id}::text),updated_at=now()
    WHERE owner_id=${owner}::text AND ${restore}::boolean AND EXISTS(SELECT 1 FROM saved) RETURNING owner_id

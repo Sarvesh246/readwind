@@ -1,3 +1,4 @@
+import { MAX_API_JSON_BYTES } from '@/lib/readwind/sync-safety';
 import { z } from "zod";
 import { owner, sql, rateLimit, unauthorized } from "@/lib/readwind/server";
 import {
@@ -53,7 +54,7 @@ export const POST = safeRoute(async (request: Request) => {
   const user = await owner(request);
   if (!user) return unauthorized();
   await rateLimit(`recover:${user}`, 300);
-  const parsed = envelope.safeParse(await readJson(request, 12000000));
+  const parsed = envelope.safeParse(await readJson(request, MAX_API_JSON_BYTES));
   if (!parsed.success) throw new HttpError(400, "Invalid recovery archive.");
   const input = parsed.data,
     epoch = process.env.READWIND_RECOVERY_EPOCH;

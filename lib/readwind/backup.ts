@@ -10,13 +10,13 @@ const maxBackup = 80 * 1024 * 1024;
 
 const schema = z.object({
   format: z.literal("folio-backup-1"),
-  books: z.array(book).max(100),
+  books: z.array(book).max(1000),
 
   annotations: z.array(annotation).max(10000).default([]),
 
   progress: z
     .array(progress.extend({ updatedAt: timestamp }))
-    .max(100)
+    .max(1000)
     .default([]),
 
   settings: settings.optional(),
@@ -33,7 +33,7 @@ const schema = z.object({
     .default([]),
 });
 
-export function decodeBackup(input: unknown) {
+export function decodeBackup(input: unknown, suppliedFiles?: {id:string;blob:Blob}[]) {
   const parsed = schema.safeParse(input);
 
   if (!parsed.success)
@@ -65,7 +65,7 @@ export function decodeBackup(input: unknown) {
     data.progress.some((p) => !valid(p.bookId, p.at))
   )
     throw new Error("Invalid backup reading position.");
-  const files = data.blobs.map((b) => {
+  const files = suppliedFiles || data.blobs.map((b) => {
     // Decode bytes directly. Never fetch a URL supplied by an archive.
 
     const match =
@@ -174,6 +174,7 @@ export async function encryptBackup(json: string, password: string) {
 }
 
 export async function readBackup(file: File, password: () => string | null) {
+  if(await file.slice(0,8).text()==='RDWIND02')return readArchive(file,password);
   if (file.size > 115 * 1024 * 1024) throw new Error("Backup exceeds 115 MB.");
 
   let input = JSON.parse(await file.text());
@@ -209,4 +210,76 @@ export async function readBackup(file: File, password: () => string | null) {
   }
 
   return decodeBackup(input);
+}
+
+
+// Binary v2: a small authenticated manifest followed by independently encrypted
+// 1 MiB frames. Frame order is authenticated; no base64 copies of attachments.
+const frameSize=1024*1024;
+const maxArchive=650*1024*1024;
+type ArchiveData={format:'folio-backup-1';books:import('./types').Book[];annotations:import('./types').Annotation[];progress:import('./types').Progress[];settings?:import('./types').Settings};
+export async function createArchive(data: ArchiveData, files: {id:string;blob?:Blob;load?:()=>Promise<Blob>}[], password:string, sink?:{write:(part:BlobPart)=>Promise<void>}) {
+  const salt=crypto.getRandomValues(new Uint8Array(16));
+  const secret=await key(password,salt);
+  const parts:BlobPart[]=[];
+  const append=async(part:BlobPart)=>{if(sink)await sink.write(part);else parts.push(part instanceof Blob?part:new Blob([part]));};
+  await append('RDWIND02');await append(salt);
+  const load=async(file:typeof files[number])=>{const blob=file.blob || await file.load?.();if(!blob)throw new Error('A backup attachment is unavailable.');return blob;};
+  let counter=0,total=24;
+  async function frame(bytes:Uint8Array){
+    const iv=crypto.getRandomValues(new Uint8Array(12));
+    const additionalData=new TextEncoder().encode(String(counter++));
+    const cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData},secret,bytes as BufferSource);
+    const length=new Uint8Array(4);new DataView(length.buffer).setUint32(0,cipher.byteLength);
+    total+=16+cipher.byteLength;if(total>maxArchive)throw new Error('Backup exceeds 650 MiB. Select fewer books.');
+    await append(length);await append(iv);await append(cipher);
+  }
+  const entries=[];
+  for(const file of files){
+    const blob=await load(file);
+    if(blob.size>20*1024*1024)throw new Error('Backup attachment exceeds 20 MiB.');
+    const hash=await crypto.subtle.digest('SHA-256',await blob.arrayBuffer());
+    entries.push({id:file.id,type:blob.type,bytes:blob.size,sha256:base64(new Uint8Array(hash))});
+  }
+  const manifest=new TextEncoder().encode(JSON.stringify({...data,blobs:[],attachments:entries}));
+  if(manifest.length>80*1024*1024)throw new Error('Book metadata exceeds 80 MiB. Select fewer books.');
+  // The manifest length is authenticated inside its first frame.
+  await frame(new TextEncoder().encode(String(manifest.length)));
+  for(let i=0;i<manifest.length;i+=frameSize)await frame(manifest.subarray(i,i+frameSize));
+  for(const file of files){const blob=await load(file);for(let i=0;i<blob.size;i+=frameSize)
+    await frame(new Uint8Array(await blob.slice(i,i+frameSize).arrayBuffer()));}
+  return new Blob(parts,{type:'application/octet-stream'});
+}
+async function readArchive(file:File,password:()=>string|null){
+  if(file.size>maxArchive)throw new Error('Backup exceeds 650 MiB.');
+  const supplied=password();if(!supplied)throw new Error('Restore cancelled.');
+  let offset=24,counter=0;
+  const secret=await key(supplied,new Uint8Array(await file.slice(8,24).arrayBuffer()));
+  async function frame(){
+    if(offset+16>file.size)throw new Error('Truncated backup.');
+    const header=await file.slice(offset,offset+16).arrayBuffer();
+    const size=new DataView(header).getUint32(0);
+    if(size<16 || size>frameSize+16 || offset+16+size>file.size)throw new Error('Invalid backup frame.');
+    offset+=16;
+    let plain:ArrayBuffer;
+    try{plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(header,4,12),additionalData:new TextEncoder().encode(String(counter++))},secret,await file.slice(offset,offset+size).arrayBuffer());}
+    catch{throw new Error('Incorrect password or damaged backup.');}
+    offset+=size;return new Uint8Array(plain);
+  }
+  const length=Number(new TextDecoder().decode(await frame()));
+  if(!Number.isSafeInteger(length)||length<=0||length>80*1024*1024)throw new Error('Invalid backup manifest.');
+  const bytes=new Uint8Array(length);let written=0;
+  while(written<length){const next=await frame();if(!next.length||written+next.length>length)throw new Error('Invalid manifest size.');bytes.set(next,written);written+=next.length;}
+  const manifest=JSON.parse(new TextDecoder().decode(bytes));
+  const entries=z.array(z.object({id:z.string().regex(safeId),type:z.enum(['application/pdf','application/epub+zip','text/plain','image/png','image/jpeg','image/webp']),bytes:z.number().int().min(1).max(20*1024*1024),sha256:z.string().length(44)})).max(2000).parse(manifest.attachments);
+  const files=[];
+  for(const entry of entries){
+    const chunks:BlobPart[]=[];let size=0;
+    while(size<entry.bytes){const chunk=await frame();if(!chunk.length||size+chunk.length>entry.bytes)throw new Error('Invalid attachment size.');chunks.push(chunk as BlobPart);size+=chunk.length;}
+    const blob=new Blob(chunks,{type:entry.type}),raw=new Uint8Array(await blob.arrayBuffer());
+    if(base64(new Uint8Array(await crypto.subtle.digest('SHA-256',raw)))!==entry.sha256)throw new Error('Damaged backup attachment.');
+    validateFile(raw,entry.type);files.push({id:entry.id,blob});
+  }
+  if(offset!==file.size)throw new Error('Unexpected trailing backup data.');
+  return decodeBackup(manifest,files);
 }

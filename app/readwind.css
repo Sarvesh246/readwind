@@ -4509,3 +4509,6 @@ legend {
 @media (prefers-reduced-motion: reduce) {
   .reader .reader-controls { transition: none; }
 }
+
+.shelf-actions select { max-width: 100%; min-height: 36px; font: inherit; font-size: 12px; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 6px; }
+.shelf-actions label { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; font-size: 12px; }

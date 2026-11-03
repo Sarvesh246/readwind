@@ -22,6 +22,7 @@ export function bookMetadataUpdate(book: Book) {
   return {
     kind: "book-metadata" as const,
     id: book.id,
+    revision: book.revision || 0,
     metadata: {
       title: book.title,
       author: book.author,
@@ -30,6 +31,8 @@ export function bookMetadataUpdate(book: Book) {
       cover: book.cover,
       customCoverBlobId: book.customCoverBlobId ?? null,
       readingMode: book.readingMode,
+      readingStatus: book.readingStatus,
+      tags: book.tags,
     },
   };
 }

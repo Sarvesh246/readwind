@@ -25,7 +25,10 @@ export async function owner(request: Request) {
   if (request.method !== "GET" && !sameOrigin(request)) return null;
   if (process.env.READWIND_BACKEND === 'supabase') {
     const { resolveSession } = await import('./supabase-auth');
-    return (await resolveSession(request))?.user.id || null;
+    const session=await resolveSession(request);
+    if(!session)return null;
+    const deletion=await sql(session.user.id)`SELECT 1 FROM folio_settings WHERE owner_id=${session.user.id} AND data ? '_deletingAuthUser'`;
+    return deletion.length ? null : session.user.id;
   }
   const cookie = request.headers
     .get("cookie")

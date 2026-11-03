@@ -25,7 +25,9 @@ export const GET = safeRoute(
         "Content-Length": String(asset.bytes),
         "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": "sandbox; default-src 'none'",
-        "Cache-Control": "private, max-age=31536000, immutable",
+        "Cache-Control": asset.published ? "public, max-age=300, s-maxage=300, must-revalidate" : "private, no-store",
+        "Vary": "Cookie",
+        "ETag": `"${asset.sha256}"`,
       },
     });
   },

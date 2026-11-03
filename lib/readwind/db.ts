@@ -15,6 +15,8 @@ export type Pending = {
   bookId?: string;
   value: unknown;
   baseRevision?: number;
+  error?: string;
+  alternate?: unknown;
   uploadFiles?: boolean;
   /** File IDs already stored remotely for this book, so retries skip them. */
   uploaded?: string[];

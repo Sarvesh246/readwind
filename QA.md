@@ -1,3 +1,17 @@
+# Validation — November 3, 2026
+
+The original audit baseline was 219 passing tests. This implementation adds regressions for Unicode sync validation, revision-bound pagination, concurrent note/metadata writes, request deadlines, payload byte limits and encrypted backups above 55 MiB. Run `npm test`, `npm run typecheck`, `npm run lint` and `npm run build:next` at the revision being released. Test concurrency is bounded to avoid exhausting memory with parallel Postgres fixtures.
+
+`node scripts/test-audit-browser.mjs --start` starts the exact Next production build and checks a fresh offline account tab, retained offline edits, blocked unsafe sign-out, worker/font/map precaching, PDF search and offline PDF rendering. API mocks and synthetic accounts isolate these checks from personal accounts. Existing reader, page-turn and sync browser regressions remain available for the Vinext development harness.
+
+Physical iOS/Android installed PWA cold starts, screen-reader reading order and 200% zoom, long network endurance and real-provider deletion/password flows require separate verification. Automated geometry and isolated browser checks do not certify those behaviors. Do not use the owner's account for destructive tests.
+
+Verified locally for this implementation: 230 unit tests, typecheck, lint (warnings only in unrelated untracked plugin scripts), and the Next production build. The built-app browser script passed, including a 100-book shelf with 10,000 annotations (filter visibility approximately 536 ms on this machine). Real disposable-account checks passed for session revocation, wrong-password rejection, private upload/quota and deletion; follow-up queries confirmed zero remaining identity/books/files/recovery/settings/sessions for that test identity. Live database advisors no longer report the eight tenant-policy performance warnings or missing session index; leaked-password protection remains disabled. Physical-device and screen-reader checks above remain outstanding.
+
+## Historical October 29 record
+
+The following results describe an older revision and are not the current release status.
+
 # Reader audit — 2026-10-29
 
 The reader was inspected in code and in real browser renders. This update addresses the eight reported issues and the additional failures exposed by testing.

@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "node scripts/prepare-assets.mjs && next build"
+  "buildCommand": "node scripts/prepare-assets.mjs && next build && node scripts/finalize-offline.mjs --next",
+  "crons": [
+    {
+      "path": "/api/maintenance",
+      "schedule": "30 16 * * *"
+    }
+  ]
 }

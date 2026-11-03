@@ -1,4 +1,6 @@
 "use client";
+import { boundedFetch, SyncRequestError, checkPayloadSize } from './sync-safety';
+import {wordProgress,start} from './anchors';
 import { validateFile } from "./file-validation";
 import {bookAssets,privateBookAssets,verifiedAsset,catalogMetadataUpdate,bookMetadataUpdate} from './catalog';
 import {book as catalogBookSchema} from './schemas';
@@ -55,6 +57,8 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   const syncFailures = useRef(0), nextAutomaticSync = useRef(0), lastActivity = useRef(0);
   const syncAgain = useRef<() => void>(() => {});
   const lifetime = useRef(new AbortController());
+  const editingLocked = useRef(false);
+  const restoringArchive = useRef(false);
   const [optimisticDeletes,setOptimisticDeletes]=useState<{owner:string;ids:Set<string>}>({owner:db.name,ids:new Set()});
   const storedBooks = useLiveQuery(() => db.transaction('r',[db.books,db.pending],async()=>{
     const deleted=new Set((await db.pending.where('entity').equals('delete-book').toArray()).map(p=>p.bookId));
@@ -71,10 +75,12 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   const progress=progressSnapshot?.owner===db.name?progressSnapshot.values:[];
   const preferences = useLiveQuery(async() => ({owner:db.name,value:(await db.preferences.get("reader"))?.value}), [db]);
   const settings = preferences?.owner===db.name?preferences.value||defaults:defaults;
+  const pendingSnapshot=useLiveQuery(async()=>({owner:db.name,values:await db.pending.toArray()}),[db]);
+  const failedChanges=pendingSnapshot?.owner===db.name?pendingSnapshot.values.filter(p=>p.error):[];
   const api = useCallback(
     async (path: string, init?: RequestInit) => {
       if (!auth || !alive.current || lifetime.current.signal.aborted) throw new Error("Sign in to sync.");
-      return fetch(path, { ...init, signal:lifetime.current.signal, credentials: "same-origin" });
+      return boundedFetch(path, { ...init, signal:lifetime.current.signal, credentials: "same-origin" });
     },
     [auth,lifetime],
   );
@@ -96,7 +102,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         body: JSON.stringify({ id, type: blob.type, bytes: blob.size }),
       });
       if (!signed.ok)
-        throw new Error(
+        throw new SyncRequestError(signed.status,
           await responseError(signed, "Could not prepare the file upload."),
         );
       const grant = (await signed.json()) as {
@@ -106,7 +112,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       if (!grant.url) throw new Error("Could not prepare the file upload.");
       let stored: Response;
       try {
-        stored = await fetch(grant.url, {
+        stored = await boundedFetch(grant.url, {
           method: "PUT",
           headers: grant.headers,
           body: blob,
@@ -133,16 +139,17 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         body: JSON.stringify({ id, type: blob.type, bytes: blob.size }),
       });
       if (!complete.ok)
-        throw new Error(
+        throw new SyncRequestError(complete.status,
           await responseError(complete, "Could not verify the uploaded file."),
         );
     },
     [api, cancelUpload],
   );
   const putChange = async (change: Pending) => db.pending.put(change);
-  const sync = useCallback(async (): Promise<boolean> => {
+  const sync = useCallback(async (retryFailed = false): Promise<boolean> => {
     if (
       guest ||
+      restoringArchive.current ||
       !auth ||
       running.current ||
       !navigator.onLine ||
@@ -159,10 +166,14 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       }
       const pending = await db.pending.toArray();
       const processedDeletes=new Set<string>();
+      const blockedBooks = new Set<string>();
       for (const change of pending.sort(
         (a, b) => (b.entity==='delete-book'?2:b.entity==='book'?1:0)-(a.entity==='delete-book'?2:a.entity==='book'?1:0),
       )) {
         if(!active())return false;
+        if (change.bookId && blockedBooks.has(change.bookId)) continue;
+        if (change.error && !retryFailed) { if(change.entity==='book' && change.bookId)blockedBooks.add(change.bookId); continue; }
+        try {
         // Checked before any await: resolving a conflict mid-loop must not let a stale change through.
         if (change.entity === 'progress' && conflicted.current) continue;
         if(change.bookId && change.entity!=='delete-book' && await db.pending.get(`delete-book:${change.bookId}`))continue;
@@ -186,7 +197,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
             if(await db.pending.get(`delete-book:${book.id}`))break;
             if (uploaded.has(id)) continue;
             const file = await db.blobs.get(id);
-            if (!file) throw new Error("An attached file is missing.");
+            if (!file) throw new SyncRequestError(422,"An attached file is missing. Restore it from a backup before retrying.");
             await uploadFile(id, storedBlob(file));
             // Remember each stored file so a retry never re-uploads a large PDF
             // or burns through the upload rate limit a second time.
@@ -211,7 +222,17 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
               await db.books.delete(book.id);await db.progress.delete(book.id);await db.annotations.where('bookId').equals(book.id).delete();await db.pending.filter(p=>p.bookId===book.id).delete();
             });continue;
           }
-          if (!response.ok) throw new Error("Could not save the book.");
+          if (!response.ok) {
+            const problem=await response.json().catch(()=>({})) as {alternate?:unknown;error?:string};
+            if(problem.alternate)await db.pending.update(change.id,{alternate:problem.alternate});
+            throw new SyncRequestError(response.status,problem.error || 'Could not save the book.');
+          }
+          const saved=await response.json() as {revision?:number};
+          if(saved.revision!==undefined)await db.transaction('rw',[db.books,db.pending],async()=>{
+            await db.books.update(book.id,{revision:saved.revision});
+            const queued=await db.pending.get(change.id);
+            if(queued && JSON.stringify(queued.value)!==JSON.stringify(change.value))await db.pending.update(change.id,{value:{...(queued.value as Book),revision:saved.revision}});
+          });
         } else {
           const response = await api("/api/sync", {
             method: "POST",
@@ -219,6 +240,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
             body: JSON.stringify(change),
           });
           const data = (await response.json()) as {
+            alternate?:unknown;
             current?: SyncConflict["remote"];
             error?: string;
             revision: number;
@@ -239,9 +261,15 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
             await db.pending.delete(change.id);
             continue;
           }
+          if(data.alternate)await db.pending.update(change.id,{alternate:data.alternate});
           if (!response.ok)
-            throw new Error(data.error || "Could not sync changes.");
+            throw new SyncRequestError(response.status, data.error || "Could not sync changes.");
           if (!active()) return false;
+          if(change.entity==='annotation' && data.revision!==undefined)await db.transaction('rw',[db.annotations,db.pending],async()=>{
+            await db.annotations.update((change.value as Annotation).id,{revision:data.revision});
+            const queued=await db.pending.get(change.id);
+            if(queued && JSON.stringify(queued.value)!==JSON.stringify(change.value))await db.pending.update(change.id,{value:{...(queued.value as Annotation),revision:data.revision}});
+          });
           if (change.entity === "progress") {
             await db.transaction("rw", [db.progress, db.pending], async () => {
               const current = await db.progress.get(change.bookId!);
@@ -280,6 +308,15 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
               await db.pending.delete(change.id);
           }
         });
+        } catch(error) {
+          if (!(error instanceof SyncRequestError) || !error.permanent) throw error;
+          await db.transaction('rw',db.pending,async()=>{
+            const latest=await db.pending.get(change.id);
+            if(latest && JSON.stringify(latest.value)===JSON.stringify(change.value))
+              await db.pending.update(change.id,{error:error.message});
+          });
+          if(change.entity==='book' && change.bookId)blockedBooks.add(change.bookId);
+        }
       }
       const data: {
         books: Book[];
@@ -288,6 +325,8 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         settings: Settings | null;
       } = { books: [], progress: [], annotations: [], settings: null };
       let offset: number | null = 0;
+      let snapshot: string | null = null;
+      let restarts = 0;
       let unchanged = false;
       let receivedRevision: string | null = null;
       let receivedBooksRevision: string | null = null;
@@ -296,11 +335,17 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         const etag = offset === 0 && remoteRevision.current?.owner === db.name ? remoteRevision.current.etag : undefined;
         const headers: Record<string, string> = {};
         if (etag) headers['If-None-Match'] = etag;
+        if(snapshot)headers['X-Readwind-Snapshot']=snapshot;
         if (remoteRevision.current?.owner === db.name && remoteRevision.current.books !== null) headers['X-Readwind-Books-Revision'] = remoteRevision.current.books;
         const response = await api(`/api/library?offset=${offset}&device=${encodeURIComponent(deviceId())}`, { headers });
         if (offset === 0 && response.status === 304) { unchanged = true; break; }
-        if (!response.ok) throw new Error("Could not load your library.");
+        if(response.status===409 && restarts++<3){
+          data.books=[];data.annotations=[];data.progress=[];data.settings=null;
+          snapshot=null;offset=0;remoteRevision.current=null;continue;
+        }
+        if (!response.ok) throw new Error("Your library changed or could not be loaded. Cached books and pending edits are preserved; sync will retry.");
         if (offset === 0) {
+          snapshot=response.headers.get('x-readwind-snapshot');
           receivedRevision = response.headers.get('etag');
           receivedBooksRevision = response.headers.get('x-readwind-books-revision');
         }
@@ -324,6 +369,10 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         const next = page.nextOffset;
         // Also stops on responses that predate pagination or omit the cursor.
         offset = typeof next === "number" && next > offset ? next : null;
+      }
+      if(snapshot && !unchanged){
+        const verified=await api(`/api/library?verify=1&device=${encodeURIComponent(deviceId())}`,{headers:{'X-Readwind-Snapshot':snapshot}});
+        if(!verified.ok)throw new Error('Your library changed before reconciliation. Cached books are preserved; sync will retry.');
       }
       if (!active()) return false;
       if (!unchanged) await db.transaction(
@@ -361,7 +410,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
           // another device, with their notes and position, unless this device
           // still has an unsent change for that book.
           for (const b of await db.books.toArray()) {
-            if (remoteBooks.has(b.id) || ids.has(`book:${b.id}`)) continue;
+            if (remoteBooks.has(b.id) || changes.some(change=>change.bookId===b.id && change.entity!=="delete-book")) continue;
             await db.books.delete(b.id);
             await db.progress.delete(b.id);
             await db.annotations.where("bookId").equals(b.id).delete();
@@ -384,23 +433,25 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         },
       );
       if (!unchanged) remoteRevision.current = receivedRevision ? { owner: db.name, etag: receivedRevision, books: receivedBooksRevision } : null;
-      const remaining = await db.pending.count();
+      const outstanding = await db.pending.toArray();
+      const remaining = outstanding.length;
+      const failed = outstanding.filter(p=>p.error).length;
       if (alive.current)
         setStatus(
           conflicted.current
             ? "Choose a reading position"
-            : remaining ? "Saving…" : "All changes synced",
+            : failed ? `${failed} change(s) need attention in your account` : remaining ? "Saving…" : "All changes synced",
         );
       // Edits can be queued while a request is in flight. Drain them promptly;
       // never acknowledge a snapshot as though it included these newer edits.
-      if (remaining && active() && (await db.pending.toArray()).some(p=>p.entity!=='progress'||!conflicted.current))
+      if (remaining && active() && (await db.pending.toArray()).some(p=>!p.error && !blockedBooks.has(p.bookId || '') && (p.entity!=='progress'||!conflicted.current)))
         setTimeout(() => syncAgain.current(), 0);
       syncFailures.current = 0;
       nextAutomaticSync.current = 0;
-      return true;
+      return remaining === 0 && !conflicted.current;
     } catch (e) {
       syncFailures.current = Math.min(syncFailures.current + 1, 6);
-      nextAutomaticSync.current = Date.now() + Math.min(300000, 12000 * 2 ** syncFailures.current);
+      nextAutomaticSync.current = Date.now() + Math.min(300000, 12000 * 2 ** syncFailures.current * (0.8 + Math.random()*0.4));
       if (alive.current)
         setStatus(
           navigator.onLine
@@ -420,6 +471,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     if (lifetime.current.signal.aborted) lifetime.current = new AbortController();
     (async () => {
       await db.open();
+      if(!guest && !navigator.onLine)setStatus("Offline · saved on this device");
       if (guest) {
         // Remove one-paragraph sample excerpts created by earlier builds.
         // Guests otherwise start with an empty shelf and can add the
@@ -543,16 +595,17 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     at: Anchor,
     wordsRead: number,
   ) => {
+    if(editingLocked.current)return;
     await db.transaction(
       "rw",
       [db.progress, db.pending, db.books],
       async () => {
-        if(!await db.books.get(bookId))return;
+        const book=await db.books.get(bookId);if(!book)return;
         const current = await db.progress.get(bookId);
         const value: Progress = {
           bookId,
           at,
-          wordsRead: Math.max(current?.wordsRead || 0, wordsRead),
+          wordsRead: Math.min(wordProgress(book,start).total,Math.max(current?.wordsRead || 0, wordsRead)),
           revision: current?.revision || 0,
           deviceId: deviceId(),
           updatedAt: Date.now(),
@@ -575,6 +628,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     void sync();
   };
   const saveAnnotation = async (a: Annotation) => {
+    if(editingLocked.current)throw new Error("Account changes are paused while signing out or restoring.");
     const value = { ...a, updatedAt: Date.now() };
     await db.transaction("rw", [db.books,db.annotations, db.pending], async () => {
       if(!await db.books.get(a.bookId))return;
@@ -590,6 +644,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     void sync();
   };
   const saveSettings = async (value: Settings) => {
+    if(editingLocked.current)throw new Error("Account changes are paused while signing out or restoring.");
     await db.transaction("rw", [db.preferences, db.pending], async () => {
       const current = await db.preferences.get("reader");
       value = {...value,readingPace:mergeReadingPace(current?.value.readingPace,value.readingPace),readingLog:mergeReadingLog(current?.value.readingLog,value.readingLog)};
@@ -600,6 +655,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     void sync();
   };
   const recordReading = async (words:number,seconds:number) => {
+    if(editingLocked.current)return;
     if(!validPaceSample(words,seconds))return;
     await db.transaction("rw",[db.preferences,db.pending],async()=>{
       const current=(await db.preferences.get("reader"))?.value || defaults;
@@ -613,6 +669,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   };
   /** Written the moment a page is read, so the streak never waits on a sync. */
   const recordActivity = async (credit:LogEntry) => {
+    if(editingLocked.current)return;
     await db.transaction("rw",[db.preferences,db.pending],async()=>{
       const current=(await db.preferences.get("reader"))?.value || defaults;
       const value={...current,readingLog:addActivity(current.readingLog || {},deviceId(),credit)};
@@ -626,6 +683,8 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     files: { id: string; blob: Blob }[] = [],
     restoreDeleted=false,
   ) => {
+    checkPayloadSize(book);
+    if(editingLocked.current)throw new Error("Account changes are paused while signing out or restoring.");
     const encoded = await Promise.all(files.map(encodeFile));
     await db.transaction("rw", [db.books, db.blobs, db.pending], async () => {
       const deleted=await db.pending.get(`delete-book:${book.id}`);
@@ -653,6 +712,8 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     book: Book,
     files: { id: string; blob: Blob }[] = [],
   ) => {
+    checkPayloadSize(book);
+    if(editingLocked.current)throw new Error("Account changes are paused while signing out or restoring.");
     const encoded = await Promise.all(files.map(encodeFile));
     await db.transaction("rw", [db.books, db.blobs, db.pending], async () => {
       if(!await db.books.get(book.id) || await db.pending.get(`delete-book:${book.id}`))return;
@@ -680,6 +741,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     void sync();
   };
   const saveReadingMode = async (book: Book, readingMode: 'original'|'reflow') => {
+    if(editingLocked.current)throw new Error("Account changes are paused while signing out or restoring.");
     await db.transaction('rw', [db.books,db.pending], async()=>{
       if(!await db.books.get(book.id) || await db.pending.get(`delete-book:${book.id}`))return;
       const value={...book,readingMode};
@@ -753,6 +815,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     editionId: string,
     onProgress?: (percent: number) => void,
   ) => {
+    if(editingLocked.current)throw new Error("Account changes are paused.");
     const currentLifetime = lifetime.current,
       check = () => {
         if (!alive.current || currentLifetime.signal.aborted)
@@ -796,6 +859,8 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       files.push({ id: asset.id, blob });
       onProgress?.(Math.round(((i + 1) / book.catalog.assets.length) * 100));
     }
+    checkPayloadSize(book);
+    if(editingLocked.current)throw new Error("Account changes are paused while signing out or restoring.");
     const encoded = await Promise.all(files.map(encodeFile));
     check();
     await db.transaction("rw", [db.books, db.blobs, db.pending], async () => {
@@ -818,6 +883,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     return book.id;
   };
   const deleteBook = async (id:string) => {
+    if(editingLocked.current)throw new Error("Account changes are paused while signing out or restoring.");
     setOptimisticDeletes(old=>({owner:db.name,ids:new Set([...(old.owner===db.name?old.ids:[]),id])}));
     try{await db.transaction("rw",[db.books,db.progress,db.annotations,db.pending],async()=>{
       const book=await db.books.get(id),previous=await db.pending.get(`delete-book:${id}`);
@@ -842,7 +908,84 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     for (const [i, b] of (await loadClassics()).entries())
       await addBook({ ...b, addedAt: now - i, lastOpenedAt: now - i },[],true);
   };
+  const checkImportCapacity=async(bytes:number)=>{
+    if(editingLocked.current)throw new Error('Wait for the current account operation to finish.');
+    const estimate=await navigator.storage?.estimate();
+    if(estimate?.quota && estimate.quota-(estimate.usage || 0)<bytes*1.3)throw new Error('This device is low on storage. Remove synced downloads before importing.');
+    if(!guest && auth && navigator.onLine){
+      const response=await api('/api/account');
+      if(response.ok){const usage=await response.json() as {bytes:number;limit:number;projectAvailable?:number};
+        if(usage.limit-usage.bytes<bytes || usage.projectAvailable!==undefined && usage.projectAvailable<bytes)throw new Error('Cloud storage has insufficient capacity for this file. Free space or contact the operator before importing.');
+      }
+    }
+  };
+  const removeDownload=async(id:string)=>{
+    if(guest)throw new Error('Guest books have no cloud copy. Export a backup before removing them.');
+    await db.transaction('rw',[db.books,db.pending,db.blobs],async()=>{
+      const book=await db.books.get(id);if(!book)return;
+      const pending=await db.pending.toArray();
+      const protectedIds=new Set((await db.books.toArray()).filter(b=>pending.some(p=>p.bookId===b.id)).flatMap(bookAssets));
+      const assets=bookAssets(book);
+      if(pending.some(p=>p.bookId===id)||assets.some(asset=>protectedIds.has(asset)))throw new Error('Sync this book and its shared attachments before removing downloads.');
+      await db.blobs.bulkDelete(assets);
+    });
+  };
+  const resolveFailedChange = async (id:string,keepLocal:boolean) => {
+    await db.transaction('rw',[db.books,db.annotations,db.pending],async()=>{
+      const change=await db.pending.get(id);if(!change?.alternate)return;
+      if(keepLocal){
+        const alternate=change.alternate as {revision?:number};
+        const value={...(change.value as object),revision:alternate.revision || 0};
+        await db.pending.update(id,{value,error:undefined,alternate:undefined});
+        if(change.entity==='book')await db.books.put(value as Book);else if(change.entity==='annotation')await db.annotations.put(value as Annotation);
+      }else{
+        if(change.entity==='book')await db.books.put(change.alternate as Book);
+        else if(change.entity==='annotation')await db.annotations.put(change.alternate as Annotation);
+        await db.pending.delete(id);
+      }
+    });remoteRevision.current=null;void sync();
+  };
+  const restoreArchive = async (data: Awaited<ReturnType<typeof import('./backup').readBackup>>['data'], files:{id:string;blob:Blob}[]) => {
+    if(editingLocked.current)throw new Error('Another account operation is in progress.');
+    editingLocked.current=true;restoringArchive.current=true;
+    try {
+      const deadline=Date.now()+60000;
+      while(running.current && Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,100));
+      if(running.current)throw new Error('Sync is busy. Retry restoration after it finishes.');
+      for(const b of data.books)checkPayloadSize(b);
+      const encoded=await Promise.all(files.map(encodeFile));
+      await db.transaction('rw',db.tables,async()=>{
+        await db.blobs.bulkPut(encoded);
+        for(const b of data.books){
+          const current=await db.books.get(b.id);
+          const value={...b,revision:current?.revision || 0};
+          await db.books.put(value);
+          if(!guest)await db.pending.put({id:`book:${b.id}`,entity:'book',bookId:b.id,value,restoreDeleted:true});
+        }
+        for(const a of data.annotations){const current=await db.annotations.get(a.id);const value={...a,revision:current?.revision || 0};await db.annotations.put(value);if(!guest)await db.pending.put({id:`annotation:${a.id}`,entity:'annotation',bookId:a.bookId,value});}
+        for(const p of data.progress){const current=await db.progress.get(p.bookId);const value={...p,revision:current?.revision || 0,deviceId:deviceId()};await db.progress.put(value);if(!guest)await db.pending.put({id:`progress:${p.bookId}`,entity:'progress',bookId:p.bookId,value});}
+        if(data.settings){const current=(await db.preferences.get('reader'))?.value;const value={...data.settings,readingLog:mergeReadingLog(current?.readingLog,data.settings.readingLog),readingPace:mergeReadingPace(current?.readingPace,data.settings.readingPace)};await db.preferences.put({id:'reader',value});if(!guest)await db.pending.put({id:'settings',entity:'settings',value});}
+      });
+    } finally {editingLocked.current=false;restoringArchive.current=false;}
+    remoteRevision.current=null;
+    void sync();
+  };
+  const prepareSignOut = async () => {
+    editingLocked.current=true;
+    if(imports.some(job=>job.status==='running'))return false;
+    const deadline=Date.now()+60000;
+    while(running.current && Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,100));
+    if(running.current || !await sync(true))return false;
+    return !conflicted.current && recoveredDevice.current===db.name && await db.pending.count()===0;
+  };
   return {
+    checkImportCapacity,
+    removeDownload,
+    failedChanges,
+    resolveFailedChange,
+    restoreArchive,
+    prepareSignOut,
+    resumeEditing:()=>{editingLocked.current=false;},
     renameBook,
     deleteBook,
     db,

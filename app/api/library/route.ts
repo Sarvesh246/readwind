@@ -1,3 +1,4 @@
+import { MAX_API_JSON_BYTES } from '@/lib/readwind/sync-safety';
 import { owner, sql, unauthorized, storageFetch } from "@/lib/readwind/server";
 import { book } from "@/lib/readwind/schemas";
 import {
@@ -20,6 +21,7 @@ import { streamJson } from "@/lib/readwind/json-stream";
 const catalogMetadata = z
   .object({
     kind: z.literal("catalog-metadata"),
+    revision: z.number().int().nonnegative().optional(),
     id: z.string().regex(safeId),
     catalog: z
       .object({
@@ -36,6 +38,8 @@ const catalogMetadata = z
         cover: book.shape.cover,
         customCoverBlobId: book.shape.customCoverBlobId.nullable(),
         readingMode: book.shape.readingMode,
+        readingStatus: book.shape.readingStatus,
+        tags: book.shape.tags,
       })
       .strict(),
   })
@@ -100,11 +104,18 @@ export const GET = safeRoute(async (request: Request) => {
         { status: 428 },
       );
   }
+  let snapshot: string | undefined;
   let etag: string | undefined;
   let booksRevision: string | undefined;
   if (process.env.READWIND_BACKEND === "supabase") {
     const revisions =
       await db`SELECT revision, books_revision FROM folio_account_revisions WHERE owner_id=${id}`;
+    snapshot = String(revisions[0]?.revision || 0);
+    const expected = request.headers.get('x-readwind-snapshot');
+    if (expected !== null && expected !== snapshot)
+      return Response.json({error:'Your library changed during sync. Retrying a complete pull.'}, {status:409});
+    if (new URL(request.url).searchParams.has('verify'))
+      return Response.json({snapshot}, {headers:{'Cache-Control':'private, no-store'}});
     booksRevision = String(revisions[0]?.books_revision || 0);
     if (offset === 0) {
       etag = `"rw-${id}-${revisions[0]?.revision || 0}"`;
@@ -134,6 +145,11 @@ export const GET = safeRoute(async (request: Request) => {
       ? db`SELECT data-'_bookDeletions' AS data FROM folio_settings WHERE owner_id=${id}`
       : [],
   ]);
+  if (snapshot !== undefined) {
+    const latest = await db`SELECT revision FROM folio_account_revisions WHERE owner_id=${id}`;
+    if (String(latest[0]?.revision || 0) !== snapshot)
+      return Response.json({error:'Your library changed during sync. Retrying a complete pull.'}, {status:409});
+  }
   const nextOffset =
     books.length > BOOKS || annotations.length > ANNOTATIONS
       ? offset + BOOKS
@@ -157,6 +173,7 @@ export const GET = safeRoute(async (request: Request) => {
       headers: {
         "Cache-Control": "private, no-store",
         Vary: "Cookie",
+        ...(snapshot !== undefined ? {'X-Readwind-Snapshot':snapshot} : {}),
         ...(etag ? { ETag: etag } : {}),
         ...(booksRevision !== undefined
           ? { "X-Readwind-Books-Revision": booksRevision }
@@ -169,7 +186,7 @@ export const POST = safeRoute(async (request: Request) => {
   const id = await owner(request);
   if (!id) return unauthorized();
   await rateLimit(`library:${id}`, 30);
-  let input = await readJson(request, 12_000_000);
+  let input = await readJson(request, MAX_API_JSON_BYTES);
   if (
     ["catalog-metadata", "book-metadata"].includes(
       (input as { kind?: string })?.kind || "",
@@ -214,6 +231,7 @@ export const POST = safeRoute(async (request: Request) => {
     input = {
       ...base,
       ...value.metadata,
+      revision: value.revision || 0,
       customCoverBlobId: value.metadata.customCoverBlobId ?? undefined,
       id: value.id,
     };
@@ -224,7 +242,11 @@ export const POST = safeRoute(async (request: Request) => {
   const b = parsed.data;
   await validateCatalogReference(b);
   const restore = new URL(request.url).searchParams.get("restore") === "true";
-  const rows = await saveLiveBook(sql(id, `library:${id}`), id, b, restore);
+  const rows = await saveLiveBook(sql(id, `library:${id}`), id, {...b,revision:(b.revision || 0)+1}, restore, false, undefined, b.revision || 0);
+  if(Array.isArray(rows) && !rows.length){
+    const current=await sql(id)`SELECT data FROM folio_books WHERE owner_id=${id} AND id=${b.id}`;
+    if(current.length)return Response.json({error:'This book changed on another device. Review both versions in your account.',alternate:current[0].data},{status:409});
+  }
   if (!Array.isArray(rows) || !rows.length)
     return Response.json(
       {
@@ -234,7 +256,7 @@ export const POST = safeRoute(async (request: Request) => {
       },
       { status: restore ? 409 : 410 },
     );
-  return Response.json({ ok: true });
+  return Response.json({ ok: true, revision:(b.revision || 0)+1 });
 });
 
 export const DELETE = safeRoute(async (request: Request) => {

@@ -7,11 +7,13 @@ export function Modal({
   children,
   onClose,
   className = "",
+  dismissible = true,
 }: {
   title: string;
   children: React.ReactNode;
   onClose: () => void;
   className?: string;
+  dismissible?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -26,10 +28,10 @@ export function Modal({
       aria-label={title}
       onCancel={(e) => {
         e.preventDefault();
-        onClose();
+        if(dismissible)onClose();
       }}
       onClick={(e) => {
-        if (e.target === ref.current) onClose();
+        if (dismissible && e.target === ref.current) onClose();
       }}
     >
       <motion.div
@@ -40,13 +42,13 @@ export function Modal({
       >
         <header className="modal-header">
           <h2>{title}</h2>
-          <button
+          {dismissible && <button
             className="icon-button"
             aria-label="Close dialog"
             onClick={onClose}
           >
             <Icon name="close" />
-          </button>
+          </button>}
         </header>
         {children}
       </motion.div>

@@ -120,6 +120,11 @@ async function store(
     headers: responseHeaders(upstream),
   });
 }
+async function uploadAllowed(grant:Grant){
+ const [file_owner,file_id]=grant.key.split('/');
+ const response=await fetch(base+'/rest/v1/rpc/readwind_upload_allowed',{method:'POST',headers:{apikey:service,Authorization:'Bearer '+service,'Content-Type':'application/json'},body:JSON.stringify({file_owner,file_id,file_bytes:grant.bytes}),signal:AbortSignal.timeout(10000)});
+ return response.ok && await response.json()===true;
+}
 Deno.serve(async (request) => {
   try {
     const url = new URL(request.url),
@@ -174,6 +179,7 @@ Deno.serve(async (request) => {
           status: 400,
           headers: cors,
         });
+      if(!await uploadAllowed(grant))return new Response('Upload reservation expired or account deletion started',{status:410,headers:cors});
       const response = await store(
         grant.key,
         request,
@@ -181,6 +187,7 @@ Deno.serve(async (request) => {
         bytes,
         grant.type,
       );
+      if(response.ok && !await uploadAllowed(grant)){await store(grant.key,request,'DELETE');return new Response('Upload cancelled during account deletion',{status:410,headers:cors});}
       for (const [key, value] of Object.entries(cors))
         response.headers.set(key, value);
       return response;
@@ -218,6 +225,21 @@ Deno.serve(async (request) => {
           "Content-Type": "application/json",
         },
       });
+    }
+    if(url.searchParams.get('action')==='maintenance' && request.method==='POST'){
+      const result=await fetch(base+'/rest/v1/rpc/readwind_prune_ephemeral',{method:'POST',headers:{apikey:service,Authorization:'Bearer '+service,'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(10000)});
+      return new Response(result.body,{status:result.status,headers:{'Cache-Control':'no-store','Content-Type':'application/json'}});
+    }
+    if(url.searchParams.get('action')==='delete-account' && request.method==='POST'){
+      const input=JSON.parse(new TextDecoder().decode(await readBody(request,1024))) as {authUserId:string};
+      if(!/^[0-9a-f-]{36}$/i.test(input.authUserId))return new Response('Invalid user',{status:400});
+      const headers={apikey:service,Authorization:'Bearer '+service,'Content-Type':'application/json'};
+      const purge=await fetch(base+'/rest/v1/rpc/readwind_delete_account_data',{method:'POST',headers,body:JSON.stringify({auth_user:input.authUserId,finished:false}),signal:AbortSignal.timeout(10000)});
+      if(!purge.ok || await purge.json()!==true)return new Response('Deletion was not requested or files remain',{status:409});
+      const removed=await fetch(base+'/auth/v1/admin/users/'+input.authUserId,{method:'DELETE',headers,signal:AbortSignal.timeout(10000)});
+      if(!removed.ok && removed.status!==404)return new Response('Identity deletion pending',{status:503});
+      const finish=await fetch(base+'/rest/v1/rpc/readwind_delete_account_data',{method:'POST',headers,body:JSON.stringify({auth_user:input.authUserId,finished:true}),signal:AbortSignal.timeout(10000)});
+      return new Response(null,{status:finish.ok?204:503});
     }
     if (
       url.searchParams.get("action") === "sign" &&
