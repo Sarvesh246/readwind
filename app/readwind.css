@@ -4371,3 +4371,42 @@ legend {
 .structured-cover{width:96px;height:144px;margin:24px 0}.structured-cover .shelf-cover{width:100%;height:100%}
 
 .catalog-copy p,.catalog-copy small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Fullscreen paper uses the safe viewport; controls float over it without repagination. */
+/* Other screens also respect the safe area now that the viewport fills the display. */
+.app-shell,
+.reader:not(.is-full),
+.original-reader {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.reader.is-full.immersive-reader {
+  background: var(--reader-page) !important;
+}
+.reader.is-full.immersive-reader .reader-main {
+  padding: max(8px, var(--reader-safe-top, env(safe-area-inset-top))) var(--reader-safe-right, env(safe-area-inset-right)) max(8px, var(--reader-safe-bottom, env(safe-area-inset-bottom))) var(--reader-safe-left, env(safe-area-inset-left));
+}
+.immersive-reader .book-page { border-radius: 0; }
+.immersive-reader .running-head { display: none; }
+.immersive-reader .page-text { margin-top: 0; }
+.immersive-reader .folio { height: 18px; padding-top: 2px; font-size: 11px; opacity: .65; }
+.immersive-reader .fill-stack { display: none; }
+.immersive-reader .center-fold { opacity: .3; }
+.immersive-reader .crease-highlight { opacity: .3; }
+.immersive-reader .spine-hairline { opacity: .15; }
+.immersive-reader .reader-bottom-tools,
+.immersive-reader .exit-full,
+.immersive-reader .full-page-nav-rail {
+  transition: opacity 180ms ease, visibility 180ms;
+}
+.immersive-reader.controls-hidden .reader-bottom-tools,
+.immersive-reader.controls-hidden .exit-full,
+.immersive-reader.controls-hidden .full-page-nav-rail {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .immersive-reader .reader-bottom-tools,
+  .immersive-reader .exit-full,
+  .immersive-reader .full-page-nav-rail { transition: none; }
+}

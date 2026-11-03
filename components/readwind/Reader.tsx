@@ -100,9 +100,11 @@ export function Reader({
     t: number;
   } | null>(null);
   const spread = !phone && s.wideLayout === "spread" && s.turn !== "Scroll";
+  const immersive = full && fill && s.turn !== "Scroll";
+  const controlsHidden = immersive && navIdle && !selectMode && !closed && !panel;
   const g = useMemo(
-    () => geometry(size.w, size.h, { size: s.size, spacing: s.spacing }, fill, spread, !full),
-    [size, s.size, s.spacing, fill, spread, full],
+    () => geometry(size.w, size.h, { size: s.size, spacing: s.spacing }, fill, spread, !full, immersive),
+    [size, s.size, s.spacing, fill, spread, full, immersive],
   );
   const annotations = l.annotations.filter((a) => a.bookId === book.id);
   const index = pageIndex(pages, anchor, spread),
@@ -248,6 +250,19 @@ export function Reader({
     turnRef.current = value;
     setTurn(value);
   };
+  useLayoutEffect(() => {
+    // Rotation changes the page mesh. Cancel the old leaf before laying out
+    // the same reading anchor at its new size.
+    cancelAnimationFrame(anim.current);
+    effects.current.forEach(effect => effect.cancel());
+    effects.current = [];
+    anim.current = 0;
+    pendingTurn.current = null;
+    drag.current = null;
+    turnRef.current = null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- discard a leaf with stale dimensions
+    setTurn(null);
+  }, [g]);
   // Keep pointer and animation frames out of React. Only mounting and completing
   // a leaf changes state; all intermediate frames update compositor properties.
   const paintTurn = (next: Turn) => {
@@ -394,7 +409,7 @@ export function Reader({
       started: false,
       dir: 1,
       pointerId: e.pointerId,
-      t: performance.now(),
+      t: e.timeStamp,
     };
     // Capture after a horizontal drag begins, preserving taps on highlights.
   }
@@ -449,12 +464,15 @@ export function Reader({
     }
     if (Math.abs(d.dx) > 8) return;
     // A press-and-hold is a word selection, never a page turn.
-    if (performance.now() - d.t > 450 || window.getSelection()?.toString().trim()) return;
+    if (e.timeStamp - d.t > 450 || window.getSelection()?.toString().trim()) return;
     if (closed) {
       openClose();
       return;
     }
-    if (spread) {
+    if (immersive && d.rel >= 0.3 && d.rel <= 0.7) {
+      if (navIdle) wakeNav();
+      else { window.clearTimeout(navTimer.current); setNavIdle(true); }
+    } else if (spread) {
       turnPage(d.rel < 0.5 ? -1 : 1);
     } else if (d.rel < 0.3) turnPage(-1);
     else if (d.rel > 0.62) turnPage(1);
@@ -535,14 +553,17 @@ export function Reader({
   const wakeNav = useCallback(() => {
     setNavIdle(false);
     window.clearTimeout(navTimer.current);
-    navTimer.current = window.setTimeout(() => setNavIdle(true), 2600);
+    navTimer.current = window.setTimeout(() => {
+      // Keyboard users keep their controls until focus returns to the book.
+      if (document.activeElement?.matches(':focus-visible') && document.activeElement.closest('.reader-bottom-tools,.exit-full,.full-page-nav-rail')) return;
+      setNavIdle(true);
+    }, 2600);
   }, []);
   useEffect(() => {
-    // Turning the page or toggling full screen brings the arrows back for a moment.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // Reveal controls on entry; page turns leave the immersive page undisturbed.
     wakeNav();
     return () => window.clearTimeout(navTimer.current);
-  }, [wakeNav, full, index]);
+  }, [wakeNav, full]);
   const saveHighlight = async (color: Color) => {
     if (!selection) return;
     await l.saveAnnotation({
@@ -739,7 +760,9 @@ export function Reader({
   return (
     <div
       ref={shell}
-      className={`reader ${phone ? "phone-reader" : ""} ${fill ? "fill-reader" : ""} ${full ? "is-full" : ""} ${selectMode ? "selecting" : ""}`}
+      className={`reader ${phone ? "phone-reader" : ""} ${fill ? "fill-reader" : ""} ${full ? "is-full" : ""} ${immersive ? "immersive-reader" : ""} ${controlsHidden ? "controls-hidden" : ""} ${selectMode ? "selecting" : ""}`}
+      onKeyDownCapture={e => { if (e.key === "Tab") wakeNav(); }}
+      onPointerMove={e => { if (immersive && e.pointerType === "mouse" && !turnRef.current && (e.movementX || e.movementY)) wakeNav(); }}
       style={
         {
           background: `color-mix(in srgb, ${t.page} 38%, ${t.desk})`,
@@ -779,7 +802,7 @@ export function Reader({
           ref={root}
           className="book-root"
           tabIndex={0}
-          aria-label="Book. Arrow keys turn pages."
+          aria-label={immersive ? "Book. Tap the center for controls. Swipe or tap the outer edges to turn pages. Arrow keys turn pages." : "Book. Arrow keys turn pages."}
           onKeyDown={(e) => {
             if ((e.target as HTMLElement).closest("input,textarea,button"))
               return;
@@ -797,7 +820,7 @@ export function Reader({
           onTouchEnd={() => setTimeout(onSelect, 80)}
           onPointerDownCapture={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
-            if (e.clientX - r.left < 110 || r.right - e.clientX < 110) wakeNav();
+            if (!immersive && (e.clientX - r.left < 110 || r.right - e.clientX < 110)) wakeNav();
           }}
         >
           {busy && (
@@ -999,7 +1022,7 @@ export function Reader({
           )}
         </div>
         {full && !closed && s.turn !== "Scroll" && (
-          <div className={`full-page-nav-rail ${navIdle ? "idle" : ""}`}>
+          <div className={`full-page-nav-rail ${navIdle ? "idle" : ""}`} inert={controlsHidden} aria-hidden={controlsHidden || undefined}>
             <button
               className="full-page-nav prev"
               aria-label="Previous page"
@@ -1021,7 +1044,7 @@ export function Reader({
           </div>
         )}
         {!closed && (
-          <div className="reader-bottom-tools" role="toolbar" aria-label="Reading actions">
+          <div className="reader-bottom-tools" role="toolbar" aria-label="Reading actions" inert={controlsHidden} aria-hidden={controlsHidden || undefined} onPointerDown={wakeNav}>
             <button onClick={bookmark} aria-label={bookmarked ? 'Remove bookmark' : 'Bookmark this passage'} aria-pressed={!!bookmarked}>
               <Icon name={bookmarked ? "check" : "bookmark"} size={17} /><span className="dock-label">{bookmarked ? "Bookmarked" : "Bookmark"}</span>
             </button>
@@ -1056,6 +1079,8 @@ export function Reader({
         {full && (
           <button
             className="exit-full icon-button"
+            inert={controlsHidden}
+            aria-hidden={controlsHidden || undefined}
             aria-label="Exit full screen"
             onClick={fullscreen}
           >

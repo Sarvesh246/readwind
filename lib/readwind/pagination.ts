@@ -64,9 +64,10 @@ export function geometry(
   fill: boolean,
   spread: boolean,
   footer = true,
+  immersive = false,
 ): Geometry {
-  const fs = fill && aw > ah ? Math.max(14, settings.size - 2) : settings.size;
-  const availH = Math.max(240, ah - (footer ? 56 : 0) - (fill ? 0 : 24));
+  const fs = !immersive && fill && aw > ah ? Math.max(14, settings.size - 2) : settings.size;
+  const availH = Math.max(immersive ? 120 : 240, ah - (footer ? 56 : 0) - (fill ? 0 : 24));
   const bookW = fill
     ? aw
     : spread
@@ -74,10 +75,11 @@ export function geometry(
       : Math.min(aw - 48, availH * 0.78);
   const bookH = fill ? availH : spread ? bookW / 1.56 : availH;
   const pw = spread ? bookW / 2 : bookW;
-  const measure = Math.min(pw - Math.max(22, pw * 0.1) * 2, fs * 36);
+  const margin = immersive ? 18 : Math.max(22, pw * 0.1);
+  const measure = Math.min(pw - margin * 2, fs * 36);
   const padX = Math.round((pw - measure) / 2),
-    padTop = Math.round(Math.max(18, bookH * 0.055)),
-    padBottom = Math.round(Math.max(14, bookH * 0.04));
+    padTop = immersive ? 12 : Math.round(Math.max(18, bookH * 0.055)),
+    padBottom = immersive ? 8 : Math.round(Math.max(14, bookH * 0.04));
   return {
     bookW,
     bookH,
@@ -85,7 +87,7 @@ export function geometry(
     padX,
     padTop,
     padBottom,
-    textH: bookH - padTop - padBottom - 66,
+    textH: bookH - padTop - padBottom - (immersive ? 18 : 66),
     spread,
     fill,
     fs,
