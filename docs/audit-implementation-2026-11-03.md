@@ -20,7 +20,7 @@ Baseline: f00220d. The numbered entries correspond to the improvement audit supp
 | 14 | View-heading focus and polite route/save announcements; required-choice dialogs have no misleading close control. |
 | 15 | Notebook text search, explicit reading status, named collections/tags and selected-book batch organization. Optional duplicate-source detection remains a future enhancement. |
 | 16 | App-session listing/revocation and password-confirmed private account deletion with bounded file cleanup, retry marker, service-only identity cleanup and upload-reservation checks around signed uploads. Shared catalog data is retained. |
-| 17 | Next and Vinext offline finalization, hashed production assets including workers/fonts/maps, updates waiting for existing windows, and CI against the Next build. No worker operation clears IndexedDB. |
+| 17 | Next and Vinext offline finalization (including Vercel's already-packaged static output), hashed production assets including workers/fonts/maps, updates waiting for existing windows, and CI against the Next build. No worker operation clears IndexedDB. |
 | 18 | Compatible tooling override for the affected minimatch advisory; npm audits report zero entries. |
 | 19 | Current backend/build/limits/backup/retention documentation and bounded daily ephemeral maintenance. The temporary recovery-import bridge is documented as already closed. |
 

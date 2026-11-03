@@ -26,7 +26,7 @@ export const GET = safeRoute(
         "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": "sandbox; default-src 'none'",
         "Cache-Control": asset.published ? "public, max-age=300, s-maxage=300, must-revalidate" : "private, no-store",
-        "Vary": "Cookie",
+        ...(asset.published ? {'Vercel-CDN-Cache-Control':'public, s-maxage=300'} : {'Vary':'Cookie'}),
         "ETag": `"${asset.sha256}"`,
       },
     });
