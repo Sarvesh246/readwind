@@ -1,7 +1,6 @@
 import {
   owner,
   rateLimit,
-  sql,
   storageFetch,
   unauthorized,
 } from "@/lib/readwind/server";
@@ -29,16 +28,6 @@ function uploadFields(input: UploadRequest) {
   return { id: input.id, type: input.type, bytes: input.bytes as number };
 }
 
-async function discard(user: string, id: string) {
-  try {
-    const removed = await storageFetch(`${user}/${id}`, { method: "DELETE" });
-    if (!removed.ok && removed.status !== 404) return;
-  } catch {
-    return;
-  }
-  await sql(user)`DELETE FROM folio_files WHERE owner_id=${user} AND id=${id}`;
-}
-
 function storedSize(response: Response) {
   const range = response.headers.get("content-range");
   if (range) return Number(range.slice(range.lastIndexOf("/") + 1));
@@ -59,19 +48,14 @@ export const POST = safeRoute(async (request: Request) => {
     headers: { Range: "bytes=0-63" },
   });
   if (!check.ok) {
-    await discard(user, id);
     throw new HttpError(400, "Upload did not finish. Please retry.");
   }
   const prefix = new Uint8Array(await check.arrayBuffer());
   if (storedSize(check) !== bytes) {
-    await discard(user, id);
     throw new HttpError(400, "Upload size did not match. Please retry.");
   }
-  try {
-    validateFile(prefix, type);
-  } catch (error) {
-    await discard(user, id);
-    throw error;
-  }
+  // Failed verification must never delete a previously stored attachment.
+  // Retain its reservation too: another tab may still be completing the upload.
+  validateFile(prefix, type);
   return Response.json({ ok: true });
 });

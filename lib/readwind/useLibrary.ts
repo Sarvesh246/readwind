@@ -84,14 +84,6 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     },
     [auth,lifetime],
   );
-  const cancelUpload = useCallback(
-    async (id: string) => {
-      await api(`/api/files?id=${encodeURIComponent(id)}`, {
-        method: "DELETE",
-      }).catch(() => {});
-    },
-    [api],
-  );
   const uploadFile = useCallback(
     async (id: string, blob: Blob) => {
       // Upload straight to object storage. Routing the bytes through a Vercel
@@ -120,13 +112,13 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         });
       } catch (error) {
         if (lifetime.current.signal.aborted) throw error;
-        await cancelUpload(id);
+        // A retry may use an attachment that is already referenced remotely.
+        // Keep its object and reservation on ambiguous upload failures.
         throw new Error(
           "Could not upload the book file. Check your connection and retry.",
         );
       }
       if (!stored.ok) {
-        await cancelUpload(id);
         throw new Error(
           stored.status === 413
             ? "This file is larger than 20 MB."
@@ -143,7 +135,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
           await responseError(complete, "Could not verify the uploaded file."),
         );
     },
-    [api, cancelUpload],
+    [api],
   );
   const putChange = async (change: Pending) => db.pending.put(change);
   const sync = useCallback(async (retryFailed = false): Promise<boolean> => {

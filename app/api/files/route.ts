@@ -27,25 +27,15 @@ export const POST = safeRoute(async (request: Request) => {
   // Reserve quota before S3. Reservations are conservative on upload failures.
   // One row per owner serializes concurrent reservations across isolates.
   const db = sql(user);
-  const existing = await db`SELECT bytes FROM folio_files WHERE owner_id=${user} AND id=${id}`;
   await db`INSERT INTO folio_files(owner_id,id,bytes) VALUES(${user},${id},${bytes.length})
     ON CONFLICT(owner_id,id) DO UPDATE SET bytes=GREATEST(folio_files.bytes,EXCLUDED.bytes)`;
-  let response: Response;
-  try {
-    response = await storageFetch(`${user}/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": type },
-      body: bytes,
-    });
-  } catch (error) {
-    if (!existing.length)
-      await db`DELETE FROM folio_files WHERE owner_id=${user} AND id=${id}`;
-    throw error;
-  }
+  const response = await storageFetch(`${user}/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": type },
+    body: bytes,
+  });
   if (!response.ok) {
-    // Never leave a quota reservation for an object that was not stored.
-    if (!existing.length)
-      await db`DELETE FROM folio_files WHERE owner_id=${user} AND id=${id}`;
+    // Preserve the object and reservation for retries, including other tabs.
     throw new HttpError(502, "File upload failed. Please retry.");
   }
   return Response.json({ ok: true });
@@ -56,11 +46,10 @@ export const DELETE = safeRoute(async (request: Request) => {
   await rateLimit(`uploads:${user}`, 240);
   const id = new URL(request.url).searchParams.get("id");
   if (!id || !safeId.test(id)) throw new HttpError(400, "Invalid file ID");
-  const result = await storageFetch(`${user}/${id}`, { method: "DELETE" });
-  if (!result.ok && result.status !== 404)
-    throw new HttpError(502, "Could not delete this file. Please retry.");
-  await sql(user)`DELETE FROM folio_files WHERE owner_id=${user} AND id=${id}`;
-  return Response.json({ ok: true });
+  // Older tabs cancel failed uploads through this endpoint. The file may
+  // already belong to a book or an in-flight upload in another tab. Deletion
+  // belongs to the explicit book/account deletion flows, never cancellation.
+  throw new HttpError(409, "Attachments are retained for upload retries. Delete the book to remove its files.");
 });
 export const GET = safeRoute(async (request: Request) => {
   const user = await owner(request);

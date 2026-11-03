@@ -56,11 +56,13 @@ assert.equal(await page.evaluate(async()=>{const h=await import('/tests/fixtures
 assert.equal(await page.evaluate(async()=>{const h=await import('/tests/fixtures/library-harness.tsx');const l=h.current();return {p:await l.db.progress.get('deleted-on-another-device'),a:await l.db.annotations.get('gone-note'),b:await l.db.blobs.get('gone-blob')};}).then(x=>x.p||x.a||x.b),undefined,'its position, notes, and cached file are removed too');
 const uploadBook={...book,id:'upload-new-book',title:'Uploaded straight to storage',sourcePdfBlobId:'upload-blob'};
 server.books.push(uploadBook);
-let signed=null,putBytes=0,completed=null;
+let signed=null,putBytes=0,completed=null,uploadFailure=null;
 const storage='https://br-lively-term-b5lb2wv5.storage.c-7.us-east-2.aws.neon.tech';
 await page.route('**/api/files/sign',async r=>{signed=r.request().postDataJSON();await r.fulfill({json:{url:`${storage}/folio-books/qa/upload-blob?X-Amz-Signature=test`,headers:{'content-type':'application/pdf'},expires:300}});});
 await page.route(`${storage}/**`,async r=>{
  if(r.request().method()==='OPTIONS')return r.fulfill({status:204,headers:{'access-control-allow-origin':'*','access-control-allow-methods':'PUT','access-control-allow-headers':'content-type'}});
+ if(uploadFailure==='network')return r.abort('failed');
+ if(uploadFailure==='http')return r.fulfill({status:503,headers:{'access-control-allow-origin':'*'},body:'Retry later'});
  putBytes=r.request().postDataBuffer()?.length||0;
  await r.fulfill({status:200,headers:{'access-control-allow-origin':'*'},body:''});
 });
@@ -70,6 +72,36 @@ await waitForLibrary('synced');
 assert.equal(signed.bytes,5*1024*1024,'file grants are requested with the exact size');
 assert.equal(putBytes,5*1024*1024,'the browser uploads the file body directly to storage');
 assert.equal(completed.id,'upload-blob','the upload is verified after the direct PUT');
+// Restore an existing attachment, fail its replacement upload, then retry.
+// Model the old cancellation endpoint as destructive so this also catches a
+// client regression even if the server protects requests from older clients.
+let cloudFileExists=true,cancellations=0;
+await page.route('**/api/files?id=upload-blob',r=>{
+ if(r.request().method()==='DELETE'){cloudFileExists=false;cancellations++;}
+ return r.fulfill({json:{ok:true}});
+});
+for(const failure of ['network','http']){
+ uploadFailure=failure;
+ await page.evaluate(async b=>{
+  const h=await import('/tests/fixtures/library-harness.tsx');const l=h.current();
+  const blob=await l.loadBlob(b.sourcePdfBlobId);
+  await l.restoreArchive({format:'folio-backup-1',books:[b],annotations:[],progress:[]},[{id:b.sourcePdfBlobId,blob}]);
+ },uploadBook);
+ await page.waitForFunction(async()=>{
+  const h=await import('/tests/fixtures/library-harness.tsx');return h.current().status.includes('Could not upload');
+ });
+ assert.equal(cloudFileExists,true,failure+' failure preserves the existing cloud attachment');
+ assert.equal(cancellations,0,'failed uploads never request destructive cancellation');
+ const retained=await page.evaluate(async()=>{
+  const h=await import('/tests/fixtures/library-harness.tsx');const l=h.current();
+  return {pending:await l.db.pending.count(),file:!!await l.db.blobs.get('upload-blob'),book:!!await l.db.books.get('upload-new-book')};
+ });
+ assert.deepEqual(retained,{pending:1,file:true,book:true},'restore retains the book, file and pending retry');
+ uploadFailure=null;
+ await page.evaluate(async()=>{const h=await import('/tests/fixtures/library-harness.tsx');await h.current().sync(true);});
+ await waitForLibrary('synced');
+ assert.equal(cloudFileExists,true,'retry succeeds without losing the original cloud file');
+}
 assert.deepEqual(errors,[]);
-console.log('PASS: edit during upload drains immediately; no false synced status; conflict resolution preserves the latest local reading anchor; remote deletions reconcile locally; files upload directly to storage.');
+console.log('PASS: edit during upload drains immediately; no false synced status; conflict resolution preserves the latest local reading anchor; remote deletions reconcile locally; direct uploads and failed-restore retries preserve attachments.');
 }finally{await browser.close();}

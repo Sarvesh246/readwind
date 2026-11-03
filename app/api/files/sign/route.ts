@@ -37,22 +37,9 @@ export const POST = safeRoute(async (request: Request) => {
     (await readJson(request, 2048)) as UploadRequest,
   );
   const db = sql(user);
-  const existing = await db`SELECT bytes FROM folio_files WHERE owner_id=${user} AND id=${id}`;
-  try {
-    // Reserve quota before handing out a URL. The reservation is released if
-    // the upload never completes or fails verification.
-    await db`INSERT INTO folio_files(owner_id,id,bytes) VALUES(${user},${id},${bytes})
+  // Keep reservations across failed attempts. Releasing one after a signing
+  // failure could invalidate another tab's upload of the same attachment.
+  await db`INSERT INTO folio_files(owner_id,id,bytes) VALUES(${user},${id},${bytes})
       ON CONFLICT(owner_id,id) DO UPDATE SET bytes=GREATEST(folio_files.bytes,EXCLUDED.bytes)`;
-  } catch (error) {
-    if (!existing.length)
-      await db`DELETE FROM folio_files WHERE owner_id=${user} AND id=${id}`;
-    throw error;
-  }
-  try {
-    return Response.json(await storagePresign(`${user}/${id}`, type, 300, bytes, new URL(request.url).origin));
-  } catch (error) {
-    if (!existing.length)
-      await db`DELETE FROM folio_files WHERE owner_id=${user} AND id=${id}`;
-    throw error;
-  }
+  return Response.json(await storagePresign(`${user}/${id}`, type, 300, bytes, new URL(request.url).origin));
 });
