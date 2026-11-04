@@ -1,5 +1,6 @@
 "use client";
 import { useReadingPace } from "@/lib/readwind/useReadingPace";
+import { StablePositions, shouldPromptContinue } from "@/lib/readwind/position";
 import {isContentsSection} from '@/lib/readwind/reading-layout';
 import { findPrintedPage } from "@/lib/readwind/chapters";
 import {
@@ -16,7 +17,7 @@ import type { Book, Anchor, Annotation, Color } from "@/lib/readwind/types";
 import { themes } from "@/lib/readwind/types";
 import { geometry, paginate, pageIndex } from "@/lib/readwind/pagination";
 import type { ScreenPage } from "@/lib/readwind/pagination";
-import { compare, labelAt, wordProgress, start, sectionStart } from "@/lib/readwind/anchors";
+import { compare, labelAt, wordProgress, start, sectionStart, bookDensity } from "@/lib/readwind/anchors";
 import type { Library } from "@/lib/readwind/useLibrary";
 import { ScrollReader } from "./ScrollReader";
 import { Page } from "./Page";
@@ -117,8 +118,8 @@ export function Reader({
       : a;
   // A chapter jump may land on the right of a spread beside the previous chapter.
   const visibleAnchor = anchor;
-  const info = wordProgress(book, visibleAnchor, l.readingSpeed);
-  useReadingPace(`${l.paceOwner}:${book.id}`, info.before, !busy && !closed && !panel && !selection && !editing && !l.conflict && !isContentsSection(book,visibleAnchor.section), l.recordReading, l.recordActivity, l.readingSpeed);
+  const info = wordProgress(book, visibleAnchor, l.speedFor(book));
+  useReadingPace(`${l.paceOwner}:${book.id}`, info.before, !busy && !closed && !panel && !selection && !editing && !l.conflict && !isContentsSection(book,visibleAnchor.section), l.recordReading, l.recordActivity, l.speedFor(book), { bookId: book.id, density: bookDensity(book), calibrate: l.recordCalibration });
   const bookmarked = annotations.find(a => a.kind === 'bookmark' && first &&
     compare(a.range.start, first.start) >= 0 && compare(a.range.start, first.end) < 0);
   const { saveProgress, loadBlob } = l;
@@ -185,17 +186,49 @@ export function Reader({
   useEffect(() => {
     savedRef.current = saved;
   });
+  const [offer, setOffer] = useState<{ at: Anchor; label: string } | null>(null);
   useEffect(() => {
     const latest = savedRef.current;
-    if (
-      latest &&
-      (!navigated.current || latest.deviceId !== localStorage.getItem("folio-device")) &&
-      !l.conflict
-    ) {
+    if (!latest || l.conflict) return;
+    if (!navigated.current) {
+      // Opening the book: resume the saved spot.
+      setAnchor(latest.at);
+      anchorRef.current = latest.at;
+      return;
+    }
+    if (latest.deviceId === localStorage.getItem("folio-device")) return;
+    // Another device moved while this one is being read: never yank the page. A small lead is adopted
+    // quietly, a big one is offered, and a position behind this one is ignored.
+    const here = wordProgress(book, anchorRef.current).before,
+      there = wordProgress(book, latest.at).before;
+    if (there <= here) return;
+    if (shouldPromptContinue({ wordsRead: here, updatedAt: 0, deviceId: "here" }, { wordsRead: there, updatedAt: latest.updatedAt, deviceId: latest.deviceId }, l.speedFor(book)))
+      setOffer({ at: latest.at, label: labelAt(book, latest.at) });
+    else {
       setAnchor(latest.at);
       anchorRef.current = latest.at;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new saved revision should react
   }, [saved?.updatedAt, saved?.revision, l.conflict]);
+  // A deliberate stop (a few seconds on one spot) is remembered, so after a big jump through the
+  // contents or progress bar the reader can return to where they were.
+  const stable = useRef(new StablePositions(4000, 5)),
+    spots = useRef(new Map<string, Anchor>());
+  const [returnSpot, setReturnSpot] = useState<{ at: Anchor; label: string } | null>(null);
+  useEffect(() => {
+    const key = `${anchor.section}:${anchor.block}:${anchor.offset}`;
+    spots.current.set(key, anchor);
+    stable.current.observe(key, performance.now());
+    const timer = setTimeout(() => {
+      if (!stable.current.observe(key, performance.now())) return;
+      const prev = stable.current.previous(),
+        was = prev && spots.current.get(prev.key);
+      if (!was) return;
+      const gap = Math.abs(wordProgress(book, anchor).before - wordProgress(book, was).before);
+      setReturnSpot(gap > 1500 ? { at: was, label: labelAt(book, was) } : null);
+    }, 4100);
+    return () => clearTimeout(timer);
+  }, [anchor, book]);
   useEffect(() => {
     const fs = () => setFull(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", fs);
@@ -1015,7 +1048,7 @@ export function Reader({
                 </div>
                 <div className="footer-labels">
                   <button className="reader-page-position" title={book.pagination==='flow'?'Contents':'Go to a page'} aria-label={book.pagination==='flow'?'Contents':`Go to page. Currently page ${a} of ${book.printPageCount}`} onClick={()=>setPanel("contents")}>
-                    {book.pagination==='flow'?`${Math.round(wordProgress(book,anchor,l.readingSpeed).pct*100)}% read`:closed
+                    {book.pagination==='flow'?`${Math.round(wordProgress(book,anchor,l.speedFor(book)).pct*100)}% read`:closed
                       ? `Closed · resume at p. ${a}`
                       : `${a === b ? "p." : "pp."} ${a === b ? a : `${a}–${b}`} of ${book.printPageCount}`}
                     <span className="page-position-chevron" aria-hidden="true">⌄</span>
@@ -1207,6 +1240,25 @@ export function Reader({
             setPanel("search");
           }}
         />
+      )}
+      {(offer || returnSpot) && (
+        <div className="resume-offer" role="status">
+          {offer ? (
+            <>
+              <span>You read further on another device (p. {offer.label}).</span>
+              <button className="button primary" onClick={() => { commitAnchor(offer.at); setOffer(null); setReturnSpot(null); }}>Continue there</button>
+              <button className="button" onClick={() => setOffer(null)}>Stay here</button>
+            </>
+          ) : (
+            returnSpot && (
+              <>
+                <span>Jumped ahead?</span>
+                <button className="button" onClick={() => { commitAnchor(returnSpot.at); setReturnSpot(null); }}>Back to p. {returnSpot.label}</button>
+                <button className="icon-button" aria-label="Dismiss" onClick={() => setReturnSpot(null)}><Icon name="close" size={16} /></button>
+              </>
+            )
+          )}
+        </div>
       )}
     </div>
   );

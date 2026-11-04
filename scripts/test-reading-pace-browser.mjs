@@ -18,8 +18,8 @@ for(const [name,type] of [['chromium',chromium],['webkit',webkit]]){
       await new Promise((resolve,reject)=>{const tx=db.transaction(['books','progress','preferences'],'readwrite');tx.objectStore('books').put(book);tx.objectStore('progress').put({bookId:book.id,at,wordsRead:230,revision:0,deviceId:'pace-device',updatedAt:now});tx.objectStore('preferences').put({id:'reader',value:{paper:'Paper',font:'Literata',size:18,spacing:'Normal',turn:'Slide',wideLayout:'single',warmLight:false,restNudge:false,focusParagraph:false,colorNames:{yellow:'Ideas',green:'Agree',blue:'Quotes',pink:'Question'},readingPace:{'pace-device':{samples:120,words:14400,seconds:7200}}}});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});db.close();
     });
     await page.reload();await page.locator('.continue-copy h1').filter({hasText:'Pace Test Book'}).waitFor();
-    assert.match(await page.locator('.continue-progress').innerText(),/6 min left in book/);
-    assert.match(await page.locator('.shelf-item').filter({hasText:'Pace Test Book'}).innerText(),/25%.*6 min left/s);
+    assert.match(await page.locator('.continue-progress').innerText(),/8 min left in book/);
+    assert.match(await page.locator('.shelf-item').filter({hasText:'Pace Test Book'}).innerText(),/25%.*8 min left/s);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
     await page.screenshot({path:`${output}/${name}-dashboard.png`});
     await page.getByRole('button',{name:'Resume',exact:true}).click();

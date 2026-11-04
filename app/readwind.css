@@ -4826,3 +4826,11 @@ select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
    text-entry fields keep theirs. Keyboard users (Tab/arrow keys) still get every ring. */
 [tabindex="-1"]:focus, [tabindex="-1"]:focus-visible { outline: none !important; box-shadow: none; }
 html[data-input="pointer"] :is(button, a, summary, [role="button"], [role="tab"], [role="menuitem"], [role="dialog"], label, main, section, div):focus-visible { outline: none !important; }
+
+.stats-daystart { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; text-align: left; gap: 8px 12px; margin-top: 16px; font-size: 14px; }
+.stats-daystart select { min-height: 40px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font: inherit; }
+.stats-daystart small { flex-basis: 100%; color: var(--muted); font-size: 12px; }
+
+/* Non-blocking offer to continue from another device, or to return after a big jump. */
+.resume-offer { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30; display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 8px 10px; max-width: min(520px, calc(100vw - 32px)); padding: 10px 14px; border-radius: 18px; border: 1px solid var(--line-strong); background: var(--modal-bg); box-shadow: var(--modal-shadow); font-size: 14px; }
+.resume-offer .button { min-height: 40px; }

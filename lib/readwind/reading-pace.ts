@@ -8,9 +8,12 @@
  * down-weights skimming/idle samples by their probability instead of hard cut-offs, and forgets old
  * habits with a half-life measured in reading time (never wall-clock time).
  */
-export type PaceEntry = { samples: number; words: number; seconds: number; lm?: number; w?: number; v?: number; ra?: number; run?: number };
+export type PaceEntry = { samples: number; words: number; seconds: number; lm?: number; w?: number; v?: number; ra?: number; run?: number; cal?: number; cn?: number };
 export type ReadingPace = Record<string, PaceEntry>;
 
+/** Per-book entries share the synced pace record under this key prefix, so merging needs no new path. */
+export const BOOK_PREFIX = "bk-";
+const CAL_PREFIX = "cal-"; // calibration lives under its own key so its sample count (cn) drives the merge
 export const PRIOR_WPM = 230;
 const PRIOR_WEIGHT = 4; // pseudo-samples behind the prior
 const HALF_LIFE_SECONDS = 6 * 3600; // of actual reading
@@ -40,7 +43,8 @@ export function posterior(pace: ReadingPace = {}): Posterior {
   let weight = 0,
     sum = 0,
     spread = 0;
-  for (const entry of Object.values(pace)) {
+  for (const [id, entry] of Object.entries(pace)) {
+    if (id.startsWith(BOOK_PREFIX) || id.startsWith(CAL_PREFIX)) continue;
     const s = summary(entry);
     if (!s) continue;
     weight += s.w;
@@ -86,15 +90,16 @@ export function readingProbability(y: number, mean: number, sigma: number, weigh
   return Math.max(floor, r);
 }
 
-export function addPaceSample(pace: ReadingPace, id: string, words: number, seconds: number): ReadingPace {
+type Base = { mean: number; sigma: number; weight: number };
+/** Folds one sample into an entry, weighting it by how likely it is real reading against `base`. */
+function fold(pace: ReadingPace, id: string, words: number, seconds: number, base: Base, discardable: boolean): ReadingPace {
   if (!validPaceSample(words, seconds)) return pace;
   const old = pace[id] || { samples: 0, words: 0, seconds: 0 };
   const y = Math.log((words * 60) / seconds);
-  const post = posterior(pace);
-  let r = readingProbability(y, post.mean, post.sigma, post.weight);
+  let r = readingProbability(y, base.mean, base.sigma, base.weight);
   // A lone fast or slow page is an anomaly, but several in a row that agree with each other are a real
   // change in how this person reads (new book, new device, new habits), so they are believed.
-  const off = Math.abs(y - post.mean) > 0.3;
+  const off = Math.abs(y - base.mean) > 0.3;
   const prior = old.ra;
   const agrees = off && prior !== undefined && Math.abs(y - prior) < 0.45;
   // One ordinary page inside a run only weakens it; it does not erase the evidence.
@@ -102,7 +107,7 @@ export function addPaceSample(pace: ReadingPace, id: string, words: number, seco
   const ra = off ? (agrees ? 0.7 * prior! + 0.3 * y : y) : run > 0 ? prior : undefined;
   if (run >= 4) r = Math.max(r, 0.95);
   // A near-certain skim or pause is discarded outright once a real baseline exists.
-  if (post.weight >= 8 && r < 0.05 && run < 4)
+  if (discardable && base.weight >= 8 && r < 0.05 && run < 4)
     // Remember the anomaly (not its speed) so a genuine change of habit is recognised after a few pages.
     return pace[id] ? { ...pace, [id]: { ...old, ra, run } } : pace;
   // Legacy totals keep their bounded-history behaviour for older clients.
@@ -117,8 +122,68 @@ export function addPaceSample(pace: ReadingPace, id: string, words: number, seco
   const v = prev ? Math.max(0.01, (w0 * prev.v + r * dev) / nw) : BASE_SIGMA ** 2;
   return {
     ...pace,
-    [id]: { samples: old.samples + 1, words: old.words * legacyWeight + words, seconds: old.seconds * legacyWeight + seconds, lm, w: nw, v, ra, run },
+    [id]: { ...old, samples: old.samples + 1, words: old.words * legacyWeight + words, seconds: old.seconds * legacyWeight + seconds, lm, w: nw, v, ra, run },
   };
+}
+
+/** One device's pace sample. Words should be standard words (see bookDensity) so books compare fairly. */
+export function addPaceSample(pace: ReadingPace, id: string, words: number, seconds: number): ReadingPace {
+  return fold(pace, id, words, seconds, posterior(pace), true);
+}
+
+const BOOK_SHRINK = 8; // pages of a book needed before its own pace outweighs the reader's general pace
+const bookSummary = (pace: ReadingPace, bookId: string) => {
+  const e = pace[BOOK_PREFIX + bookId];
+  return e ? summary(e) : undefined;
+};
+/** A sample counted for the book itself, judged against that book's pace once it has one. */
+export function addBookPaceSample(pace: ReadingPace, bookId: string, words: number, seconds: number): ReadingPace {
+  const own = bookSummary(pace, bookId),
+    general = posterior(pace);
+  const base: Base = own && own.w >= 3 ? { mean: own.lm, sigma: Math.max(0.15, Math.sqrt(own.v)), weight: own.w } : general;
+  return fold(pace, BOOK_PREFIX + bookId, words, seconds, base, false);
+}
+
+/**
+ * Words per minute for one book's own words. Standard speed is shrunk toward this book's pace as it
+ * is read (dense or difficult books come out slower, easy ones faster), corrected by how much longer
+ * reading really took than predicted, and converted back through the book's word density.
+ */
+export function speedForBook(pace: ReadingPace = {}, bookId = "", density = 1) {
+  const g = posterior(pace),
+    own = bookId ? bookSummary(pace, bookId) : undefined;
+  const mean = own ? (BOOK_SHRINK * g.mean + own.w * own.lm) / (BOOK_SHRINK + own.w) : g.mean;
+  const standard = Math.exp(mean - calibration(pace));
+  return Math.max(MIN_SPEED / 4, Math.min(MAX_SPEED * 2, standard / Math.max(0.25, density)));
+}
+
+/**
+ * Self-calibration: whenever a stretch of reading is finished, the actual engaged time is compared
+ * with the time the estimate predicted. The log of that ratio (positive = slower than predicted) nudges
+ * a correction that applies to time-left estimates, so pauses and page-turn overhead that clean
+ * speed samples exclude are still accounted for.
+ */
+const CAL_MIN = -0.25,
+  CAL_MAX = 0.5;
+export function addCalibration(pace: ReadingPace, id: string, lnRatio: number): ReadingPace {
+  if (!Number.isFinite(lnRatio)) return pace;
+  const key = CAL_PREFIX + id;
+  const old = pace[key] || { samples: 0, words: 0, seconds: 0 };
+  const n = old.cn ?? 0;
+  const step = Math.max(0.1, 1 / (n + 1));
+  const cal = Math.max(CAL_MIN, Math.min(CAL_MAX, (old.cal ?? 0) + step * Math.max(-0.7, Math.min(0.7, lnRatio))));
+  return { ...pace, [key]: { ...old, samples: n + 1, cal, cn: n + 1 } };
+}
+export function calibration(pace: ReadingPace = {}) {
+  let n = 0,
+    sum = 0;
+  for (const [id, e] of Object.entries(pace)) {
+    if (!id.startsWith(CAL_PREFIX) || e.cal === undefined) continue;
+    const c = e.cn ?? 1;
+    n += c;
+    sum += c * e.cal;
+  }
+  return n ? Math.max(CAL_MIN, Math.min(CAL_MAX, sum / n)) : 0;
 }
 
 /** A reader-local baseline; never infer reading time from a saved position's age. */

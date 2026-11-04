@@ -57,7 +57,7 @@ function fuzz(days: number, seed: string) {
   return days * (1 + 0.1 * unit);
 }
 
-export function review(card: Card, grade: Grade, now = Date.now(), retention = DEFAULT_RETENTION): Review {
+export function review(card: Card, grade: Grade, now = Date.now(), retention = DEFAULT_RETENTION, scale = 1): Review {
   const prev = memoryState(card, now);
   let stability: number, difficulty: number, lapses = prev?.lapses ?? 0;
   if (!prev) {
@@ -79,7 +79,7 @@ export function review(card: Card, grade: Grade, now = Date.now(), retention = D
       stability = Math.max(stability, prev.stability + 0.05);
     }
   }
-  let days = fuzz(intervalFor(stability, retention), `${card.id ?? ""}:${(prev?.reps ?? 0) + 1}`);
+  let days = fuzz(intervalFor(stability * scale, retention), `${card.id ?? ""}:${(prev?.reps ?? 0) + 1}`);
   // Again always returns tomorrow; Hard never schedules past a plain pass of the same card.
   days = grade === 1 ? 1 : Math.max(1, Math.round(days));
   days = Math.min(MAX_INTERVAL, days);
@@ -87,9 +87,9 @@ export function review(card: Card, grade: Grade, now = Date.now(), retention = D
 }
 
 /** Preview of how long each answer would defer the card, for the review buttons. */
-export function previewIntervals(card: Card, now = Date.now(), retention = DEFAULT_RETENTION): Record<Grade, number> {
+export function previewIntervals(card: Card, now = Date.now(), retention = DEFAULT_RETENTION, scale = 1): Record<Grade, number> {
   const out = {} as Record<Grade, number>;
-  for (const g of [1, 2, 3, 4] as Grade[]) out[g] = review(card, g, now, retention).interval;
+  for (const g of [1, 2, 3, 4] as Grade[]) out[g] = review(card, g, now, retention, scale).interval;
   // Harder answers can never wait longer than easier ones.
   for (const g of [2, 3, 4] as Grade[]) out[g] = Math.max(out[g], out[(g - 1) as Grade]);
   return out;
@@ -116,4 +116,29 @@ export function dueQueue<T extends Card & { review?: Review }>(cards: T[], now =
     return m ? retrievability((now - m.last) / DAY, m.stability) : 0.5;
   };
   return due.sort((a, b) => score(a) - score(b)).slice(0, cap);
+}
+
+/**
+ * Per-reader tuning. The published weights fit an average learner; this learns how this reader's
+ * recall compares with the model's prediction and stretches or shrinks intervals to match. Only the
+ * sufficient statistics are kept (reviews, recalled, summed predicted recall), so it is tiny, merges
+ * across devices by taking the larger history, and gets steadier with every review.
+ */
+export type ReviewCal = { n: number; hit: number; pred: number };
+export const mergeReviewCal = (a?: ReviewCal, b?: ReviewCal) => (b && (!a || b.n > a.n) ? b : a);
+/** The model's recall probability for a card right now, if it has been reviewed before. */
+export function predictedRecall(card: Card, now = Date.now()) {
+  const m = memoryState(card, now);
+  return m ? retrievability(Math.max(0, (now - m.last) / DAY), m.stability) : undefined;
+}
+export function recordOutcome(cal: ReviewCal | undefined, predicted: number, recalled: boolean): ReviewCal {
+  const c = cal || { n: 0, hit: 0, pred: 0 };
+  return { n: c.n + 1, hit: c.hit + (recalled ? 1 : 0), pred: c.pred + clamp(predicted, 0, 1) };
+}
+export function stabilityScale(cal?: ReviewCal) {
+  if (!cal || cal.n < 30) return 1;
+  const predicted = clamp(cal.pred / cal.n, 0.05, 0.995),
+    actual = clamp(cal.hit / cal.n, 0.05, 0.995);
+  const raw = clamp(Math.log(predicted) / Math.log(actual), 0.6, 1.6);
+  return Math.pow(raw, cal.n / (cal.n + 100)); // trust grows with the number of reviews
 }

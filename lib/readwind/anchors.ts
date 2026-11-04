@@ -2,12 +2,23 @@ import type { Anchor, Book } from "./types";
 import { hasReadableContent } from './content';
 import {readingWordCount} from './word-count';
 // Books and sections are immutable snapshots in the library store.
-const summaries=new WeakMap<Book,{starts:number[];sections:{start:number;end:number;blocks:number[]}[];total:number}>();
+const summaries=new WeakMap<Book,{starts:number[];sections:{start:number;end:number;blocks:number[]}[];total:number;chars:number}>();
 function counts(book:Book){
   let cached=summaries.get(book);if(cached)return cached;
-  let total=0;const starts:number[]=[],sections:{start:number;end:number;blocks:number[]}[]=[];
-  for(const section of book.sections){const begin=total,blocks:number[]=[];starts.push(total);for(const block of section.blocks){blocks.push(total);total+=readingWordCount(hasReadableContent(block)?block.text || '':'');}sections.push({start:begin,end:total,blocks});}
-  cached={starts,sections,total};summaries.set(book,cached);return cached;
+  let total=0,chars=0;const starts:number[]=[],sections:{start:number;end:number;blocks:number[]}[]=[];
+  for(const section of book.sections){const begin=total,blocks:number[]=[];starts.push(total);for(const block of section.blocks){blocks.push(total);const text=hasReadableContent(block)?block.text || '':'';chars+=text.length;total+=readingWordCount(text);}sections.push({start:begin,end:total,blocks});}
+  cached={starts,sections,total,chars};summaries.set(book,cached);return cached;
+}
+/**
+ * How much reading a counted "word" represents in this book, relative to typical English prose
+ * (about 5.7 characters per word including the space). Short-word text is below 1, long-word or
+ * dense text above, and unspaced scripts (where a "word" is a short token) well below. Pace is learned
+ * in these standard words so books and languages measure on one scale.
+ */
+export function bookDensity(book:Book){
+  const {total,chars}=counts(book);
+  if(!total||!chars)return 1;
+  return Math.max(0.25,Math.min(2.5,chars/total/5.7));
 }
 export function compare(a: Anchor, b: Anchor) {
   return a.section - b.section || a.block - b.block || a.offset - b.offset;

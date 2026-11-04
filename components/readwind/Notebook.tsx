@@ -4,7 +4,7 @@ import type { Library } from "@/lib/readwind/useLibrary";
 import type { Book, Color, Annotation } from "@/lib/readwind/types";
 import { colors } from "@/lib/readwind/types";
 import { labelAt, start } from "@/lib/readwind/anchors";
-import { dueQueue, formatInterval, isLeech, previewIntervals, review as scheduleReview, type Grade } from "@/lib/readwind/spaced-repetition";
+import { DEFAULT_RETENTION, dueQueue, formatInterval, isLeech, predictedRecall, previewIntervals, review as scheduleReview, stabilityScale, type Grade } from "@/lib/readwind/spaced-repetition";
 import { Icon } from "./Icon";
 import { Modal } from "./Modal";
 export function Notebook({
@@ -45,6 +45,7 @@ export function Notebook({
         (!color || a.color === color) &&
         [a.note,a.quote,l.books.find(b=>b.id===a.bookId)?.title || ""].some(text=>text.toLocaleLowerCase().includes(search.toLocaleLowerCase())),
     );
+  const scale = stabilityScale(l.settings.reviewCal);
   // eslint-disable-next-line react-hooks/purity -- review due dates are relative to now
   const due = dueQueue(all.filter((a) => a.kind === "highlight"), Date.now()),
     card = due[0];
@@ -101,7 +102,9 @@ export function Notebook({
   async function answer(grade: Grade) {
     if (!card) return;
     setUndo(card);
-    await l.saveAnnotation({ ...card, review: scheduleReview(card, grade) });
+    const predicted = predictedRecall(card);
+    await l.saveAnnotation({ ...card, review: scheduleReview(card, grade, undefined, DEFAULT_RETENTION, scale) });
+    if (predicted !== undefined) void l.recordReviewOutcome(predicted, grade > 1);
     setRevealed(false);
   }
   async function undoAnswer() {
@@ -293,7 +296,7 @@ export function Notebook({
                         className={g === 3 ? "button primary" : "button"}
                         onClick={() => void answer(g)}
                       >
-                        {["Again", "Hard", "Good", "Easy"][g - 1]} · {formatInterval(previewIntervals(card)[g])}
+                        {["Again", "Hard", "Good", "Easy"][g - 1]} · {formatInterval(previewIntervals(card, undefined, DEFAULT_RETENTION, scale)[g])}
                       </button>
                     ))}
                   </>

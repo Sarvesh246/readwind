@@ -11,6 +11,7 @@ import { book, annotation, progress, settings } from "@/lib/readwind/schemas";
 import { persistSettings } from "@/lib/readwind/settings-sync";
 import { mergeReadingLog } from "@/lib/readwind/reading-log";
 import { mergeReadingPace } from "@/lib/readwind/reading-pace";
+import { mergeReviewCal } from "@/lib/readwind/spaced-repetition";
 import type { Settings } from "@/lib/readwind/types";
 
 export const GET = safeRoute(async (request: Request) => {
@@ -146,6 +147,7 @@ export const POST = safeRoute(async (request: Request) => {
       ...remote,
       readingLog: mergeReadingLog(remote?.readingLog, local.readingLog),
       readingPace: mergeReadingPace(remote?.readingPace, local.readingPace),
+      reviewCal: mergeReviewCal(remote?.reviewCal, local.reviewCal),
     };
     await persistSettings(db, user, merged);
   }

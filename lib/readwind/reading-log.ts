@@ -11,7 +11,12 @@ export const logKey = /^\d{4}-\d{2}-\d{2}\.[a-zA-Z0-9_-]{1,120}$/;
 
 const pad = (n: number) => String(n).padStart(2, "0");
 /** Local calendar day, so "daily" matches the reader's own midnight. */
-export function dayKey(date: Date = new Date(), startHour = 0) {
+let defaultStartHour = 0;
+/** The reader's chosen day start (0-6 am), applied wherever a day label is made. */
+export const setDayStartHour = (hour: number) => {
+  defaultStartHour = Number.isInteger(hour) && hour >= 0 && hour <= 6 ? hour : 0;
+};
+export function dayKey(date: Date = new Date(), startHour = defaultStartHour) {
   // Night readers can start their day at e.g. 4 am; the label is fixed when the activity is written.
   if (startHour) date = new Date(date.getTime() - startHour * 3600000);
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -40,13 +45,20 @@ export function mergeReadingLog(a: ReadingLog = {}, b: ReadingLog = {}): Reading
   return pruneLog(merged);
 }
 /**
- * Entries written by this version live under `<device>_v2` so a day already counted by the old
- * "any page" rule is never rewritten or downgraded; the two kinds are told apart by that suffix.
+ * Entries written by this version carry `_v2` in their key so a day already counted by the old
+ * "any page" rule is never rewritten or downgraded. Each also carries the id of the app session that
+ * wrote it, so a counter has exactly one writer: restoring a backup, reusing a device id or running two
+ * tabs can never make two histories share a counter, and the key-wise max merge is exact (it behaves as
+ * an append-only ledger with one segment per device, day and session).
  */
 export const V2_SUFFIX = "_v2";
-export function addActivity(log: ReadingLog, device: string, credit: LogEntry, now = new Date(), startHour = 0): ReadingLog {
+let session = "s0";
+export const setLogSession = (id: string) => {
+  session = id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12) || "s0";
+};
+export function addActivity(log: ReadingLog, device: string, credit: LogEntry, now = new Date(), startHour = defaultStartHour): ReadingLog {
   const day = dayKey(now, startHour);
-  const key = `${day}.${device}${V2_SUFFIX}`;
+  const key = `${day}.${device}${V2_SUFFIX}_${session}`;
   const old = log[key] || { pages: 0, words: 0, seconds: 0 };
   return pruneLog(
     {
@@ -81,7 +93,7 @@ export function dailyTotals(log: ReadingLog = {}, today = dayKey()): Map<string,
     t.pages += e.pages;
     t.words += e.words;
     t.seconds += e.seconds;
-    if (!key.endsWith(V2_SUFFIX) && e.pages >= 1) legacy.add(day);
+    if (!key.includes(V2_SUFFIX) && e.pages >= 1) legacy.add(day);
     days.set(day, t);
   }
   for (const [day, t] of days) {

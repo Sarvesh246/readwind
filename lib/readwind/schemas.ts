@@ -210,6 +210,8 @@ export const annotation = z.object({
 });
 export const settings = z.object({
   confirmBookDeletion:z.boolean().optional(),
+  dayStartHour:z.number().int().min(0).max(6).optional(),
+  reviewCal:z.object({n:z.number().int().min(0).max(1000000),hit:z.number().min(0).max(1000000),pred:z.number().min(0).max(1000000)}).optional(),
   readingPace: z.record(z.string().regex(safeId), z.object({
     samples:z.number().int().min(0).max(1000000000),
     words:z.number().min(0).max(1000000000000),
@@ -219,12 +221,14 @@ export const settings = z.object({
     v:z.number().min(0).max(100).optional(),
     ra:z.number().min(-10).max(10).optional(),
     run:z.number().int().min(0).max(1000).optional(),
-  })).refine(value=>Object.keys(value).length<=64).optional(),
+    cal:z.number().min(-1).max(1).optional(),
+    cn:z.number().int().min(0).max(1000000000).optional(),
+  })).refine(value=>Object.keys(value).length<=900).optional(),
   readingLog: z.record(z.string().regex(logKey), z.object({
     pages:z.number().int().min(0).max(100000),
     words:z.number().min(0).max(10000000),
     seconds:z.number().min(0).max(86400),
-  })).refine(value=>Object.keys(value).length<=4000).optional(),
+  })).refine(value=>Object.keys(value).length<=20000).optional(),
   paper: z.enum(["Paper", "Sepia", "Dusk", "Night"]),
   font: z.enum(["Literata", "Source Serif", "Atkinson"]),
   size: z.number().min(14).max(28),

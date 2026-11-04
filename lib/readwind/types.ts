@@ -81,6 +81,10 @@ export type Progress = {
 };
 export type Settings = {
   confirmBookDeletion?:boolean;
+  /** Hour (0-6) the reader's day starts, so late-night reading counts toward the day it began. */
+  dayStartHour?:number;
+  /** Sufficient statistics of recall outcomes (count, recalled, summed predicted recall) for per-reader tuning. */
+  reviewCal?:{n:number;hit:number;pred:number};
   readingPace?: import('./reading-pace').ReadingPace;
   readingLog?: import('./reading-log').ReadingLog;
   paper: "Paper" | "Sepia" | "Dusk" | "Night";

@@ -1,6 +1,6 @@
 "use client";
 import { boundedFetch, SyncRequestError, checkPayloadSize } from './sync-safety';
-import {wordProgress,start} from './anchors';
+import {wordProgress,start,bookDensity} from './anchors';
 import { validateFile } from "./file-validation";
 import {bookAssets,privateBookAssets,verifiedAsset,catalogMetadataUpdate,bookMetadataUpdate} from './catalog';
 import {book as catalogBookSchema} from './schemas';
@@ -11,8 +11,9 @@ import { ReadwindDB, deviceId, encodeFile, storedBlob } from "./db";
 import type { Pending } from "./db";
 import type { Book, Annotation, Anchor, Settings, Progress } from "./types";
 import { defaults } from "./types";
-import {addPaceSample,mergeReadingPace,readingSpeed,validPaceSample} from './reading-pace';
-import {addActivity,mergeReadingLog} from './reading-log';
+import {addPaceSample,addBookPaceSample,addCalibration,mergeReadingPace,readingSpeed,speedForBook,validPaceSample} from './reading-pace';
+import {mergeReviewCal,recordOutcome} from './spaced-repetition';
+import {addActivity,mergeReadingLog,setDayStartHour,setLogSession} from './reading-log';
 import type {LogEntry} from './reading-log';
 import { loadClassics } from "./classics";
 import type { ImportJob, ImportJobInput } from "./import-jobs";
@@ -75,6 +76,8 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   const progress=progressSnapshot?.owner===db.name?progressSnapshot.values:[];
   const preferences = useLiveQuery(async() => ({owner:db.name,value:(await db.preferences.get("reader"))?.value}), [db]);
   const settings = preferences?.owner===db.name?preferences.value||defaults:defaults;
+  useEffect(() => { setLogSession(crypto.randomUUID()); }, []);
+  useEffect(() => { setDayStartHour(settings.dayStartHour ?? 0); }, [settings.dayStartHour]);
   const pendingSnapshot=useLiveQuery(async()=>({owner:db.name,values:await db.pending.toArray()}),[db]);
   const failedChanges=pendingSnapshot?.owner===db.name?pendingSnapshot.values.filter(p=>p.error):[];
   const api = useCallback(
@@ -395,7 +398,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
             const local = (await db.preferences.get("reader"))?.value;
             await db.preferences.put({
               id: "reader",
-              value: { ...defaults, ...data.settings, readingPace:mergeReadingPace(local?.readingPace,data.settings.readingPace), readingLog:mergeReadingLog(local?.readingLog,data.settings.readingLog) },
+              value: { ...defaults, ...data.settings, readingPace:mergeReadingPace(local?.readingPace,data.settings.readingPace), readingLog:mergeReadingLog(local?.readingLog,data.settings.readingLog), reviewCal:mergeReviewCal(local?.reviewCal,data.settings.reviewCal) },
             });
           }
           // The account is authoritative for books. Remove copies deleted on
@@ -639,21 +642,46 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     if(editingLocked.current)throw new Error("Account changes are paused while signing out or restoring.");
     await db.transaction("rw", [db.preferences, db.pending], async () => {
       const current = await db.preferences.get("reader");
-      value = {...value,readingPace:mergeReadingPace(current?.value.readingPace,value.readingPace),readingLog:mergeReadingLog(current?.value.readingLog,value.readingLog)};
+      value = {...value,readingPace:mergeReadingPace(current?.value.readingPace,value.readingPace),readingLog:mergeReadingLog(current?.value.readingLog,value.readingLog),reviewCal:mergeReviewCal(current?.value.reviewCal,value.reviewCal)};
       await db.preferences.put({ id: "reader", value });
       if (!guest)
         await putChange({ id: "settings", entity: "settings", value });
     });
     void sync();
   };
-  const recordReading = async (words:number,seconds:number) => {
+  const recordReading = async (words:number,seconds:number,bookId?:string) => {
     if(editingLocked.current)return;
     if(!validPaceSample(words,seconds))return;
     await db.transaction("rw",[db.preferences,db.pending],async()=>{
       const current=(await db.preferences.get("reader"))?.value || defaults;
-      const pace=addPaceSample(current.readingPace || {},deviceId(),words,seconds);
+      let pace=addPaceSample(current.readingPace || {},deviceId(),words,seconds);
+      if(bookId)pace=addBookPaceSample(pace,bookId,words,seconds);
       if(pace===current.readingPace)return;
       const value={...current,readingPace:pace};
+      await db.preferences.put({id:"reader",value});
+      if(!guest)await putChange({id:"settings",entity:"settings",value});
+    });
+    void sync();
+  };
+  /** How much longer or shorter a stretch of reading took than predicted; feeds time-left estimates. */
+  const recordCalibration = async (lnRatio:number) => {
+    if(editingLocked.current)return;
+    await db.transaction("rw",[db.preferences,db.pending],async()=>{
+      const current=(await db.preferences.get("reader"))?.value || defaults;
+      const pace=addCalibration(current.readingPace || {},deviceId(),lnRatio);
+      if(pace===current.readingPace)return;
+      const value={...current,readingPace:pace};
+      await db.preferences.put({id:"reader",value});
+      if(!guest)await putChange({id:"settings",entity:"settings",value});
+    });
+    void sync();
+  };
+  /** Remembers whether a reviewed highlight was recalled, so intervals fit this reader's memory. */
+  const recordReviewOutcome = async (predicted:number,recalled:boolean) => {
+    if(editingLocked.current)return;
+    await db.transaction("rw",[db.preferences,db.pending],async()=>{
+      const current=(await db.preferences.get("reader"))?.value || defaults;
+      const value={...current,reviewCal:recordOutcome(current.reviewCal,predicted,recalled)};
       await db.preferences.put({id:"reader",value});
       if(!guest)await putChange({id:"settings",entity:"settings",value});
     });
@@ -956,7 +984,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         }
         for(const a of data.annotations){const current=await db.annotations.get(a.id);const value={...a,revision:current?.revision || 0};await db.annotations.put(value);if(!guest)await db.pending.put({id:`annotation:${a.id}`,entity:'annotation',bookId:a.bookId,value});}
         for(const p of data.progress){const current=await db.progress.get(p.bookId);const value={...p,revision:current?.revision || 0,deviceId:deviceId()};await db.progress.put(value);if(!guest)await db.pending.put({id:`progress:${p.bookId}`,entity:'progress',bookId:p.bookId,value});}
-        if(data.settings){const current=(await db.preferences.get('reader'))?.value;const value={...data.settings,readingLog:mergeReadingLog(current?.readingLog,data.settings.readingLog),readingPace:mergeReadingPace(current?.readingPace,data.settings.readingPace)};await db.preferences.put({id:'reader',value});if(!guest)await db.pending.put({id:'settings',entity:'settings',value});}
+        if(data.settings){const current=(await db.preferences.get('reader'))?.value;const value={...data.settings,readingLog:mergeReadingLog(current?.readingLog,data.settings.readingLog),readingPace:mergeReadingPace(current?.readingPace,data.settings.readingPace),reviewCal:mergeReviewCal(current?.reviewCal,data.settings.reviewCal)};await db.preferences.put({id:'reader',value});if(!guest)await db.pending.put({id:'settings',entity:'settings',value});}
       });
     } finally {editingLocked.current=false;restoringArchive.current=false;}
     remoteRevision.current=null;
@@ -987,7 +1015,11 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     settings,
     paceOwner:userId,
     readingSpeed:readingSpeed(settings.readingPace),
+    /** Words per minute for this book's own words: reader pace, tuned to the book, corrected by calibration. */
+    speedFor:(b:Book)=>speedForBook(settings.readingPace,b.id,bookDensity(b)),
     recordReading,
+    recordCalibration,
+    recordReviewOutcome,
     recordActivity,
     readingLog:settings.readingLog,
     status,

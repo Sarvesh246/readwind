@@ -166,8 +166,8 @@ export function Library({
   const summaries=useMemo(()=>{
     const noteText=new Map<string,string>();
     for(const a of l.annotations)noteText.set(a.bookId,(noteText.get(a.bookId)||'')+' '+a.note+' '+a.quote);
-    return new Map(l.books.map(b=>[b.id,{info:wordProgress(b,progressByBook.get(b.id)?.at || start,l.readingSpeed),text:(b.title+' '+b.author+' '+(noteText.get(b.id)||'')).toLowerCase()}]));
-  },[l.books,l.annotations,progressByBook,l.readingSpeed]);
+    return new Map(l.books.map(b=>[b.id,{info:wordProgress(b,progressByBook.get(b.id)?.at || start,l.speedFor(b)),text:(b.title+' '+b.author+' '+(noteText.get(b.id)||'')).toLowerCase()}]));
+  },[l.books,l.annotations,progressByBook,l.settings.readingPace]);
   const books = useMemo(
     () =>
       l.books
@@ -215,7 +215,7 @@ export function Library({
       ? progressByBook.get(current.id)
       : undefined,
     at = progress?.at || start;
-  const reading = current ? wordProgress(current, at, l.readingSpeed) : null;
+  const reading = current ? wordProgress(current, at, l.speedFor(current)) : null;
   const notes = current
     ? l.annotations.filter(
         (a) => a.bookId === current.id && a.kind === "highlight",
@@ -364,7 +364,7 @@ export function Library({
               <div className="chapter-label">
                 {started
                   ? `Chapter ${at.section + 1} · ${current.sections[at.section]?.title}`
-                  : `${current.author} · ${current.pagination==='flow'?'':`${current.printPageCount} pages · `}${readTime(current, l.readingSpeed)}`}
+                  : `${current.author} · ${current.pagination==='flow'?'':`${current.printPageCount} pages · `}${readTime(current, l.speedFor(current))}`}
               </div>
               {started && (
                 <div className="continue-progress">
@@ -509,7 +509,7 @@ export function Library({
                       <span title="Full-book progress and estimated time at your reading pace">
                         {info.pct > 0
                           ? `${Math.round(info.pct * 100)}% · ${readDuration(info.bookMinutes)} left`
-                          : `Not started · ${readTime(b, l.readingSpeed)}`}
+                          : `Not started · ${readTime(b, l.speedFor(b))}`}
                       </span>
                     </div>
                   </button>

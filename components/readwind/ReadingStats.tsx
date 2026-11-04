@@ -1,4 +1,5 @@
 "use client";
+import type { Settings } from "@/lib/readwind/types";
 import { useMemo } from "react";
 import { Flame } from "./Flame";
 import { Modal } from "./Modal";
@@ -32,7 +33,8 @@ type Source = {
   annotations: Annotation[];
   readingLog?: ReadingLog;
   readingSpeed: number;
-  settings: { readingPace?: Record<string, unknown> };
+  settings: Settings;
+  saveSettings: (value: Settings) => Promise<void>;
 };
 
 export function ReadingStats({ library: l, onClose }: { library: Source; onClose: () => void }) {
@@ -65,7 +67,14 @@ export function ReadingStats({ library: l, onClose }: { library: Source; onClose
     const day = dayFromNumber(gridStart + i);
     return { day, seconds: days.get(day)?.seconds ?? 0, read: days.has(day), future: gridStart + i > todayNum };
   });
-  const level = (d: { seconds: number; read: boolean }) => (!d.read ? 0 : d.seconds < 300 ? 1 : d.seconds < 900 ? 2 : d.seconds < 1800 ? 3 : 4);
+  // Shades are the reader's own quartiles (with floors), so a light reader still sees contrast and a
+  // heavy reader's best days stand out; with little history the fixed floors apply.
+  const cuts = (() => {
+    const xs = heat.filter((d) => d.read).map((d) => d.seconds).sort((a, b) => a - b);
+    const q = (p: number) => (xs.length >= 8 ? xs[Math.floor(p * (xs.length - 1))] : 0);
+    return [Math.max(120, q(0.25)), Math.max(300, q(0.5)), Math.max(600, q(0.75))];
+  })();
+  const level = (d: { seconds: number; read: boolean }) => (!d.read ? 0 : d.seconds < cuts[0] ? 1 : d.seconds < cuts[1] ? 2 : d.seconds < cuts[2] ? 3 : 4);
 
   const tiles: { label: string; value: string; unit?: string; note: string }[] = [
     {
@@ -142,6 +151,18 @@ export function ReadingStats({ library: l, onClose }: { library: Source; onClose
           </p>
         </section>
       </div>
+      <label className="stats-daystart">
+        My day starts at
+        <select
+          value={l.settings.dayStartHour ?? 0}
+          onChange={(e) => void l.saveSettings({ ...l.settings, dayStartHour: Number(e.target.value) })}
+        >
+          {[0, 2, 3, 4, 5, 6].map((h) => (
+            <option key={h} value={h}>{h === 0 ? "Midnight" : `${h} am`}</option>
+          ))}
+        </select>
+        <small>Late-night reading counts toward the day it started.</small>
+      </label>
       <p className="stats-foot">
         Words and time come from pages you actually read. Flipping quickly, skimming and idle gaps are left out, so these numbers stay honest.
       </p>
