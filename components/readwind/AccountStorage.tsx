@@ -30,12 +30,13 @@ export function AccountStorage({library:l,onDeleted}:{library:Library;onDeleted:
    onDeleted();
   }catch(e){setMessage((e as Error).message);l.resumeEditing();}finally{setBusy(false);}
  }
- return <details><summary>Storage and account access</summary>
- {usage&&<p>Private cloud files: {mb(usage.bytes)} of {mb(usage.limit)} · {usage.provider}</p>}
- {device&&<p>Browser storage: {mb(device.usage || 0)} used of approximately {mb(device.quota || 0)}. The browser may evict unprotected downloads.</p>}
- <ul>{downloads.map(book=><li key={book.id}>{book.title}: {mb(book.bytes)} · {book.complete?'Available offline':'Download incomplete'} <button className="button small" disabled={busy} onClick={()=>void remove(book.id)}>Remove download</button></li>)}</ul>
- {usage&&<><h3>Signed-in sessions</h3><p>Revoking cloud access does not remotely erase offline downloads.</p>{usage.sessions.map(session=><p key={session.id}>{session.current?'This session':'Other session'} · last refreshed {new Date(session.lastUsed).toLocaleDateString()} · expires {new Date(session.expiresAt).toLocaleDateString()} {!session.current&&<button className="button" disabled={busy} onClick={()=>void revoke(session.id)}>Revoke</button>}</p>)}<button className="button" disabled={busy} onClick={()=>void revoke()}>Revoke other sessions</button></>}
- <p>Export a backup before deleting your account. Deletion removes private cloud data and this device’s downloads; shared catalog books stay available to other readers.</p><button className="button" disabled={busy} onClick={()=>void deleteAccount()}>Delete account permanently</button>
- {message&&<p role="status">{message}</p>}
- </details>;
+ const pct=(used:number,total:number)=>total>0?Math.min(100,Math.max(used>0?2:0,used/total*100)):0;
+ return <details className="settings-details"><summary>Storage and account access</summary><div className="panel-body">
+ {usage&&<div className="meter-block"><div className="meter-head"><span>Private cloud files</span><strong>{mb(usage.bytes)} of {mb(usage.limit)}</strong></div><div className="meter" aria-hidden="true"><span style={{width:`${pct(usage.bytes,usage.limit)}%`}}/></div><small>Stored with {usage.provider}</small></div>}
+ {device&&<div className="meter-block"><div className="meter-head"><span>Browser storage</span><strong>{mb(device.usage || 0)} of ~{mb(device.quota || 0)}</strong></div><div className="meter" aria-hidden="true"><span style={{width:`${pct(device.usage||0,device.quota||0)}%`}}/></div><small>The browser may evict unprotected downloads.</small></div>}
+ {downloads.length>0&&<div className="panel-section"><h3>Downloaded books</h3><ul className="row-list">{downloads.map(book=><li key={book.id}><div className="row-text"><strong>{book.title}</strong><small>{mb(book.bytes)} · {book.complete?'Available offline':'Download incomplete'}</small></div><button className="button small" disabled={busy} onClick={()=>void remove(book.id)}>Remove download</button></li>)}</ul></div>}
+ {usage&&<div className="panel-section"><h3>Signed-in sessions</h3><small>Revoking cloud access does not remotely erase offline downloads.</small><ul className="row-list">{usage.sessions.map(session=><li key={session.id}><div className="row-text"><strong>{session.current?'This session':'Other session'}</strong><small>Refreshed {new Date(session.lastUsed).toLocaleDateString()} · expires {new Date(session.expiresAt).toLocaleDateString()}</small></div>{!session.current&&<button className="button small" disabled={busy} onClick={()=>void revoke(session.id)}>Revoke</button>}</li>)}</ul><button className="button" disabled={busy} onClick={()=>void revoke()}>Revoke other sessions</button></div>}
+ <div className="panel-section danger-zone"><h3>Delete account</h3><small>Export a backup first. Deletion removes private cloud data and this device’s downloads; shared catalog books stay available to other readers.</small><button className="button danger" disabled={busy} onClick={()=>void deleteAccount()}>Delete account permanently</button></div>
+ {message&&<p role="status" className="panel-message">{message}</p>}
+ </div></details>;
 }

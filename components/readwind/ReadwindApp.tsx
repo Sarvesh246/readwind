@@ -254,7 +254,7 @@ function AuthForm({
 }
 function AccountPassword({ auth }: { auth: AuthClient }) {
   const [current, setCurrent] = useState(''), [next, setNext] = useState(''), [confirm, setConfirm] = useState(''), [busy, setBusy] = useState(false), [message, setMessage] = useState('');
-  return <details><summary>Change password</summary><form className="auth-form" onSubmit={async event => {
+  return <details className="settings-details"><summary>Change password</summary><form className="auth-form panel-body" onSubmit={async event => {
     event.preventDefault(); setMessage('');
     if (next !== confirm) { setMessage('The new passwords do not match.'); return; }
     setBusy(true);
@@ -496,26 +496,31 @@ function Workspace({
           </button>
           {library.failedChanges.map(change=><div key={change.id} role="alert"><p>{change.entity} · {change.error}</p>{!!change.alternate && <><details><summary>Review local and other-device versions</summary><pre style={{maxHeight:240,overflow:'auto',whiteSpace:'pre-wrap'}}>{JSON.stringify({local:change.value,otherDevice:change.alternate},null,2)}</pre></details><button className="button" onClick={()=>void library.resolveFailedChange(change.id,true)}>Keep this device’s version</button><button className="button" onClick={()=>void library.resolveFailedChange(change.id,false)}>Use other device’s version</button></>}</div>)}
           <AppearanceControl />
-          <label><input type="checkbox" defaultChecked={typeof window!=='undefined' && localStorage.getItem('readwind-offline-enabled')==='true'} onChange={event=>{
+          <section className="settings-card">
+          <label className="switch-row"><input type="checkbox" role="switch" className="switch" defaultChecked={typeof window!=='undefined' && localStorage.getItem('readwind-offline-enabled')==='true'} onChange={event=>{
             localStorage.setItem('readwind-offline-enabled',String(event.target.checked));
             if(event.target.checked && user)localStorage.setItem('folio-offline-user',JSON.stringify({...user,offlineUntil:Date.now()+30*86400000}));
             else localStorage.removeItem('folio-offline-user');
-          }}/> Keep offline access between launches for 30 days</label>
+          }}/><span>Keep offline access between launches for 30 days</span></label>
           <p className="muted">Anyone using this browser can open downloaded books when offline. Enable this only on a personal device. Cloud sync always requires a valid sign-in.</p>
+          </section>
+          <div className="settings-stack">
           {auth && <AccountPassword auth={auth} />}
           <AccountStorage library={library} onDeleted={()=>{location.href=new URL('/',location.origin).href;}}/>
+          </div>
           <p className="muted">
             Your books and notes belong to this account. Sign out removes downloaded
             books and notes from this device. Sync first to save your latest changes.
           </p>
-          <div className="conflict-options">
+          <div className="account-actions">
             <button
               className="button primary"
               onClick={() => void library.sync(true)}
             >
               Sync now
             </button>
-            <details><summary>Select books for backup (all by default)</summary>{library.books.map(b=><label key={b.id} style={{display:'block'}}><input type="checkbox" checked={selectedExport.includes(b.id)} onChange={event=>setSelectedExport(ids=>event.target.checked?[...ids,b.id]:ids.filter(id=>id!==b.id))}/>{b.title}</label>)}</details>
+            <details className="backup-select"><summary>Select books for backup (all by default)</summary><div className="backup-list">{library.books.map(b=><label key={b.id} className="check-row"><input type="checkbox" checked={selectedExport.includes(b.id)} onChange={event=>setSelectedExport(ids=>event.target.checked?[...ids,b.id]:ids.filter(id=>id!==b.id))}/><span>{b.title}</span></label>)}</div></details>
+            <div className="account-actions-grid">
             <button className="button" onClick={() => void backup()}>
               Download encrypted backup
             </button>
@@ -544,6 +549,7 @@ function Workspace({
             >
               Sign out
             </button>
+            </div>
           </div>
         </Modal>
       )}

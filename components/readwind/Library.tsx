@@ -458,7 +458,7 @@ export function Library({
           {!l.ready && <p role="status">Opening your library…</p>}
           {deleteError&&<p className="form-error" role="alert">{deleteError}</p>}
           {l.settings.confirmBookDeletion===false&&<button className="delete-confirm-reset" onClick={()=>void l.saveSettings({...l.settings,confirmBookDeletion:true}).catch(()=>setDeleteError('Could not update deletion confirmations.'))}>Turn on deletion confirmations</button>}
-          {!!selected.length&&<div role="group" aria-label="Organize selected books"><span>{selected.length} selected</span><button className="button" onClick={()=>void organizeSelected({readingStatus:'finished'})}>Mark finished</button><button className="button" onClick={()=>void organizeSelected({readingStatus:'to-read'})}>Mark to read</button><button className="button" onClick={()=>{const value=window.prompt('Set collections for selected books, separated by commas');if(value!==null)void organizeSelected({tags:[...new Set(value.split(',').map(t=>t.trim()).filter(Boolean))].slice(0,30)});}}>Set collections</button><button className="button" onClick={()=>setSelected([])}>Clear selection</button></div>}
+          {!!selected.length&&<div className="bulk-bar" role="group" aria-label="Organize selected books"><span className="bulk-count">{selected.length} selected</span><button className="button" onClick={()=>void organizeSelected({readingStatus:'finished'})}>Mark finished</button><button className="button" onClick={()=>void organizeSelected({readingStatus:'to-read'})}>Mark to read</button><button className="button" onClick={()=>{const value=window.prompt('Set collections for selected books, separated by commas');if(value!==null)void organizeSelected({tags:[...new Set(value.split(',').map(t=>t.trim()).filter(Boolean))].slice(0,30)});}}>Set collections</button><button className="button ghost" onClick={()=>setSelected([])}>Clear selection</button></div>}
           {batchError&&<p role="alert">{batchError}</p>}
           <div className="shelf-grid">
             {l.imports.map((job) => (
@@ -507,8 +507,11 @@ export function Library({
                     </div>
                   </button>
                   <div className="shelf-actions">
-                    <label><input type="checkbox" aria-label={`Select ${b.title}`} checked={selected.includes(b.id)} onChange={e=>setSelected(ids=>e.target.checked?[...ids,b.id]:ids.filter(id=>id!==b.id))}/>Select</label>
-                    <select aria-label={`Reading status for ${b.title}`} value={b.readingStatus || ''} onChange={e=>void l.saveBook({...b,readingStatus:(e.target.value || undefined) as Book['readingStatus']})}><option value="">Automatic status</option><option value="to-read">To read</option><option value="reading">Reading</option><option value="finished">Finished</option></select>
+                    <div className="shelf-controls">
+                    <label className="select-toggle"><input type="checkbox" aria-label={`Select ${b.title}`} checked={selected.includes(b.id)} onChange={e=>setSelected(ids=>e.target.checked?[...ids,b.id]:ids.filter(id=>id!==b.id))}/><span>Select</span></label>
+                    <span className="select-wrap"><select className="status-select" aria-label={`Reading status for ${b.title}`} value={b.readingStatus || ''} onChange={e=>void l.saveBook({...b,readingStatus:(e.target.value || undefined) as Book['readingStatus']})}><option value="">Automatic</option><option value="to-read">To read</option><option value="reading">Reading</option><option value="finished">Finished</option></select></span>
+                    </div>
+                    <div className="shelf-buttons">
                     <button className="button" onClick={()=>{const tags=window.prompt('Collections, separated by commas',b.tags?.join(', ') || '');if(tags!==null)void l.saveBook({...b,tags:[...new Set(tags.split(',').map(t=>t.trim()).filter(Boolean))].slice(0,30)});}}>Collections</button>
 
                     <button
@@ -528,6 +531,7 @@ export function Library({
                     >
                       Delete
                     </button>
+                    </div>
                   </div>
                 </motion.div>
               );
