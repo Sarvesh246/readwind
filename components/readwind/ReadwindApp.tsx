@@ -519,7 +519,7 @@ function Workspace({
             >
               Sync now
             </button>
-            <details className="backup-select"><summary>Select books for backup (all by default)</summary><div className="backup-list">{library.books.map(b=><label key={b.id} className="check-row"><input type="checkbox" checked={selectedExport.includes(b.id)} onChange={event=>setSelectedExport(ids=>event.target.checked?[...ids,b.id]:ids.filter(id=>id!==b.id))}/><span>{b.title}</span></label>)}</div></details>
+            <details className="backup-select"><summary>Select books for backup (all by default)</summary><div className="backup-tools"><button type="button" className="button small" onClick={()=>setSelectedExport(library.books.map(b=>b.id))}>Select all</button><button type="button" className="button small" onClick={()=>setSelectedExport([])}>Reset to all</button></div><div className="backup-list">{library.books.map(b=><label key={b.id} className="check-row"><input type="checkbox" checked={selectedExport.includes(b.id)} onChange={event=>setSelectedExport(ids=>event.target.checked?[...ids,b.id]:ids.filter(id=>id!==b.id))}/><span>{b.title}</span></label>)}</div></details>
             <div className="account-actions-grid">
             <button className="button" onClick={() => void backup()}>
               Download encrypted backup

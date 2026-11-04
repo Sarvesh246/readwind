@@ -4701,3 +4701,104 @@ select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .check-row input { margin-top: 1px; }
 .backup-list { max-height: min(320px, 45dvh); }
 @media (min-width: 560px) { .account-actions-grid { grid-template-columns: 1fr 1fr; } .account-actions-grid .button:last-child { grid-column: 1 / -1; } }
+
+/* ───────── Compact shelf cards: overlay select + actions menu ───────── */
+.shelf-cell { position: relative; }
+.card-select, .card-menu > summary {
+  position: absolute;
+  top: 8px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid var(--line-strong);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+  color: var(--ink);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background-color 0.15s;
+}
+.card-select { left: 8px; }
+.card-select input { width: 22px; height: 22px; }
+.card-menu > summary { right: 8px; list-style: none; font-size: 20px; line-height: 1; letter-spacing: 1px; }
+.card-menu > summary::-webkit-details-marker { display: none; }
+.shelf-cell:hover .card-select, .shelf-cell:hover .card-menu > summary,
+.shelf-cell:focus-within .card-select, .shelf-cell:focus-within .card-menu > summary,
+.card-select:has(input:checked), .card-menu[open] > summary { opacity: 1; }
+.card-select:has(input:checked) { background: var(--accent); border-color: var(--accent); }
+.card-select:has(input:checked) input { background-color: transparent; border-color: transparent; }
+@media (hover: none) { .card-select, .card-menu > summary { opacity: 0.94; } }
+.shelf-cell:has(input:checked) .shelf-cover { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card-menu { position: static; }
+.card-menu-panel {
+  position: absolute;
+  top: 50px;
+  right: 8px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: min(200px, calc(100% - 16px));
+  min-width: 168px;
+  padding: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--modal-bg);
+  box-shadow: var(--modal-shadow);
+}
+.card-menu-label { padding: 6px 10px 2px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-2); }
+.card-menu-panel hr { width: 100%; margin: 4px 0; border: 0; border-top: 1px solid var(--line); }
+.card-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: 10px;
+  color: var(--ink);
+  font-size: 14px;
+  text-align: left;
+}
+.card-menu-item:hover { background: var(--hover-strong); }
+.card-menu-item[aria-pressed="true"] { background: var(--accent-soft); font-weight: 600; }
+.card-menu-item[aria-pressed="true"]::after { content: "✓"; margin-left: auto; color: var(--accent); }
+.card-menu-item.danger { color: var(--danger); }
+
+/* Long lists in settings stay contained */
+.row-list.scroll, .backup-list { max-height: min(300px, 40dvh); overflow-y: auto; overscroll-behavior: contain; }
+.row-list.scroll { padding-right: 2px; }
+.list-tools { display: flex; align-items: center; gap: 8px; width: 100%; }
+.list-tools input { flex: 1; min-width: 0; min-height: 40px; border-radius: 999px; }
+.list-tools .button { min-height: 40px; padding: 0 14px; font-size: 13px; }
+.backup-tools { display: flex; gap: 8px; padding: 10px 12px 0; }
+.backup-tools .button { min-height: 36px; padding: 0 14px; font-size: 13px; }
+.row-list li { padding: 8px 10px; }
+.row-text strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.row-list li { flex: none; }
+
+/* Reading stats: a fixed panel on desktop, compact enough that it never scrolls. */
+@media (min-width: 700px) {
+  .readwind-modal.stats-modal { overflow: hidden; }
+  .stats-modal .modal-content { padding: 20px 24px; gap: 12px; }
+  .stats-modal .modal-header h2 { font-size: 22px; }
+  .stats-streak, .stats-today { padding: 12px 16px; }
+  .stats-streak strong { font-size: 34px; }
+  .stat-tile { padding: 10px 14px; }
+  .stat-tile dd { font-size: 24px; margin-top: 4px; }
+  .stat-tile p { margin-top: 4px; }
+  .stats-charts section { padding: 12px 16px; }
+  .stats-charts h3 { margin-bottom: 8px; }
+  .bars { height: 116px; }
+}
+@media (min-width: 700px) and (max-height: 800px) {
+  .stats-modal .modal-content { padding: 14px 20px; gap: 8px; }
+  .stats-grid, .stats-hero, .stats-charts { gap: 8px; }
+  .stat-tile p { display: none; }
+  .bars { height: 92px; }
+  .stats-modal .modal-content > p { font-size: 12px; line-height: 1.4; }
+}

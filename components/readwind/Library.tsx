@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { Book } from "@/lib/readwind/types";
 import type { Library as LibraryData } from "@/lib/readwind/useLibrary";
@@ -137,6 +137,13 @@ export function Library({
 }) {
   const [calendar, setCalendar] = useState(false);
   const [selected,setSelected]=useState<string[]>([]);
+  const closeMenu=(e:{currentTarget:Element})=>{e.currentTarget.closest('details')?.removeAttribute('open');};
+  useEffect(()=>{
+    const close=(e:Event)=>{document.querySelectorAll<HTMLDetailsElement>('details.card-menu[open]').forEach(d=>{if(!d.contains(e.target as Node))d.removeAttribute('open');});};
+    const esc=(e:KeyboardEvent)=>{if(e.key==='Escape')document.querySelectorAll('details.card-menu[open]').forEach(d=>d.removeAttribute('open'));};
+    document.addEventListener('pointerdown',close);document.addEventListener('keydown',esc);
+    return()=>{document.removeEventListener('pointerdown',close);document.removeEventListener('keydown',esc);};
+  },[]);
   const [batchError,setBatchError]=useState('');
   const organizeSelected=async(patch:Partial<Pick<Book,'readingStatus'|'tags'>>)=>{try{for(const b of l.books.filter(b=>selected.includes(b.id)))await l.saveBook({...b,...patch});setSelected([]);}catch(error){setBatchError((error as Error).message);}};
   const readDays = useMemo(() => dailyTotals(l.readingLog), [l.readingLog]);
@@ -506,33 +513,20 @@ export function Library({
                       </span>
                     </div>
                   </button>
-                  <div className="shelf-actions">
-                    <div className="shelf-controls">
-                    <label className="select-toggle"><input type="checkbox" aria-label={`Select ${b.title}`} checked={selected.includes(b.id)} onChange={e=>setSelected(ids=>e.target.checked?[...ids,b.id]:ids.filter(id=>id!==b.id))}/><span>Select</span></label>
-                    <span className="select-wrap"><select className="status-select" aria-label={`Reading status for ${b.title}`} value={b.readingStatus || ''} onChange={e=>void l.saveBook({...b,readingStatus:(e.target.value || undefined) as Book['readingStatus']})}><option value="">Automatic</option><option value="to-read">To read</option><option value="reading">Reading</option><option value="finished">Finished</option></select></span>
+                  <label className="card-select" title="Select book"><input type="checkbox" aria-label={`Select ${b.title}`} checked={selected.includes(b.id)} onChange={e=>setSelected(ids=>e.target.checked?[...ids,b.id]:ids.filter(id=>id!==b.id))}/></label>
+                  <details className="card-menu">
+                    <summary aria-label={`Actions for ${b.title}`}><span aria-hidden="true">⋯</span></summary>
+                    <div className="card-menu-panel" role="group" aria-label={`Actions for ${b.title}`}>
+                      <span className="card-menu-label">Status</span>
+                      {([['', 'Automatic'], ['to-read', 'To read'], ['reading', 'Reading'], ['finished', 'Finished']] as const).map(([value, label]) => (
+                        <button key={value} type="button" className="card-menu-item" aria-pressed={(b.readingStatus || '') === value} onClick={e => { closeMenu(e); void l.saveBook({ ...b, readingStatus: (value || undefined) as Book['readingStatus'] }); }}>{label}</button>
+                      ))}
+                      <hr />
+                      <button type="button" className="card-menu-item" onClick={e=>{closeMenu(e);const tags=window.prompt('Collections, separated by commas',b.tags?.join(', ') || '');if(tags!==null)void l.saveBook({...b,tags:[...new Set(tags.split(',').map(t=>t.trim()).filter(Boolean))].slice(0,30)});}}>Collections</button>
+                      <button type="button" className="card-menu-item" aria-label={`Edit ${b.title}`} onClick={e => { closeMenu(e); setCoverBook(b); }}><Icon name="image" size={14} />Edit cover</button>
+                      <button type="button" className="card-menu-item danger" aria-label={`Delete ${b.title}`} onClick={e => { closeMenu(e); setDeleteError('');if(l.settings.confirmBookDeletion===false)removeBook(b);else setDeletion({owner:l.paceOwner,book:b}); }}>Delete</button>
                     </div>
-                    <div className="shelf-buttons">
-                    <button className="button" onClick={()=>{const tags=window.prompt('Collections, separated by commas',b.tags?.join(', ') || '');if(tags!==null)void l.saveBook({...b,tags:[...new Set(tags.split(',').map(t=>t.trim()).filter(Boolean))].slice(0,30)});}}>Collections</button>
-
-                    <button
-                      className="button shelf-cover-action"
-                      aria-label={`Edit ${b.title}`}
-                      onClick={() => setCoverBook(b)}
-                    >
-                      <Icon name="image" size={14} />
-                      Edit
-                    </button>
-                    <button
-                      className="button shelf-delete"
-                      aria-label={`Delete ${b.title}`}
-                      onClick={() => {
-                        setDeleteError('');if(l.settings.confirmBookDeletion===false)removeBook(b);else setDeletion({owner:l.paceOwner,book:b});
-                      }}
-                    >
-                      Delete
-                    </button>
-                    </div>
-                  </div>
+                  </details>
                 </motion.div>
               );
             })}
