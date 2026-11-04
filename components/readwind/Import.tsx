@@ -171,8 +171,18 @@ export function Import({
       setCoverBusy(false);
     }
   };
+  const duplicateConfirmed = useRef("");
   const create = async () => {
     if (!result) return;
+    const norm = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+    const twin = (l.books || []).find(
+      (b) => b.id !== result.book.id && norm(b.title) === norm(result.book.title) && norm(b.author) === norm(result.book.author),
+    );
+    if (twin && duplicateConfirmed.current !== result.book.id) {
+      duplicateConfirmed.current = result.book.id;
+      setError(`"${twin.title}" by ${twin.author || "an unknown author"} is already on your shelf. Choose Add again to keep both copies, or cancel.`);
+      return;
+    }
     setBusy(true);
     setError("");
     try {

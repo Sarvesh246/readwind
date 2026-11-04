@@ -56,3 +56,17 @@ yarn-error.log*
 # OCR language data is copied from pinned npm packages during build.
 /public/ocr/lang/
 .vercel
+# Skipper — machine-local artifacts (hook scratch + derived index), never commit
+.claude/.skipper-*
+.skipper/*
+!.skipper/receipts/
+
+# Local tooling artifacts and recovery handoff notes, never part of the app
+.claude-flow/
+.playwright-mcp/
+agentdb.rvf
+agentdb.rvf.lock
+ruvector.db
+plugins/
+supabase/.temp/
+READWIND-RECOVERY-HANDOFF.md

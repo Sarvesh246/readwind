@@ -18,7 +18,7 @@ Baseline: f00220d. The numbered entries correspond to the improvement audit supp
 | 12 | Owner-scoped progress/note maps, one shelf summary per update, cumulative block counts and constant-time progress lookup. Full content remains available locally for offline reading. |
 | 13 | Original-PDF extracted/OCR text search, printed/PDF page labels and page jumps; dismissing search preserves place/zoom/annotations. |
 | 14 | View-heading focus and polite route/save announcements; required-choice dialogs have no misleading close control. |
-| 15 | Notebook text search, explicit reading status, named collections/tags and selected-book batch organization. Optional duplicate-source detection remains a future enhancement. |
+| 15 | Notebook text search, explicit reading status, named collections/tags and selected-book batch organization. Import warns when a book with the same title and author is already on the shelf and asks for a second confirmation to keep both. |
 | 16 | App-session listing/revocation and password-confirmed private account deletion with bounded file cleanup, retry marker, service-only identity cleanup and upload-reservation checks around signed uploads. Shared catalog data is retained. |
 | 17 | Next and Vinext offline finalization (using Next's adapter lifecycle before Vercel packages static output), hashed production assets including workers/fonts/maps, updates waiting for existing windows, and CI against the Next build. No worker operation clears IndexedDB. |
 | 18 | Compatible tooling override for the affected minimatch advisory; npm audits report zero entries. |
