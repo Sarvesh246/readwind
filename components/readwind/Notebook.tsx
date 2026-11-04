@@ -112,7 +112,6 @@ export function Notebook({
   }
   return (
     <div className="app-shell notebook-screen">
-      <label className="library-search">Search notes and quotes<input type="search" value={search} onChange={e=>setSearch(e.target.value)}/></label>
       <header className="document-header">
         <button
           className="icon-button"
@@ -186,6 +185,7 @@ export function Notebook({
           </div>
         </aside>
         <main className="notebook-entries">
+          <label className="library-search notebook-search"><Icon name="search"/><span className="sr-only">Search notes and quotes</span><input type="search" placeholder="Search notes and quotes" value={search} onChange={e=>setSearch(e.target.value)}/></label>
           <section className="resurface-card">
             <div>
               <div className="eyebrow">Resurface</div>

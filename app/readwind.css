@@ -4802,3 +4802,22 @@ select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   .bars { height: 92px; }
   .stats-modal .modal-content > p { font-size: 12px; line-height: 1.4; }
 }
+
+/* Notebook search lives with the entries it filters, full width, instead of floating above the header. */
+.notebook-search { max-width: none; width: 100%; flex: none; margin-bottom: 16px; }
+.notebook-search input:not([type="file"]) { width: 100%; }
+.notebook-search svg { flex: none; color: var(--muted); }
+
+/* A fieldset legend straddles the border by default; keep the heading inside the box. */
+.ocr-languages { padding: 16px; }
+.ocr-languages > legend { float: left; width: 100%; text-align: left; margin: 0 0 12px; font: 600 14px Inter, system-ui, sans-serif; }
+.ocr-languages > legend + div { clear: both; }
+
+/* Touch: both overlay controls are always visible, so keep them small and together on the right
+   instead of covering the first letters of the cover title. */
+@media (hover: none) {
+  .card-select, .card-menu > summary { width: 32px; height: 32px; top: 6px; opacity: 0.88; }
+  .card-select { left: auto; right: 44px; }
+  .card-menu > summary { right: 6px; }
+  .card-select input { width: 20px; height: 20px; }
+}

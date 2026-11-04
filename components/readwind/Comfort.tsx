@@ -104,7 +104,7 @@ export function Comfort({
         />
       </div>
       <div className="comfort-row">
-        <span>Sideways & desktop</span>
+        <span>Wide screens</span>
         <Segments
           label="Sideways and desktop layout"
           value={s.wideLayout === "spread" ? "Two pages" : "One page"}
