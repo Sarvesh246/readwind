@@ -14,6 +14,27 @@ function ThemeColorSync() {
   return null;
 }
 
+/**
+ * Focus rings are for keyboard users. After a mouse or touch interaction the browser can still keep
+ * (or script-move) focus on a control and draw a ring that only disappears on the next click, so
+ * the last input device is exposed as data-input and the stylesheet hides rings for pointer use.
+ */
+function InputModality() {
+  useEffect(() => {
+    const root = document.documentElement;
+    const set = (mode: string) => { if (root.dataset.input !== mode) root.dataset.input = mode; };
+    const key = (e: KeyboardEvent) => { if (e.key === "Tab" || e.key.startsWith("Arrow")) set("keyboard"); };
+    const pointer = () => set("pointer");
+    window.addEventListener("keydown", key, true);
+    window.addEventListener("pointerdown", pointer, true);
+    return () => {
+      window.removeEventListener("keydown", key, true);
+      window.removeEventListener("pointerdown", pointer, true);
+    };
+  }, []);
+  return null;
+}
+
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider
@@ -24,6 +45,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       storageKey="readwind-theme"
     >
       <ThemeColorSync />
+      <InputModality />
       {children}
     </ThemeProvider>
   );

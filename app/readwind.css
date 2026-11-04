@@ -4821,3 +4821,8 @@ select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   .card-menu > summary { right: 6px; }
   .card-select input { width: 20px; height: 20px; }
 }
+
+/* No sticky focus rings: programmatic focus targets never show one, and after pointer use only
+   text-entry fields keep theirs. Keyboard users (Tab/arrow keys) still get every ring. */
+[tabindex="-1"]:focus, [tabindex="-1"]:focus-visible { outline: none !important; box-shadow: none; }
+html[data-input="pointer"] :is(button, a, summary, [role="button"], [role="tab"], [role="menuitem"], [role="dialog"], label, main, section, div):focus-visible { outline: none !important; }
