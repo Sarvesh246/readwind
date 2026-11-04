@@ -11,7 +11,7 @@ import {DeleteBookPrompt} from './DeleteBookPrompt';
 import { Icon } from "./Icon";
 import { ImportingBook } from "./ImportingBook";
 import { StreakCalendar, StreakCelebration, StreakChip, useStreakCelebration } from "./Streak";
-import { dailyTotals, dayKey, streakOf } from "@/lib/readwind/reading-log";
+import { dailyTotals, dayKey, qualifyingDays, streakOf } from "@/lib/readwind/reading-log";
 import { deviceId } from "@/lib/readwind/db";
 import { ReadwindLockup } from "./Logo";
 import { ThemeToggleButton } from "./Theme";
@@ -146,7 +146,7 @@ export function Library({
   },[]);
   const [batchError,setBatchError]=useState('');
   const organizeSelected=async(patch:Partial<Pick<Book,'readingStatus'|'tags'>>)=>{try{for(const b of l.books.filter(b=>selected.includes(b.id)))await l.saveBook({...b,...patch});setSelected([]);}catch(error){setBatchError((error as Error).message);}};
-  const readDays = useMemo(() => dailyTotals(l.readingLog), [l.readingLog]);
+  const readDays = useMemo(() => qualifyingDays(dailyTotals(l.readingLog, dayKey())), [l.readingLog]);
   // Read per render so the chip rolls over at midnight on the next interaction.
   const today = dayKey();
   const streak = useMemo(() => streakOf(readDays.keys(), today), [readDays, today]);

@@ -4,6 +4,7 @@ import type { Library } from "@/lib/readwind/useLibrary";
 import type { Book, Color, Annotation } from "@/lib/readwind/types";
 import { colors } from "@/lib/readwind/types";
 import { labelAt, start } from "@/lib/readwind/anchors";
+import { dueQueue, formatInterval, isLeech, previewIntervals, review as scheduleReview, type Grade } from "@/lib/readwind/spaced-repetition";
 import { Icon } from "./Icon";
 import { Modal } from "./Modal";
 export function Notebook({
@@ -21,6 +22,7 @@ export function Notebook({
   const [kind, setKind] = useState("Everything"),
     [color, setColor] = useState<Color | null>(null),
     [review, setReview] = useState(false),
+    [undo, setUndo] = useState<Annotation | null>(null),
     [revealed, setRevealed] = useState(false),
     [edit, setEdit] = useState<Annotation | null>(null),
     [note, setNote] = useState(""),
@@ -43,11 +45,8 @@ export function Notebook({
         (!color || a.color === color) &&
         [a.note,a.quote,l.books.find(b=>b.id===a.bookId)?.title || ""].some(text=>text.toLocaleLowerCase().includes(search.toLocaleLowerCase())),
     );
-  const due = all.filter(
-      (a) =>
-        // eslint-disable-next-line react-hooks/purity -- review due dates are relative to now
-        a.kind === "highlight" && (!a.review || a.review.due <= Date.now()),
-    ),
+  // eslint-disable-next-line react-hooks/purity -- review due dates are relative to now
+  const due = dueQueue(all.filter((a) => a.kind === "highlight"), Date.now()),
     card = due[0];
   const counts = {
     Everything: all.length,
@@ -99,15 +98,16 @@ export function Notebook({
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  async function answer(again: boolean) {
+  async function answer(grade: Grade) {
     if (!card) return;
-    const stages = [1, 3, 7, 16, 35],
-      last = card.review?.interval || 0,
-      next = again ? 1 : stages.find((n) => n > last) || 35;
-    await l.saveAnnotation({
-      ...card,
-      review: { interval: next, due: Date.now() + next * 86400000 },
-    });
+    setUndo(card);
+    await l.saveAnnotation({ ...card, review: scheduleReview(card, grade) });
+    setRevealed(false);
+  }
+  async function undoAnswer() {
+    if (!undo) return;
+    await l.saveAnnotation(undo);
+    setUndo(null);
     setRevealed(false);
   }
   return (
@@ -269,7 +269,7 @@ export function Notebook({
         <Modal title="Resurface" onClose={() => setReview(false)}>
           {card ? (
             <>
-              <div className="eyebrow">{due.length} remaining</div>
+              <div className="eyebrow">{due.length} remaining{isLeech(card) ? " · this one keeps slipping; consider rewording your note" : ""}</div>
               <blockquote className="review-quote">{card.quote}</blockquote>
               {revealed && (
                 <p>
@@ -287,26 +287,25 @@ export function Notebook({
                   </button>
                 ) : (
                   <>
-                    <button
-                      className="button"
-                      onClick={() => void answer(true)}
-                    >
-                      Again · tomorrow
-                    </button>
-                    <button
-                      className="button primary"
-                      onClick={() => void answer(false)}
-                    >
-                      Remembered
-                    </button>
+                    {([1, 2, 3, 4] as Grade[]).map((g) => (
+                      <button
+                        key={g}
+                        className={g === 3 ? "button primary" : "button"}
+                        onClick={() => void answer(g)}
+                      >
+                        {["Again", "Hard", "Good", "Easy"][g - 1]} · {formatInterval(previewIntervals(card)[g])}
+                      </button>
+                    ))}
                   </>
                 )}
               </div>
+              {undo && <button className="text-button" onClick={() => void undoAnswer()}>Undo last answer</button>}
             </>
           ) : (
             <>
               <h3>A little more has stayed with you.</h3>
               <p>You’re up to date. Come back tomorrow.</p>
+              {undo && <button className="text-button" onClick={() => void undoAnswer()}>Undo last answer</button>}
               <button
                 className="button primary"
                 onClick={() => setReview(false)}

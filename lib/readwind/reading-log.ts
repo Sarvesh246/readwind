@@ -11,7 +11,9 @@ export const logKey = /^\d{4}-\d{2}-\d{2}\.[a-zA-Z0-9_-]{1,120}$/;
 
 const pad = (n: number) => String(n).padStart(2, "0");
 /** Local calendar day, so "daily" matches the reader's own midnight. */
-export function dayKey(date: Date = new Date()) {
+export function dayKey(date: Date = new Date(), startHour = 0) {
+  // Night readers can start their day at e.g. 4 am; the label is fixed when the activity is written.
+  if (startHour) date = new Date(date.getTime() - startHour * 3600000);
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 export function dayNumber(key: string) {
@@ -37,8 +39,14 @@ export function mergeReadingLog(a: ReadingLog = {}, b: ReadingLog = {}): Reading
   for (const [key, entry] of Object.entries(b)) merged[key] = merged[key] ? newest(merged[key], entry) : entry;
   return pruneLog(merged);
 }
-export function addActivity(log: ReadingLog, device: string, credit: LogEntry, now = new Date()): ReadingLog {
-  const key = `${dayKey(now)}.${device}`;
+/**
+ * Entries written by this version live under `<device>_v2` so a day already counted by the old
+ * "any page" rule is never rewritten or downgraded; the two kinds are told apart by that suffix.
+ */
+export const V2_SUFFIX = "_v2";
+export function addActivity(log: ReadingLog, device: string, credit: LogEntry, now = new Date(), startHour = 0): ReadingLog {
+  const day = dayKey(now, startHour);
+  const key = `${day}.${device}${V2_SUFFIX}`;
   const old = log[key] || { pages: 0, words: 0, seconds: 0 };
   return pruneLog(
     {
@@ -49,23 +57,42 @@ export function addActivity(log: ReadingLog, device: string, credit: LogEntry, n
         seconds: Math.round(old.seconds + credit.seconds),
       },
     },
-    dayKey(now),
+    day,
   );
 }
 
-export type Day = { day: string; pages: number; words: number; seconds: number };
-export function dailyTotals(log: ReadingLog = {}): Map<string, Day> {
+export type Day = { day: string; pages: number; words: number; seconds: number; counts?: boolean };
+/** A day counts toward the streak after a minute of engaged reading and a real page's worth of words. */
+export const QUALIFY_SECONDS = 60;
+export const QUALIFY_WORDS = 100;
+/**
+ * Every day with real reading, with `counts` saying whether it qualifies for the streak. Days written
+ * by older versions count on one page (they are never re-judged); newer days need engaged time and
+ * words, summed across devices. Days more than one day in the future (a wrong clock) are ignored.
+ */
+export function dailyTotals(log: ReadingLog = {}, today = dayKey()): Map<string, Day> {
   const days = new Map<string, Day>();
+  const legacy = new Set<string>();
+  const limit = dayFromNumber(dayNumber(today) + 1);
   for (const [key, e] of Object.entries(log)) {
     const day = key.slice(0, 10);
+    if (day > limit) continue;
     const t = days.get(day) || { day, pages: 0, words: 0, seconds: 0 };
     t.pages += e.pages;
     t.words += e.words;
     t.seconds += e.seconds;
+    if (!key.endsWith(V2_SUFFIX) && e.pages >= 1) legacy.add(day);
     days.set(day, t);
   }
-  for (const [day, t] of days) if (t.pages < 1) days.delete(day);
+  for (const [day, t] of days) {
+    if (t.pages < 1 && t.seconds < 1) days.delete(day);
+    else t.counts = legacy.has(day) || (t.seconds >= QUALIFY_SECONDS && t.words >= QUALIFY_WORDS);
+  }
   return days;
+}
+/** Only the days that keep a streak alive. */
+export function qualifyingDays(days: Map<string, Day>): Map<string, Day> {
+  return new Map([...days].filter(([, d]) => d.counts));
 }
 
 export type Streak = { current: number; longest: number; readToday: boolean; atRisk: boolean; total: number };
@@ -98,7 +125,7 @@ export type Stats = {
   firstDay?: string;
 };
 export function statsOf(log: ReadingLog = {}, today = dayKey()): Stats {
-  const days = dailyTotals(log);
+  const days = dailyTotals(log, today);
   let words = 0,
     seconds = 0,
     pages = 0,
@@ -132,15 +159,35 @@ export function statsOf(log: ReadingLog = {}, today = dayKey()): Stats {
 }
 
 /**
- * Turns page movement into credit. A turned page always counts for the streak, but
- * words and time only count when the pace is plausible so flipping can't inflate stats.
+ * Turns page movement into credit. Time is capped at what the page plausibly needed (so a screen left
+ * on never earns hours), flipping past a page earns nothing, and words already credited in this
+ * session are not credited again, so going back and forth cannot inflate stats or a streak.
  */
+type Span = [number, number];
 export class ActivityTracker {
   private baseline?: { words: number; time: number };
-  reset() {
+  private seen: Span[] = [];
+  /** Re-anchors after a pause or interruption; `full` also forgets what this session already read. */
+  reset(full = false) {
     this.baseline = undefined;
+    if (full) this.seen = [];
   }
-  observe(words: number, time: number): LogEntry | undefined {
+  private fresh(start: number, end: number) {
+    let overlap = 0;
+    for (const [a, b] of this.seen) overlap += Math.max(0, Math.min(end, b) - Math.max(start, a));
+    return Math.max(0, end - start - overlap);
+  }
+  private remember(start: number, end: number) {
+    const merged: Span[] = [];
+    let cur: Span = [start, end];
+    for (const span of [...this.seen].sort((x, y) => x[0] - y[0])) {
+      if (span[1] < cur[0] || span[0] > cur[1]) merged.push(span);
+      else cur = [Math.min(cur[0], span[0]), Math.max(cur[1], span[1])];
+    }
+    merged.push(cur);
+    this.seen = merged.sort((x, y) => x[0] - y[0]);
+  }
+  observe(words: number, time: number, wpm = 230): LogEntry | undefined {
     const before = this.baseline;
     if (!before) {
       this.baseline = { words, time };
@@ -154,9 +201,15 @@ export class ActivityTracker {
     if (delta < 20) return;
     const seconds = (time - before.time) / 1000;
     this.baseline = { words, time };
-    const speed = seconds > 0 ? (delta * 60) / seconds : Infinity;
-    if (delta <= 1600 && seconds >= 4 && seconds <= 180 && speed <= 900)
-      return { pages: 1, words: delta, seconds };
-    return { pages: 1, words: 0, seconds: 0 };
+    // A jump through contents, search or the slider is navigation, not reading.
+    if (delta > 1600) return;
+    const expected = (delta * 60) / Math.max(50, Math.min(700, wpm));
+    if (seconds < Math.max(3, expected * 0.25)) return; // flipped past
+    const fresh = this.fresh(before.words, words);
+    if (fresh < 1) return; // already credited this session
+    const credited = Math.min(seconds, expected * 2.5, 180);
+    if ((fresh * 60) / credited > 900) return;
+    this.remember(before.words, words);
+    return { pages: 1, words: fresh, seconds: credited };
   }
 }

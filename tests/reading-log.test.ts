@@ -27,7 +27,7 @@ describe('reading log',()=>{
     log=addActivity(log,'laptop',{pages:1,words:0,seconds:0},at('2026-10-31'));
     log=addActivity(log,'phone',{pages:0,words:0,seconds:0},at('2026-10-30'));
     const days=dailyTotals(log);
-    expect(days.get('2026-10-31')).toEqual({day:'2026-10-31',pages:3,words:490,seconds:130});
+    expect(days.get('2026-10-31')).toMatchObject({day:'2026-10-31',pages:3,words:490,seconds:130});
     expect(days.has('2026-10-30')).toBe(false);
   });
   it('merges devices without double counting and drops old days',()=>{
@@ -70,10 +70,11 @@ describe('activity tracker',()=>{
     expect(t.observe(0,0)).toBeUndefined();
     expect(t.observe(250,70000)).toEqual({pages:1,words:250,seconds:70});
   });
-  it('still counts a quickly flipped page for the streak but not for stats',()=>{
+  it('gives nothing for a flipped page and caps time on a page left open',()=>{
     const t=new ActivityTracker();t.observe(0,0);
-    expect(t.observe(250,1500)).toEqual({pages:1,words:0,seconds:0});
-    expect(t.observe(500,300000)).toEqual({pages:1,words:0,seconds:0});
+    expect(t.observe(250,1500)).toBeUndefined();
+    const left=t.observe(500,300000);
+    expect(left?.pages).toBe(1);expect(left?.words).toBe(250);expect(left!.seconds).toBeLessThanOrEqual(164);
   });
   it('ignores scroll noise, accumulates small moves and rebases when going back',()=>{
     const t=new ActivityTracker();t.observe(100,0);

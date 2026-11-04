@@ -118,7 +118,7 @@ export function Reader({
   // A chapter jump may land on the right of a spread beside the previous chapter.
   const visibleAnchor = anchor;
   const info = wordProgress(book, visibleAnchor, l.readingSpeed);
-  useReadingPace(`${l.paceOwner}:${book.id}`, info.before, !busy && !closed && !panel && !selection && !editing && !l.conflict && !isContentsSection(book,visibleAnchor.section), l.recordReading, l.recordActivity);
+  useReadingPace(`${l.paceOwner}:${book.id}`, info.before, !busy && !closed && !panel && !selection && !editing && !l.conflict && !isContentsSection(book,visibleAnchor.section), l.recordReading, l.recordActivity, l.readingSpeed);
   const bookmarked = annotations.find(a => a.kind === 'bookmark' && first &&
     compare(a.range.start, first.start) >= 0 && compare(a.range.start, first.end) < 0);
   const { saveProgress, loadBlob } = l;

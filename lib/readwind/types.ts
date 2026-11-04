@@ -68,7 +68,7 @@ export type Annotation = {
   updatedAt: number;
   deleted?: boolean;
   pdfRange?: {pageIndex:number;rects:{x:number;y:number;width:number;height:number}[]};
-  review?: { due: number; interval: number };
+  review?: import('./spaced-repetition').Review;
 };
 export type Color = "yellow" | "green" | "blue" | "pink";
 export type Progress = {

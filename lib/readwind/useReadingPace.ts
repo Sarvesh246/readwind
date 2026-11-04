@@ -4,22 +4,32 @@ import {PaceTracker} from './reading-pace';
 import {ActivityTracker} from './reading-log';
 import type {LogEntry} from './reading-log';
 
-export function useReadingPace(bookId:string, words:number, enabled:boolean, record:(words:number,seconds:number)=>Promise<void>, recordActivity?:(credit:LogEntry)=>Promise<void>) {
-  const tracker=useRef(new PaceTracker()),activity=useRef(new ActivityTracker());
+/** Longest silence that still counts as reading: three pages' worth of time, between 30 s and 3 min. */
+export const idleLimitMs=(wpm:number,wordsPerPage=250)=>Math.max(30000,Math.min(180000,3*wordsPerPage*60000/Math.max(50,wpm)));
+/** Page visibility plus recent input; window focus alone is unreliable on phones and split screens. */
+export const isEngaged=(visible:boolean,focused:boolean,sinceInputMs:number,limitMs:number)=>visible&&(focused||sinceInputMs<=limitMs);
+
+export function useReadingPace(bookId:string, words:number, enabled:boolean, record:(words:number,seconds:number)=>Promise<void>, recordActivity?:(credit:LogEntry)=>Promise<void>, wpm=230) {
+  const tracker=useRef(new PaceTracker()),activity=useRef(new ActivityTracker()),lastInput=useRef(0),speed=useRef(wpm);
+  useEffect(()=>{speed.current=wpm;});
+  useEffect(()=>{lastInput.current=performance.now();},[]);
   useEffect(()=>{
     const reset=()=>{tracker.current.reset();activity.current.reset();};
-    document.addEventListener('visibilitychange',reset);
-    window.addEventListener('blur',reset);
-    window.addEventListener('focus',reset);
-    return()=>{document.removeEventListener('visibilitychange',reset);window.removeEventListener('blur',reset);window.removeEventListener('focus',reset);};
+    const hidden=()=>{if(document.hidden)reset();};
+    const input=()=>{lastInput.current=performance.now();};
+    const events=['pointerdown','keydown','wheel','touchstart','scroll'] as const;
+    for(const e of events)window.addEventListener(e,input,{capture:true,passive:true});
+    document.addEventListener('visibilitychange',hidden);
+    window.addEventListener('pagehide',reset);
+    return()=>{for(const e of events)window.removeEventListener(e,input,{capture:true});document.removeEventListener('visibilitychange',hidden);window.removeEventListener('pagehide',reset);};
   },[]);
-  useEffect(()=>{tracker.current.reset();activity.current.reset();},[bookId]);
+  useEffect(()=>{tracker.current.reset();activity.current.reset(true);},[bookId]);
   useEffect(()=>{
-    if(!enabled || document.hidden || !document.hasFocus()){tracker.current.reset();activity.current.reset();return;}
     const now=performance.now();
+    if(!enabled || !isEngaged(!document.hidden,document.hasFocus(),now-lastInput.current,idleLimitMs(speed.current))){tracker.current.reset();activity.current.reset();return;}
     const sample=tracker.current.observe(words,now);
     if(sample) void record(sample.words,sample.seconds).catch(()=>{});
-    const credit=activity.current.observe(words,now);
+    const credit=activity.current.observe(words,now,speed.current);
     if(credit && recordActivity) void recordActivity(credit).catch(()=>{});
   },[words,enabled,record,recordActivity]);
 }

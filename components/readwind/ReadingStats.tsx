@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { Flame } from "./Flame";
 import { Modal } from "./Modal";
 import { wordProgress, start } from "@/lib/readwind/anchors";
-import { dailyTotals, dayFromNumber, dayKey, dayNumber, statsOf, streakOf, type ReadingLog } from "@/lib/readwind/reading-log";
+import { dailyTotals, dayFromNumber, dayKey, dayNumber, qualifyingDays, statsOf, streakOf, type ReadingLog } from "@/lib/readwind/reading-log";
 import type { Annotation, Book, Progress } from "@/lib/readwind/types";
 
 const number = new Intl.NumberFormat();
@@ -37,8 +37,8 @@ type Source = {
 
 export function ReadingStats({ library: l, onClose }: { library: Source; onClose: () => void }) {
   const today = dayKey();
-  const days = useMemo(() => dailyTotals(l.readingLog), [l.readingLog]);
-  const streak = useMemo(() => streakOf(days.keys(), today), [days, today]);
+  const days = useMemo(() => dailyTotals(l.readingLog, today), [l.readingLog, today]);
+  const streak = useMemo(() => streakOf(qualifyingDays(days).keys(), today), [days, today]);
   const stats = useMemo(() => statsOf(l.readingLog, today), [l.readingLog, today]);
   const shelf = useMemo(() => {
     let finished = 0,

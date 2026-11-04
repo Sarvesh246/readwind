@@ -197,7 +197,15 @@ export const annotation = z.object({
     })
     .optional(),
   review: z
-    .object({ due: z.number(), interval: z.number().int().min(0).max(35) })
+    .object({
+      due: z.number(),
+      interval: z.number().int().min(0).max(3650),
+      stability: z.number().min(0).max(100000).optional(),
+      difficulty: z.number().min(1).max(10).optional(),
+      reps: z.number().int().min(0).max(100000).optional(),
+      lapses: z.number().int().min(0).max(100000).optional(),
+      last: z.number().optional(),
+    })
     .optional(),
 });
 export const settings = z.object({
@@ -206,6 +214,11 @@ export const settings = z.object({
     samples:z.number().int().min(0).max(1000000000),
     words:z.number().min(0).max(1000000000000),
     seconds:z.number().min(0).max(7200),
+    lm:z.number().min(-10).max(10).optional(),
+    w:z.number().min(0).max(1000000).optional(),
+    v:z.number().min(0).max(100).optional(),
+    ra:z.number().min(-10).max(10).optional(),
+    run:z.number().int().min(0).max(1000).optional(),
   })).refine(value=>Object.keys(value).length<=64).optional(),
   readingLog: z.record(z.string().regex(logKey), z.object({
     pages:z.number().int().min(0).max(100000),
