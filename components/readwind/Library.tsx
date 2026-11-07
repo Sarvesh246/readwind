@@ -21,6 +21,7 @@ import { GoalChip, FinishByEditor, finishLine } from "./Goals";
 import { ListenButton, useAudiobook } from "./Audiobook";
 import { dayNumber } from "@/lib/readwind/reading-log";
 import { CalendarClock, Headphones } from "lucide-react";
+import { VoiceHeaderButton } from "./ReadAloudVoiceRow";
 export function Cover({
   book,
   loadBlob,
@@ -308,6 +309,7 @@ export function Library({
         <div className="library-utility">
           <span className="header-goal"><GoalChip library={l} onClick={onStats} /></span>
           <StreakChip streak={streak} onClick={() => setCalendar(true)} />
+          <VoiceHeaderButton />
           <ThemeToggleButton />
           <button
             className="account-button"

@@ -26,11 +26,11 @@ try {
     };
     worker.onerror = event => finish(event.message || "Piper worker failed to start");
     worker.onmessage = ({ data }) => {
-      if (data.type === "ready") worker.postMessage({ type: "generate", id: 1, text: "This is a test of the reading voice.", voice: "en_US-ljspeech-medium" });
+      if (data.type === "ready" && data.req === 1) worker.postMessage({ type: "generate", id: 1, text: "This is a test of the reading voice.", voice: "en_US-ljspeech-medium" });
       if (data.type === "audio") finish(null, data.buffer.byteLength);
       if (data.type === "error") finish(data.message);
     };
-    worker.postMessage({ type: "load" });
+    worker.postMessage({ type: "warm", req: 1, voice: "en_US-ljspeech-medium" });
   }), workerUrl);
   assert.ok(await generate() > 44, "Online synthesis should produce audio");
   await context.setOffline(true);

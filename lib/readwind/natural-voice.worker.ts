@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import { HF_BASE, PATH_MAP, TtsSession } from "@mintplex-labs/piper-tts-web";
+import { fetchInto } from "./piper-download";
 import { voiceFiles } from "./voices";
 
 /**
@@ -14,13 +15,14 @@ type Request =
   | { type: "generate"; id: number; text: string; voice: string }
   | { type: "cancel"; ids: number[] };
 
-const ATTEMPTS = 4;
-/** A transfer that delivers nothing for this long is abandoned and retried. */
-const STALL_MS = 30000;
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const ATTEMPTS = 4;
 const message = (error: unknown) => String((error as Error)?.message || error || "Voice failed");
 
-const piperDirectory = async (create: boolean) => (await navigator.storage.getDirectory()).getDirectoryHandle("piper", { create });
+const piperDirectory = async (create: boolean) =>
+  (await navigator.storage.getDirectory()).getDirectoryHandle("piper", {
+    create,
+  });
 
 async function fileSize(directory: FileSystemDirectoryHandle, name: string) {
   try {
@@ -30,84 +32,25 @@ async function fileSize(directory: FileSystemDirectoryHandle, name: string) {
   }
 }
 
-type Sink = { write(chunk: Uint8Array): Promise<void>; close(): Promise<void>; abort(): Promise<void> };
-/** Streams into a file on disk. Safari's workers lack createWritable, so they use a sync access handle. */
-async function openSink(directory: FileSystemDirectoryHandle, name: string): Promise<Sink> {
-  const handle = await directory.getFileHandle(name, { create: true });
-  if (typeof (handle as FileSystemFileHandle & { createWritable?: unknown }).createWritable === "function") {
-    const writable = await handle.createWritable();
-    return { write: chunk => writable.write(chunk as unknown as BufferSource), close: () => writable.close(), abort: () => writable.abort().catch(() => {}) };
-  }
-  const access = await (handle as FileSystemFileHandle & { createSyncAccessHandle(): Promise<{ truncate(n: number): void; write(b: BufferSource, o: { at: number }): number; flush(): void; close(): void }> }).createSyncAccessHandle();
-  access.truncate(0);
-  let at = 0;
-  return {
-    write: async chunk => {
-      access.write(chunk as unknown as BufferSource, { at });
-      at += chunk.byteLength;
-    },
-    close: async () => {
-      access.flush();
-      access.close();
-    },
-    abort: async () => {
-      try {
-        access.close();
-      } catch {}
-    },
-  };
-}
-
-/** Fetches `url` into `name`, resuming nothing: each attempt starts the file over, and a short read is an error. */
-async function fetchInto(directory: FileSystemDirectoryHandle, url: string, name: string, onProgress?: (loaded: number, total: number) => void) {
-  let last: unknown;
-  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
-    const controller = new AbortController();
-    let timer = setTimeout(() => controller.abort(), STALL_MS);
-    const sink = await openSink(directory, name);
-    try {
-      const response = await fetch(url, { signal: controller.signal });
-      if (!response.ok || !response.body) throw new Error(`The download failed (${response.status || "no response"}).`);
-      const total = Number(response.headers.get("Content-Length")) || 0;
-      const reader = response.body.getReader();
-      let loaded = 0;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        clearTimeout(timer);
-        timer = setTimeout(() => controller.abort(), STALL_MS);
-        await sink.write(value);
-        loaded += value.byteLength;
-        onProgress?.(loaded, total);
-      }
-      if (total && loaded !== total) throw new Error("The download was cut short.");
-      if (!loaded) throw new Error("The download was empty.");
-      clearTimeout(timer);
-      await sink.close();
-      return;
-    } catch (error) {
-      clearTimeout(timer);
-      await sink.abort();
-      last = controller.signal.aborted ? new Error("The connection stalled.") : error;
-      if (attempt < ATTEMPTS) await wait(700 * attempt * attempt);
-    }
-  }
-  throw last instanceof Error ? last : new Error(message(last));
-}
-
 /** Whether a voice is fully on the device. The config is written last, so it marks a finished download. */
 async function onDevice(voice: string) {
   try {
     const directory = await piperDirectory(false);
     const [model, config] = voiceFiles(voice);
-    return (await fileSize(directory, model)) > 1_000_000 && (await fileSize(directory, config)) > 0;
+    return (
+      (await fileSize(directory, model)) > 1_000_000 &&
+      (await fileSize(directory, config)) > 0
+    );
   } catch {
     return false;
   }
 }
 
 const downloads = new Map<string, Promise<void>>();
-function ensureVoice(voice: string, onProgress?: (loaded: number, total: number) => void) {
+function ensureVoice(
+  voice: string,
+  onProgress?: (loaded: number, total: number) => void,
+) {
   const path = PATH_MAP[voice as keyof typeof PATH_MAP];
   if (!path) return Promise.reject(new Error("That voice isn’t available."));
   let running = downloads.get(voice);
@@ -118,7 +61,10 @@ function ensureVoice(voice: string, onProgress?: (loaded: number, total: number)
       const [model, config] = voiceFiles(voice);
       await fetchInto(directory, `${HF_BASE}/${path}`, model, onProgress);
       await fetchInto(directory, `${HF_BASE}/${path}.json`, config);
-      if (!(await onDevice(voice))) throw new Error("The voice could not be saved on this device. Free some space and try again.");
+      if (!(await onDevice(voice)))
+        throw new Error(
+          "The voice could not be saved on this device. Free some space and try again.",
+        );
     })().finally(() => downloads.delete(voice));
     downloads.set(voice, running);
   }
@@ -128,14 +74,19 @@ function ensureVoice(voice: string, onProgress?: (loaded: number, total: number)
 async function removeFiles(voice: string) {
   try {
     const directory = await piperDirectory(false);
-    for (const name of voiceFiles(voice)) await directory.removeEntry(name).catch(() => {});
+    for (const name of voiceFiles(voice))
+      await directory.removeEntry(name).catch(() => {});
   } catch {}
 }
 
 /** The runtime files are served by this app; keep them in a cache so the voice also starts offline. */
 async function cacheRuntime() {
   const cache = await caches.open("piper-runtime");
-  for (const url of ["/piper/piper_phonemize.data", "/piper/piper_phonemize.wasm", "/piper/ort-wasm-simd.wasm"]) {
+  for (const url of [
+    "/piper/piper_phonemize.data",
+    "/piper/piper_phonemize.wasm",
+    "/piper/ort-wasm-simd.wasm",
+  ]) {
     if (await cache.match(url)) continue;
     for (let attempt = 1; ; attempt++) {
       try {
@@ -152,11 +103,17 @@ async function cacheRuntime() {
 let current: { voice: string; session: Promise<TtsSession> } | null = null;
 async function createSession(voice: string) {
   await cacheRuntime();
-  await ensureVoice(voice, (loaded, total) => postMessage({ type: "progress", loaded, total }));
+  await ensureVoice(voice, (loaded, total) =>
+    postMessage({ type: "progress", loaded, total }),
+  );
   const create = () =>
     TtsSession.create({
       voiceId: voice,
-      wasmPaths: { onnxWasm: "/piper/", piperData: "/piper/piper_phonemize.data", piperWasm: "/piper/piper_phonemize.wasm" },
+      wasmPaths: {
+        onnxWasm: "/piper/",
+        piperData: "/piper/piper_phonemize.data",
+        piperWasm: "/piper/piper_phonemize.wasm",
+      },
     });
   TtsSession._instance = null;
   try {
@@ -187,16 +144,24 @@ function sessionFor(voice: string) {
 
 // A stray rejection (for example from the wasm runtime) must not be reported as a failed request:
 // every request already reports its own errors.
-self.addEventListener("unhandledrejection", event => event.preventDefault());
+self.addEventListener("unhandledrejection", (event) => event.preventDefault());
 
 let chain: Promise<unknown> = Promise.resolve();
 const cancelled = new Set<number>();
 self.onmessage = (event: MessageEvent<Request>) => {
   const request = event.data;
   if (request.type === "download") {
-    ensureVoice(request.voice, (loaded, total) => postMessage({ type: "progress", req: request.req, loaded, total }))
+    ensureVoice(request.voice, (loaded, total) =>
+      postMessage({ type: "progress", req: request.req, loaded, total }),
+    )
       .then(() => postMessage({ type: "ready", req: request.req }))
-      .catch(error => postMessage({ type: "error", req: request.req, message: message(error) }));
+      .catch((error) =>
+        postMessage({
+          type: "error",
+          req: request.req,
+          message: message(error),
+        }),
+      );
     return;
   }
   if (request.type === "cancel") {
@@ -207,7 +172,13 @@ self.onmessage = (event: MessageEvent<Request>) => {
     chain = chain.then(() =>
       sessionFor(request.voice)
         .then(() => postMessage({ type: "ready", req: request.req }))
-        .catch(error => postMessage({ type: "error", req: request.req, message: message(error) })),
+        .catch((error) =>
+          postMessage({
+            type: "error",
+            req: request.req,
+            message: message(error),
+          }),
+        ),
     );
     return;
   }
@@ -219,11 +190,22 @@ self.onmessage = (event: MessageEvent<Request>) => {
       const started = performance.now();
       // Vite assumes window exists when bundling the phonemizer for the browser.
       // Its location probe only needs these two properties in a worker.
-      (self as unknown as { window: unknown }).window = { location: self.location, encodeURIComponent };
+      (self as unknown as { window: unknown }).window = {
+        location: self.location,
+        encodeURIComponent,
+      };
       const audio = await tts.predict(request.text);
       const buffer = await audio.arrayBuffer();
       if (cancelled.delete(request.id)) return;
-      postMessage({ type: "audio", id: request.id, buffer, ms: performance.now() - started }, { transfer: [buffer] });
+      postMessage(
+        {
+          type: "audio",
+          id: request.id,
+          buffer,
+          ms: performance.now() - started,
+        },
+        { transfer: [buffer] },
+      );
     } catch (error) {
       postMessage({ type: "error", id: request.id, message: message(error) });
     }

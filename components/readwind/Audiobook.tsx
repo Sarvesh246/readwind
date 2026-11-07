@@ -1,7 +1,7 @@
 "use client";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import { Bookmark, BookOpen, Headphones, ListMusic, Loader2, Moon, Pause, Play, RotateCcw, RotateCw, SkipBack, SkipForward, X } from "lucide-react";
+import { AudioLines, Bookmark, BookOpen, Headphones, ListMusic, Loader2, Moon, Pause, Play, RotateCcw, RotateCw, SkipBack, SkipForward, X } from "lucide-react";
 import type { Anchor, Book, ListenSettings } from "@/lib/readwind/types";
 import { listenDefaults } from "@/lib/readwind/types";
 import type { Library } from "@/lib/readwind/useLibrary";
@@ -25,9 +25,9 @@ import {
   type Script,
 } from "@/lib/readwind/speech";
 import { Cover } from "./Library";
-import { cancelClips, generateClip, loadNaturalVoice, naturalVoiceDownloaded, naturalVoiceSupported, removeNaturalVoice, type ClipRequest } from "@/lib/readwind/natural-voice";
+import { cancelClips, cancelDownload, downloadNaturalVoice, downloadedVoices, generateClip, naturalVoiceSupported, refreshDownloadedVoices, removeNaturalVoice, resetNaturalVoice, warmNaturalVoice, type ClipRequest } from "@/lib/readwind/natural-voice";
 import { VoiceSettings } from "./VoiceSettings";
-import { DEFAULT_NATURAL_VOICE, naturalVoice } from "@/lib/readwind/voices";
+import { DEFAULT_NATURAL_VOICE, isNaturalVoice, naturalVoice } from "@/lib/readwind/voices";
 import { Modal } from "./Modal";
 
 export const RATES = [0.8, 1, 1.2, 1.5, 1.75, 2];
@@ -86,19 +86,33 @@ type Audiobook = {
   engine: "natural" | "system";
   /** Waiting for the natural voice to finish the next sentence. */
   buffering: boolean;
-  download: { state: "idle" | "loading" | "ready" | "error"; progress: number; error?: string };
+  /** The Piper download in progress (or the last one that failed), if any. */
+  download: { voice: string | null; state: "idle" | "loading" | "error"; progress: number; error?: string };
+  /** Piper voices that are fully on this device. */
+  downloaded: string[];
+  /** The Piper voice that reads when the natural engine is on. */
+  naturalVoiceId: string;
   voicePanel: boolean;
   openVoicePanel: (open: boolean) => void;
   chooseEngine: (engine: "natural" | "system") => void;
-  downloadNatural: () => void;
-  removeNatural: () => void;
-  setNaturalVoice: (id: string) => void;
+  downloadNatural: (id: string) => void;
+  cancelDownload: () => void;
+  removeNatural: (id?: string) => void;
+  /** Chooses a downloaded Piper voice and turns the natural engine on, in one saved change. */
+  selectNaturalVoice: (id: string) => void;
   previewNatural: (id: string, text: string) => Promise<void>;
   dismissNotice: () => void;
 };
 
 const AudiobookContext = createContext<Audiobook | null>(null);
 export const useAudiobook = () => useContext(AudiobookContext);
+
+/** What is reading, in a few words: "Alan · Piper", "Samantha · Device", or a prompt to choose. */
+export function voiceLabel(a: Audiobook) {
+  if (a.engine === "natural") return `${naturalVoice(a.naturalVoiceId).name} · Piper`;
+  if (a.settings.engine === "system" || (a.settings.engine === "natural" && !a.downloaded.length)) return `${a.voice?.name.split(/[ (]/)[0] || "Device"} · Device voice`;
+  return "Not chosen yet";
+}
 
 const deviceLang = () => (typeof navigator === "undefined" ? "en" : (navigator.language || "en").split("-")[0].toLowerCase());
 const voiceKey = (uri: string) => `readwind-voice-wpm:${uri}`;
@@ -131,7 +145,12 @@ export function AudiobookProvider({
   children: ReactNode;
 }) {
   const speechOK = typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
-  const supported = speechOK || naturalVoiceSupported();
+  // Read from the browser only after hydration, so the server and first client render agree.
+  const supported = useSyncExternalStore(
+    () => () => {},
+    () => speechOK || naturalVoiceSupported(),
+    () => false,
+  );
   const settings = useMemo(() => ({ ...listenDefaults, ...l.settings.listen }), [l.settings.listen]);
   const [bookId, setBookId] = useState<string | null>(null);
   const book = l.books.find(b => b.id === bookId) || null;
@@ -148,7 +167,7 @@ export function AudiobookProvider({
   const pendingPlay = useRef<{ book: Book; at?: Anchor } | null>(null);
 
   // The engine runs on refs so speech callbacks always see the latest state.
-  const live = useRef({ book, script, index, playing, sleep, settings, token: 0, startedAt: 0, lastSave: 0, voiceWpm: VOICE_WPM, chunkStart: 0, waiting: false, engine: "system" as "natural" | "system", watchdog: 0, cancelledAt: -1e9 });
+  const live = useRef({ book, script, index, playing, sleep, settings, token: 0, startedAt: 0, lastSave: 0, voiceWpm: VOICE_WPM, chunkStart: 0, waiting: false, engine: "system" as "natural" | "system", watchdog: 0, cancelledAt: -1e9, natural: DEFAULT_NATURAL_VOICE, downloaded: [] as string[], fallback: false as false | "slow" | "error" });
   const speakRef = useRef<(i: number) => void>(() => {});
   // Persisted values flow in only when they change, so a just-chosen rate is not undone by a stale render.
   useEffect(() => {
@@ -190,9 +209,13 @@ export function AudiobookProvider({
   }, [learned]);
   const wpm = voiceWpm(settings.rate, script?.density || 1, learned || VOICE_WPM);
 
+  // Merges over the latest values, not the last render's, so two changes made in one tap both survive.
   const saveSettings = useCallback(
-    (patch: Partial<ListenSettings>) => void l.saveSettings({ ...l.settings, listen: { ...settings, ...patch } }).catch(() => {}),
-    [l, settings],
+    (patch: Partial<ListenSettings>) => {
+      live.current.settings = { ...live.current.settings, ...patch };
+      void l.saveSettings({ ...l.settings, listen: live.current.settings }).catch(() => {});
+    },
+    [l],
   );
 
   const flushCredit = useCallback(() => {
@@ -214,15 +237,39 @@ export function AudiobookProvider({
     [l],
   );
 
-  // Which engine speaks: the natural (on-device model) voice once it is downloaded, else the system voice.
-  // A phone too slow for the natural voice falls back for the rest of the session.
-  const [fallback, setFallback] = useState(false);
+  // Which engine speaks: the natural (on-device Piper) voice once one is downloaded, else the system voice.
+  // A device too slow for the natural voice falls back for the rest of the session; a one-off failure only
+  // until the next time the listener presses play.
+  const [fallback, setFallbackState] = useState<false | "slow" | "error">(false);
+  const setFallback = useCallback((value: false | "slow" | "error") => {
+    live.current.fallback = value;
+    setFallbackState(value);
+  }, []);
   const [buffering, setBuffering] = useState(false);
-  const engine: "natural" | "system" =
-    settings.engine === "natural" && !fallback && naturalVoiceDownloaded() && naturalVoiceSupported() ? "natural" : "system";
+  const [downloaded, setDownloaded] = useState<string[]>(() => (typeof window === "undefined" ? [] : downloadedVoices()));
+  const [download, setDownload] = useState<Audiobook["download"]>({ voice: null, state: "idle", progress: 0 });
+  const naturalId = isNaturalVoice(settings.naturalVoice) && downloaded.includes(settings.naturalVoice) ? settings.naturalVoice : downloaded[0] || settings.naturalVoice || DEFAULT_NATURAL_VOICE;
+  const engine: "natural" | "system" = settings.engine === "natural" && !fallback && downloaded.length > 0 && naturalVoiceSupported() ? "natural" : "system";
   useEffect(() => {
     live.current.engine = engine;
   }, [engine]);
+  useEffect(() => {
+    live.current.natural = naturalId;
+    live.current.downloaded = downloaded;
+  }, [naturalId, downloaded]);
+  // The browser can clear stored files when space runs low, so trust the disk over the remembered list.
+  useEffect(() => {
+    let alive = true;
+    void refreshDownloadedVoices().then(found => alive && setDownloaded(found));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  /** The engine to use right now, from the latest settings and what is on the device. */
+  const pickEngine = useCallback((): "natural" | "system" => {
+    const c = live.current;
+    return c.settings.engine === "natural" && !c.fallback && c.downloaded.length > 0 && naturalVoiceSupported() ? "natural" : "system";
+  }, []);
   const audioEl = useRef<HTMLAudioElement | null>(null);
   const clips = useRef(new Map<string, ClipRequest>());
   const underruns = useRef(0);
@@ -242,14 +289,14 @@ export function AudiobookProvider({
     }
     return el;
   }, []);
-  const clipKey = (i: number) => `${live.current.settings.naturalVoice}:${live.current.script?.chunks[i]?.say}`;
+  const clipKey = (i: number) => `${live.current.natural}:${live.current.script?.chunks[i]?.say}`;
   const clipFor = useCallback((i: number) => {
     const chunk = live.current.script?.chunks[i];
     if (!chunk) return null;
     const key = clipKey(i);
     let clip = clips.current.get(key);
     if (!clip) {
-      clip = generateClip(chunk.say, DEFAULT_NATURAL_VOICE);
+      clip = generateClip(chunk.say, live.current.natural);
       clips.current.set(key, clip);
       clip.catch(() => clips.current.delete(key));
     }
@@ -286,6 +333,7 @@ export function AudiobookProvider({
     const el = audioEl.current;
     if (el) {
       el.onended = null;
+      el.onerror = null;
       el.ontimeupdate = null;
       el.pause();
     }
@@ -400,15 +448,51 @@ export function AudiobookProvider({
     [voiceFor, finished, stopWith],
   );
 
+  /** Hands the rest of the book to the device voice after the natural voice has failed for good. */
+  const toSystem = useCallback(
+    (i: number, reason: "slow" | "error", message: string) => {
+      setBuffering(false);
+      if (!speechOK) {
+        stopWith("The natural voice stopped and this device has no other voice. Press play to try again.");
+        return;
+      }
+      setFallback(reason);
+      live.current.engine = "system";
+      underruns.current = 0;
+      setNotice(message);
+      speakRef.current(i);
+    },
+    [speechOK, stopWith, setFallback],
+  );
+
+  const naturalRef = useRef<(i: number, chunk: Chunk, token: number, winding: boolean, attempt?: number) => void>(() => {});
   const speakNatural = useCallback(
-    (i: number, chunk: Chunk, token: number, winding: boolean) => {
+    (i: number, chunk: Chunk, token: number, winding: boolean, attempt = 0) => {
       const el = unlockAudio();
+      if (!el) {
+        toSystem(i, "error", "This browser can’t play the natural voice, so the device voice is reading.");
+        return;
+      }
       const queued = clips.current.has(clipKey(i));
       const clip = clipFor(i);
-      if (!el || !clip) return;
+      if (!clip) return;
       prefetch(i);
       const waitStarted = performance.now();
       const showWait = window.setTimeout(() => token === live.current.token && setBuffering(true), 350);
+      /** One sentence failed to arrive or play: start the voice over and try it again before giving up. */
+      const retry = (cancelledOnly: boolean) => {
+        clearTimeout(showWait);
+        clearTimeout(live.current.watchdog);
+        if (token !== live.current.token) return;
+        if (attempt >= 2) {
+          toSystem(i, "error", "The natural voice stopped working, so the device voice is reading for now.");
+          return;
+        }
+        // A cancelled request (a seek or voice change) leaves the voice healthy; any other failure gets a clean worker.
+        if (!cancelledOnly) resetNaturalVoice();
+        clips.current.delete(clipKey(i));
+        setTimeout(() => token === live.current.token && naturalRef.current(i, chunk, token, winding, attempt + 1), 350 * (attempt + 1));
+      };
       clip
         .then(c => {
           clearTimeout(showWait);
@@ -417,15 +501,12 @@ export function AudiobookProvider({
           // A phone that keeps the listener waiting can't make the voice in real time: fall back.
           if (queued && performance.now() - waitStarted > UNDERRUN_MS) underruns.current++;
           if (underruns.current >= 2 || (c.load > 1.6 && i > 3 && underruns.current >= 1)) {
-            underruns.current = 0;
-            setFallback(true);
-            live.current.engine = "system";
-            setNotice("This device can’t make the natural voice fast enough, so the device voice is reading for now.");
-            speakRef.current(i);
+            toSystem(i, "slow", "This device can’t make the natural voice fast enough, so the device voice is reading for now.");
             return;
           }
+          const rate = live.current.settings.rate * (winding ? 0.92 : 1);
           el.src = c.url;
-          el.playbackRate = live.current.settings.rate * (winding ? 0.92 : 1);
+          el.playbackRate = rate;
           el.volume = winding ? 0.6 : 1;
           el.ontimeupdate = () => {
             if (token !== live.current.token || live.current.settings.highlight !== "word" || chunk.kind !== "text" || !el.duration) return;
@@ -437,24 +518,37 @@ export function AudiobookProvider({
               to = chunk.map[(endAt < 0 ? chunk.say.length : endAt) - 1];
             if (from !== undefined && to !== undefined) setWord({ start: from, end: to + 1 });
           };
-          el.onended = () => finished(i, token, `piper:${live.current.settings.naturalVoice}`);
+          el.onended = () => {
+            clearTimeout(live.current.watchdog);
+            finished(i, token, `piper:${live.current.natural}`);
+          };
+          // A clip the browser cannot decode would otherwise leave the book silent forever.
+          el.onerror = () => retry(false);
           live.current.chunkStart = performance.now();
+          // If the sentence neither ends nor errors in about twice its length, something stalled.
+          clearTimeout(live.current.watchdog);
+          live.current.watchdog = window.setTimeout(
+            () => {
+              if (token !== live.current.token || !live.current.playing) return;
+              if (el.paused) stopWith("Playback was interrupted. Press play to continue.");
+              else retry(false);
+            },
+            (c.seconds / Math.max(0.5, rate)) * 1000 * 2 + 8000,
+          );
           el.play().catch(error => {
             if (token !== live.current.token) return;
+            clearTimeout(live.current.watchdog);
             stopWith(error?.name === "NotAllowedError" ? "Tap play to keep listening." : "The voice couldn’t play. Press play to try again.");
           });
         })
-        .catch(() => {
-          clearTimeout(showWait);
-          if (token !== live.current.token) return;
-          setFallback(true);
-          live.current.engine = "system";
-          setNotice("The natural voice stopped working, so the device voice is reading for now.");
-          speakRef.current(i);
-        });
+        .catch(error => retry(error?.message === "cancelled"));
     },
-    [unlockAudio, clipFor, prefetch, finished, stopWith],
+    [unlockAudio, clipFor, prefetch, finished, stopWith, toSystem],
   );
+
+  useEffect(() => {
+    naturalRef.current = speakNatural;
+  }, [speakNatural]);
 
   const speak = useCallback(
     (i: number) => {
@@ -481,8 +575,9 @@ export function AudiobookProvider({
       const winding = sleep?.kind === "time" && sleep.until - Date.now() < WIND_DOWN_MS;
       if (live.current.engine === "natural") speakNatural(i, chunk, token, winding);
       else if (speechOK) speakSystem(i, chunk, token, winding);
+      else stopWith("This device has no voice to read with. Download the Piper voice in voice settings.");
     },
-    [speechOK, halt, flushCredit, savePlace, speakNatural, speakSystem],
+    [speechOK, halt, flushCredit, savePlace, speakNatural, speakSystem, stopWith],
   );
   useEffect(() => {
     speakRef.current = speak;
@@ -504,11 +599,14 @@ export function AudiobookProvider({
       setVoicePanel(true);
       return;
     }
+    // Pressing play again is a fresh start for the natural voice after a one-off failure (not after a slow device).
+    if (live.current.fallback === "error") setFallback(false);
+    live.current.engine = pickEngine();
     live.current.playing = true;
     setPlaying(true);
     setNotice("");
     speak(live.current.index);
-  }, [speak]);
+  }, [speak, setFallback, pickEngine]);
 
   const play = useCallback(
     (target: Book, at?: Anchor) => {
@@ -530,6 +628,8 @@ export function AudiobookProvider({
         setVoicePanel(true);
         return;
       }
+      if (live.current.fallback === "error") setFallback(false);
+      live.current.engine = pickEngine();
       live.current.book = target;
       live.current.script = s;
       live.current.index = i;
@@ -537,10 +637,11 @@ export function AudiobookProvider({
       setIndex(i);
       live.current.playing = true;
       setPlaying(true);
-      setNotice("");
+      // Chosen Piper but the browser cleared it: say why the device voice is reading.
+      setNotice(live.current.settings.engine === "natural" && live.current.engine === "system" && naturalVoiceSupported() && !live.current.downloaded.length ? "The Piper voice is no longer on this device, so the device voice is reading. You can download it again in voice settings." : "");
       speak(i);
     },
-    [supported, l.progress, pause, flushCredit, speak],
+    [supported, l.progress, pause, flushCredit, speak, setFallback, pickEngine],
   );
 
   const seek = useCallback(
@@ -618,10 +719,6 @@ export function AudiobookProvider({
     },
     [speechOK, pause, halt, voiceFor],
   );
-  const [download, setDownload] = useState<{ state: "idle" | "loading" | "ready" | "error"; progress: number; error?: string }>(() => ({
-    state: naturalVoiceDownloaded() ? "ready" : "idle",
-    progress: 0,
-  }));
   const previewEl = useRef<HTMLAudioElement | null>(null);
   const forgetClips = useCallback(() => {
     for (const clip of clips.current.values()) void clip.then(c => URL.revokeObjectURL(c.url)).catch(() => {});
@@ -631,59 +728,103 @@ export function AudiobookProvider({
   /** Switches engine (inside a tap), then starts the book the first Listen was waiting on. */
   const chooseEngine = useCallback(
     (engine: "natural" | "system") => {
-      const naturalVoice = DEFAULT_NATURAL_VOICE;
-      live.current.settings = { ...live.current.settings, engine, naturalVoice };
-      live.current.engine = engine === "natural" && naturalVoiceDownloaded() ? "natural" : "system";
+      saveSettings({ engine });
       setFallback(false);
+      live.current.engine = pickEngine();
       underruns.current = 0;
-      saveSettings({ engine, naturalVoice });
+      if (live.current.engine === "natural") void warmNaturalVoice(live.current.natural).catch(() => {});
       const waiting = pendingPlay.current;
       if (waiting && live.current.engine === engine) {
         pendingPlay.current = null;
         setVoicePanel(false);
         play(waiting.book, waiting.at);
+      } else if (live.current.playing) {
+        forgetClips();
+        speak(live.current.index);
+      }
+    },
+    [saveSettings, setFallback, pickEngine, play, speak, forgetClips],
+  );
+  const downloading = useRef<string | null>(null);
+  const downloadNatural = useCallback((voice: string) => {
+    if (downloading.current || !isNaturalVoice(voice)) return;
+    downloading.current = voice;
+    let shown = -1;
+    setDownload({ voice, state: "loading", progress: 0 });
+    downloadNaturalVoice(voice, (loaded, total) => {
+      const progress = total ? loaded / total : 0;
+      // Only repaint when the percentage changes; chunks arrive far faster than that.
+      if (Math.round(progress * 100) === shown) return;
+      shown = Math.round(progress * 100);
+      setDownload({ voice, state: "loading", progress });
+    })
+      .then(() => {
+        setDownloaded(downloadedVoices());
+        setDownload({ voice: null, state: "idle", progress: 0 });
+      })
+      .catch(error => {
+        const text = String(error?.message || error);
+        setDownload(text === "cancelled" ? { voice: null, state: "idle", progress: 0 } : { voice, state: "error", progress: 0, error: text });
+      })
+      .finally(() => {
+        downloading.current = null;
+      });
+  }, []);
+  const stopDownload = useCallback(() => cancelDownload(), []);
+  const removeNatural = useCallback(
+    (voice?: string) => {
+      if (live.current.engine === "natural" && (!voice || voice === live.current.natural)) pause();
+      forgetClips();
+      void removeNaturalVoice(voice).then(() => {
+        const left = downloadedVoices();
+        setDownloaded(left);
+        live.current.downloaded = left;
+        if (!left.length) {
+          live.current.engine = "system";
+          saveSettings({ engine: "system" });
+        } else if (live.current.settings.engine === "natural" && live.current.natural === voice) {
+          // The removed voice was the one reading: carry on with another downloaded voice.
+          live.current.natural = left[0];
+          saveSettings({ naturalVoice: left[0] });
+        }
+      });
+    },
+    [pause, forgetClips, saveSettings],
+  );
+  /** Chooses a downloaded Piper voice and turns the natural engine on, saved in one change. */
+  const selectNaturalVoice = useCallback(
+    (id: string) => {
+      if (!live.current.downloaded.includes(id)) return;
+      const changed = live.current.natural !== id;
+      live.current.natural = id;
+      saveSettings({ engine: "natural", naturalVoice: id });
+      setFallback(false);
+      live.current.engine = pickEngine();
+      underruns.current = 0;
+      if (changed) forgetClips();
+      void warmNaturalVoice(id).catch(() => {});
+      const waiting = pendingPlay.current;
+      if (waiting) {
+        pendingPlay.current = null;
+        setVoicePanel(false);
+        play(waiting.book, waiting.at);
       } else if (live.current.playing) speak(live.current.index);
     },
-    [saveSettings, play, speak],
-  );
-  const downloadNatural = useCallback(() => {
-    setDownload({ state: "loading", progress: 0 });
-    loadNaturalVoice((loaded, total) => setDownload({ state: "loading", progress: total ? loaded / total : 0 }))
-      .then(() => {
-        // "Use natural voices" is the next tap; iOS only starts audio from a tap.
-        setDownload({ state: "ready", progress: 1 });
-      })
-      .catch(error => setDownload({ state: "error", progress: 0, error: String(error?.message || error) }));
-  }, []);
-  const removeNatural = useCallback(() => {
-    if (live.current.engine === "natural") pause();
-    forgetClips();
-    void removeNaturalVoice().then(() => {
-      setDownload({ state: "idle", progress: 0 });
-      live.current.engine = "system";
-      live.current.settings = { ...live.current.settings, engine: "system" };
-      saveSettings({ engine: "system" });
-    });
-  }, [pause, forgetClips, saveSettings]);
-  const setNaturalVoice = useCallback(
-    (id: string) => {
-      live.current.settings = { ...live.current.settings, naturalVoice: id };
-      saveSettings({ naturalVoice: id });
-      forgetClips();
-      if (live.current.playing && live.current.engine === "natural") speak(live.current.index);
-    },
-    [saveSettings, forgetClips, speak],
+    [saveSettings, setFallback, pickEngine, forgetClips, play, speak],
   );
   const previewNatural = useCallback(
     (id: string, text: string) => {
       if (live.current.playing) pause();
+      if (!live.current.downloaded.includes(id)) return Promise.reject(new Error("Download this voice first."));
       const el = (previewEl.current ??= new Audio());
+      el.pause();
       el.src = SILENT_WAV;
       void el.play().catch(() => {});
       return generateClip(text, id).then(c => {
         el.src = c.url;
         el.playbackRate = live.current.settings.rate;
         el.onended = () => URL.revokeObjectURL(c.url);
+        el.onerror = () => URL.revokeObjectURL(c.url);
         return el.play();
       });
     },
@@ -878,15 +1019,21 @@ export function AudiobookProvider({
     engine,
     buffering,
     download,
+    downloaded,
+    naturalVoiceId: naturalId,
     voicePanel,
     openVoicePanel: (open: boolean) => {
       setVoicePanel(open);
-      if (!open) pendingPlay.current = null;
+      if (!open) {
+        pendingPlay.current = null;
+        previewEl.current?.pause();
+      } else void refreshDownloadedVoices().then(setDownloaded);
     },
     chooseEngine,
     downloadNatural,
+    cancelDownload: stopDownload,
     removeNatural,
-    setNaturalVoice,
+    selectNaturalVoice,
     previewNatural,
     dismissNotice: () => setNotice(""),
   };
@@ -1147,6 +1294,14 @@ function PlayerSheet({ library: l, navigate }: { library: Library; navigate: (ur
               </button>
             </div>
           </div>
+          <button className="player-voice" onClick={() => a.openVoicePanel(true)} aria-label={`Reading voice: ${voiceLabel(a)}. Change voice`}>
+            <AudioLines size={18} aria-hidden="true" />
+            <span>
+              <small>Reading voice</small>
+              <strong>{voiceLabel(a)}</strong>
+            </span>
+            <em>Change</em>
+          </button>
           <div className="player-actions">
             <button
               className="button ink"
@@ -1159,9 +1314,6 @@ function PlayerSheet({ library: l, navigate }: { library: Library; navigate: (ur
             </button>
             <button className="button" onClick={() => setView("chapters")}>
               <ListMusic size={16} /> Chapters
-            </button>
-            <button className="button" onClick={() => a.openVoicePanel(true)}>
-              Voice · {a.engine === "natural" ? naturalVoice(a.settings.naturalVoice).name : a.voice?.name.split(/[ (]/)[0] || "Device"}
             </button>
             <button className="button" onClick={a.bookmark}>
               <Bookmark size={16} /> Bookmark

@@ -1,18 +1,23 @@
 "use client";
-import { Headphones } from "lucide-react";
-import { useAudiobook } from "./Audiobook";
-import { naturalVoice } from "@/lib/readwind/voices";
+import { AudioLines, Headphones } from "lucide-react";
+import { useAudiobook, voiceLabel } from "./Audiobook";
+
+/** Library header entry: voice settings are reachable without starting a book. */
+export function VoiceHeaderButton() {
+  const a = useAudiobook();
+  if (!a?.supported) return null;
+  return (
+    <button type="button" className="icon-button voice-header-button" aria-label="Read-aloud voice settings" title={`Read-aloud voice: ${voiceLabel(a)}`} onClick={() => a.openVoicePanel(true)}>
+      <AudioLines size={18} aria-hidden="true" />
+    </button>
+  );
+}
 
 /** Comfort-sheet entry to the read-aloud voice settings. */
 export function ReadAloudVoiceRow() {
   const a = useAudiobook();
   if (!a?.supported) return null;
-  const current =
-    a.settings.engine === "natural" && a.download.state === "ready"
-      ? `Natural · ${naturalVoice(a.settings.naturalVoice).name}`
-      : a.settings.engine === "system"
-        ? "Device voice"
-        : "Not chosen yet";
+  const current = voiceLabel(a);
   return (
     <div className="toggle-row">
       <div>

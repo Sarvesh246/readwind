@@ -1,4 +1,5 @@
 "use client";
+import { DEFAULT_NATURAL_VOICE, NATURAL_VOICES, isNaturalVoice, voiceFiles } from "./voices";
 /**
  * Main-thread side of the natural voice: one shared worker, a request queue, and WAV blobs that play
  * through an ordinary <audio> element.
@@ -32,78 +33,165 @@ export function encodeWav(samples: Float32Array, rate: number): ArrayBuffer {
 }
 
 export type Clip = { url: string; seconds: number; /** Generation time ÷ audio length; above 1 the phone is slower than speech. */ load: number };
-type Pending = { resolve: (c: Clip) => void; reject: (e: Error) => void };
 
-const READY_KEY = "readwind-piper-ljspeech";
-let worker: Worker | null = null;
+type ClipRequestState = { resolve: (c: Clip) => void; reject: (e: Error) => void; voice: string };
+type JobState = { resolve: () => void; reject: (e: Error) => void; onProgress?: (loaded: number, total: number) => void };
+
+/** A worker that says nothing for this long while work is queued is presumed hung and replaced. */
+const STALL_MS = 90000;
+const LIST_KEY = "readwind-piper-voices";
+const LEGACY_KEY = "readwind-piper-ljspeech";
+
+let synth: Worker | null = null;
+let synthVoice: string | null = null;
+let downloader: Worker | null = null;
 let nextId = 1;
-const pending = new Map<number, Pending>();
-let loading: Promise<void> | null = null;
-let progressListener: ((loaded: number, total: number) => void) | null = null;
+let lastActivity = 0;
+let watchdog: ReturnType<typeof setInterval> | undefined;
+const clips = new Map<number, ClipRequestState>();
+const jobs = new Map<number, JobState>();
 
-function connect() {
-  if (worker) return worker;
-  worker = new Worker(new URL("./natural-voice.worker.ts", import.meta.url), { type: "module" });
-  worker.onmessage = (event: MessageEvent) => {
-    const m = event.data;
-    if (m.type === "progress") progressListener?.(m.loaded, m.total);
-    else if (m.type === "audio") {
-      const p = pending.get(m.id);
-      pending.delete(m.id);
-      if (!p) return;
-      const buffer = m.buffer as ArrayBuffer;
-      const view = new DataView(buffer);
-      const seconds = (buffer.byteLength - 44) / view.getUint32(28, true);
-      const url = URL.createObjectURL(new Blob([buffer], { type: "audio/wav" }));
-      p.resolve({ url, seconds, load: seconds ? m.ms / 1000 / seconds : 1 });
-    } else if (m.type === "error" && m.id) {
-      const p = pending.get(m.id);
-      pending.delete(m.id);
-      p?.reject(new Error(m.message));
-    }
-  };
-  worker.onerror = event => {
-    for (const p of pending.values()) p.reject(new Error(event.message || "The voice stopped."));
-    pending.clear();
-    worker?.terminate();
-    worker = null;
-    loading = null;
-  };
-  return worker;
+const spawn = () => new Worker(new URL("./natural-voice.worker.ts", import.meta.url), { type: "module" });
+const failure = (text?: string) => new Error(text || "The voice stopped.");
+
+/** Stops the speech worker and frees its memory; the next request starts a fresh one. */
+function retireSynth(reason: Error) {
+  const w = synth;
+  synth = null;
+  synthVoice = null;
+  w?.terminate();
+  for (const p of clips.values()) p.reject(reason);
+  clips.clear();
 }
 
-/** Downloads (first time) or loads (from cache) the model; resolves when it can speak. */
-export function loadNaturalVoice(onProgress?: (loaded: number, total: number) => void): Promise<void> {
-  if (onProgress) progressListener = onProgress;
-  if (loading) return loading;
-  const w = connect();
-  loading = new Promise<void>((resolve, reject) => {
-    const listen = (event: MessageEvent) => {
-      if (event.data.type === "ready") {
-        w.removeEventListener("message", listen);
-        try {
-          localStorage.setItem(READY_KEY, "1");
-        } catch {}
-        resolve();
-      } else if (event.data.type === "error" && !event.data.id) {
-        w.removeEventListener("message", listen);
-        loading = null;
-        reject(new Error(event.data.message));
+function watch() {
+  if (watchdog) return;
+  watchdog = setInterval(() => {
+    if (!clips.size) {
+      clearInterval(watchdog);
+      watchdog = undefined;
+    } else if (Date.now() - lastActivity > STALL_MS) retireSynth(failure("The voice stopped responding."));
+  }, 10000);
+}
+
+function handle(m: { type: string; id?: number; req?: number; buffer?: ArrayBuffer; ms?: number; message?: string; loaded?: number; total?: number }) {
+  lastActivity = Date.now();
+  if (m.type === "progress") {
+    if (m.req !== undefined) jobs.get(m.req)?.onProgress?.(m.loaded ?? 0, m.total ?? 0);
+  } else if (m.type === "ready" && m.req !== undefined) {
+    const j = jobs.get(m.req);
+    jobs.delete(m.req);
+    j?.resolve();
+  } else if (m.type === "audio" && m.id !== undefined) {
+    const p = clips.get(m.id);
+    clips.delete(m.id);
+    if (!p || !m.buffer) return;
+    const view = new DataView(m.buffer);
+    const seconds = (m.buffer.byteLength - 44) / view.getUint32(28, true);
+    const url = URL.createObjectURL(new Blob([m.buffer], { type: "audio/wav" }));
+    p.resolve({ url, seconds, load: seconds ? (m.ms ?? 0) / 1000 / seconds : 1 });
+  } else if (m.type === "error") {
+    if (m.id !== undefined) {
+      const p = clips.get(m.id);
+      clips.delete(m.id);
+      p?.reject(failure(m.message));
+    } else if (m.req !== undefined) {
+      const j = jobs.get(m.req);
+      jobs.delete(m.req);
+      j?.reject(failure(m.message));
+    }
+  }
+}
+
+function synthFor(voice: string) {
+  // One voice per worker: switching voices starts over, so a model that is no longer used does not stay in memory.
+  if (synth && synthVoice !== voice) retireSynth(failure("cancelled"));
+  if (synth) return synth;
+  const w = spawn();
+  const crashed = (text?: string) => {
+    if (synth !== w) return;
+    synth = null;
+    synthVoice = null;
+    w.terminate();
+    for (const p of clips.values()) p.reject(failure(text));
+    clips.clear();
+    for (const [key, j] of jobs)
+      if (j.onProgress === undefined) {
+        jobs.delete(key);
+        j.reject(failure(text));
       }
+  };
+  w.onmessage = event => synth === w && handle(event.data);
+  w.onerror = event => crashed(event.message);
+  w.onmessageerror = () => crashed();
+  synth = w;
+  synthVoice = voice;
+  lastActivity = Date.now();
+  return w;
+}
+
+/** Fetches a voice onto this device (a no-op if it is already there). Resolves when it is ready to use. */
+export function downloadNaturalVoice(voice: string, onProgress?: (loaded: number, total: number) => void): Promise<void> {
+  const w = spawn();
+  downloader = w;
+  const req = nextId++;
+  const done = () => {
+    w.terminate();
+    if (downloader === w) downloader = null;
+  };
+  return new Promise<void>((resolve, reject) => {
+    jobs.set(req, { resolve, reject, onProgress });
+    w.onmessage = event => handle(event.data);
+    w.onerror = event => {
+      jobs.delete(req);
+      reject(failure(event.message || "The download stopped."));
     };
-    w.addEventListener("message", listen);
-    w.addEventListener("error", event => { w.removeEventListener("message", listen); loading = null; reject(new Error(event.message || "The voice stopped.")); }, { once: true });
-    w.postMessage({ type: "load" });
+    w.postMessage({ type: "download", req, voice });
+  }).then(
+    async () => {
+      done();
+      const stored = await refreshDownloadedVoices();
+      if (!stored.includes(voice)) throw new Error("The voice could not be saved on this device. Free some space and try again.");
+      // Ask the browser not to clear what was just downloaded when storage runs low.
+      void navigator.storage?.persist?.().catch(() => {});
+    },
+    error => {
+      done();
+      throw error;
+    },
+  );
+}
+
+/** Stops a download in progress. Its promise rejects with "cancelled". */
+export function cancelDownload() {
+  downloader?.terminate();
+  downloader = null;
+  for (const [key, j] of jobs)
+    if (j.onProgress) {
+      jobs.delete(key);
+      j.reject(failure("cancelled"));
+    }
+}
+
+/** Starts loading a downloaded voice into the speech worker, so the first sentence is not slow. */
+export function warmNaturalVoice(voice: string): Promise<void> {
+  const w = synthFor(voice);
+  const req = nextId++;
+  return new Promise<void>((resolve, reject) => {
+    jobs.set(req, { resolve, reject });
+    w.postMessage({ type: "warm", req, voice });
   });
-  return loading;
 }
 
 export type ClipRequest = Promise<Clip> & { id: number };
 export function generateClip(text: string, voice: string): ClipRequest {
   const id = nextId++;
+  // Pick the worker first: a voice change discards the old worker and cancels what it was holding.
+  const worker = synthFor(voice);
   const request = new Promise<Clip>((resolve, reject) => {
-    pending.set(id, { resolve, reject });
-    connect().postMessage({ type: "generate", id, text, voice });
+    clips.set(id, { resolve, reject, voice });
+    worker.postMessage({ type: "generate", id, text, voice });
+    watch();
   }) as ClipRequest;
   request.id = id;
   return request;
@@ -111,36 +199,70 @@ export function generateClip(text: string, voice: string): ClipRequest {
 
 /** Drops queued requests that have not started; their promises reject with "cancelled". */
 export function cancelClips(ids: number[]) {
-  const waiting = ids.filter(id => pending.has(id));
+  const waiting = ids.filter(id => clips.has(id));
   if (!waiting.length) return;
   for (const id of waiting) {
-    pending.get(id)!.reject(new Error("cancelled"));
-    pending.delete(id);
+    clips.get(id)!.reject(failure("cancelled"));
+    clips.delete(id);
   }
-  worker?.postMessage({ type: "cancel", ids: waiting });
+  synth?.postMessage({ type: "cancel", ids: waiting });
 }
 
-/** Whether the model has been downloaded on this device (so choosing it needs no download). */
-export function naturalVoiceDownloaded() {
+/** Discards the speech worker (and its memory) after a failure, so the next sentence starts clean. */
+export function resetNaturalVoice() {
+  retireSynth(failure("cancelled"));
+}
+
+const readList = (): string[] => {
   try {
-    return localStorage.getItem(READY_KEY) === "1";
+    const stored = JSON.parse(localStorage.getItem(LIST_KEY) || "null");
+    if (Array.isArray(stored)) return stored.filter(isNaturalVoice);
+    // Installs from before several voices were offered recorded one flag for the single voice.
+    return localStorage.getItem(LEGACY_KEY) === "1" ? [DEFAULT_NATURAL_VOICE] : [];
   } catch {
-    return false;
+    return [];
   }
+};
+const writeList = (voices: string[]) => {
+  try {
+    localStorage.setItem(LIST_KEY, JSON.stringify(voices));
+    localStorage.removeItem(LEGACY_KEY);
+  } catch {}
+};
+
+/** Voices recorded as on this device. Instant, but a guess until `refreshDownloadedVoices` checks the disk. */
+export const downloadedVoices = (): string[] => readList();
+export const naturalVoiceDownloaded = (voice?: string) => (voice ? readList().includes(voice) : readList().length > 0);
+
+/** Looks at the device's storage, which the browser may have cleared, and returns the voices truly there. */
+export async function refreshDownloadedVoices(): Promise<string[]> {
+  if (!naturalVoiceSupported()) return [];
+  const found: string[] = [];
+  try {
+    const directory = await (await navigator.storage.getDirectory()).getDirectoryHandle("piper");
+    for (const voice of NATURAL_VOICES) {
+      const [model, config] = voiceFiles(voice.id);
+      try {
+        const size = async (name: string) => (await (await directory.getFileHandle(name)).getFile()).size;
+        if ((await size(model)) > 1_000_000 && (await size(config)) > 0) found.push(voice.id);
+      } catch {}
+    }
+  } catch {}
+  writeList(found);
+  return found;
 }
 
-/** Removes the cached model and runtime, and stops the worker. */
-export async function removeNaturalVoice() {
-  worker?.terminate();
-  worker = null;
-  loading = null;
-  for (const p of pending.values()) p.reject(new Error("Removed"));
-  pending.clear();
+/** Removes one voice, or every voice and the cached runtime when no voice is given. */
+export async function removeNaturalVoice(voice?: string) {
+  if (!voice || voice === synthVoice) retireSynth(failure("Removed"));
+  if (!voice) cancelDownload();
   try {
-    localStorage.removeItem(READY_KEY);
+    const directory = await (await navigator.storage.getDirectory()).getDirectoryHandle("piper");
+    if (voice) for (const name of voiceFiles(voice)) await directory.removeEntry(name).catch(() => {});
+    else await (await navigator.storage.getDirectory()).removeEntry("piper", { recursive: true });
   } catch {}
-  await Promise.all(["transformers-cache", "kokoro-voices", "piper-runtime"].map(name => caches.delete(name).catch(() => false)));
-  try { const root = await navigator.storage.getDirectory(); await root.removeEntry("piper", { recursive: true }); } catch {}
+  if (!voice) await Promise.all(["transformers-cache", "kokoro-voices", "piper-runtime"].map(name => caches.delete(name).catch(() => false)));
+  await refreshDownloadedVoices();
 }
 
 /** WebAssembly is required; very old iPhones without it can only use the system voice. */
