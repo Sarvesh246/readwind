@@ -3,6 +3,12 @@ import type { NextConfig } from "next";
 import { securityHeaders } from "./lib/readwind/security";
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  turbopack: {
+    resolveAlias: {
+      fs: { browser: "./lib/readwind/empty-module.ts" },
+      path: { browser: "./lib/readwind/empty-module.ts" },
+    },
+  },
   adapterPath: path.resolve("scripts/offline-next-adapter.mjs"),
   async headers() {
     return [
