@@ -949,8 +949,8 @@ function NowPlayingBar() {
       <button className="now-playing-button" onClick={() => a.skip(-15)} aria-label="Back 15 seconds">
         <RotateCcw size={18} />
       </button>
-      <button className="now-playing-button primary" onClick={a.toggle} aria-label={a.playing ? "Pause" : "Play"}>
-        {a.playing ? <Pause size={20} /> : <Play size={20} />}
+      <button className="now-playing-button primary" onClick={a.toggle} aria-label={a.buffering ? "Preparing the voice" : a.playing ? "Pause" : "Play"}>
+        {a.buffering ? <Loader2 size={20} className="spin" /> : a.playing ? <Pause size={20} /> : <Play size={20} />}
       </button>
       <button className="now-playing-button" onClick={a.stop} aria-label="Close player">
         <X size={18} />
@@ -1120,7 +1120,7 @@ function PlayerSheet({ library: l, navigate }: { library: Library; navigate: (ur
           <p className="player-left">{formatDuration(times.bookLeft)} left in book · {formatDuration(times.chapterLeft)} in chapter</p>
           <div className="player-section">
             <span className="player-label">Speed</span>
-            <div className="chip-row" role="group" aria-label="Speed">
+            <div className="chip-row is-even" role="group" aria-label="Speed">
               {RATES.map(r => (
                 <button key={r} className="chip" aria-pressed={a.settings.rate === r} onClick={() => a.setRate(r)}>
                   {r}×
