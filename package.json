@@ -44,7 +44,8 @@
     "catalog": "node --env-file-if-exists=.env.local --env-file-if-exists=work/catalog/worker.env scripts/catalog/worker.mjs",
     "catalog:migrate": "node --env-file-if-exists=.env.local scripts/catalog/migrate.mjs",
     "test:catalog": "node scripts/test-catalog-browser.mjs",
-    "build:next": "node scripts/prepare-assets.mjs && next build"
+    "build:next": "node scripts/prepare-assets.mjs && next build",
+    "test:piper-offline": "node scripts/test-piper-offline.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

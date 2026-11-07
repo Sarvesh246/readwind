@@ -10,11 +10,20 @@ function load() {
     for (const url of ["/piper/piper_phonemize.data", "/piper/piper_phonemize.wasm", "/piper/ort-wasm-simd.wasm"]) {
       if (!(await cache.match(url))) await cache.add(url);
     }
-    return TtsSession.create({
+    const session = await TtsSession.create({
       voiceId: DEFAULT_NATURAL_VOICE,
       wasmPaths: { onnxWasm: "/piper/", piperData: "/piper/piper_phonemize.data", piperWasm: "/piper/piper_phonemize.wasm" },
       progress: p => postMessage({ type: "progress", loaded: p.loaded, total: p.total }),
     });
+    // The Piper library suppresses storage errors; do not advertise offline readiness
+    // unless both files are actually present in the origin private file system.
+    const root = await navigator.storage.getDirectory();
+    const directory = await root.getDirectoryHandle("piper");
+    for (const name of [`${DEFAULT_NATURAL_VOICE}.onnx`, `${DEFAULT_NATURAL_VOICE}.onnx.json`]) {
+      const file = await (await directory.getFileHandle(name)).getFile();
+      if (!file.size) throw new Error("The voice could not be saved for offline use.");
+    }
+    return session;
   })().catch(error => { model = null; TtsSession._instance = null; throw error; });
   return model;
 }
