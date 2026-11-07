@@ -17,6 +17,10 @@ import { ReadwindLockup } from "./Logo";
 import { ThemeToggleButton } from "./Theme";
 import { BookEditor } from "./CoverPicker";
 import { hasReadableContent } from '@/lib/readwind/content';
+import { GoalChip, FinishByEditor, finishLine } from "./Goals";
+import { ListenButton, useAudiobook } from "./Audiobook";
+import { dayNumber } from "@/lib/readwind/reading-log";
+import { CalendarClock, Headphones } from "lucide-react";
 export function Cover({
   book,
   loadBlob,
@@ -116,6 +120,12 @@ const readTime = (book: Book, speed = 230) => {
   if (!words) return "Reading time unavailable";
   return `${readDuration(minutes)} read`;
 };
+/** "Finished 3 days early" for a book finished before its finish-by date. */
+const finishedEarly = (book: Book, finishedAt?: number) => {
+  if (!book.finishBy || !finishedAt) return "";
+  const days = dayNumber(book.finishBy) - dayNumber(dayKey(new Date(finishedAt)));
+  return days > 0 ? `Finished ${days} day${days === 1 ? "" : "s"} early` : days === 0 ? "Finished right on time" : "";
+};
 export function Library({
   library: l,
   navigate,
@@ -136,6 +146,8 @@ export function Library({
   catalogEnabled?: boolean;
 }) {
   const [calendar, setCalendar] = useState(false);
+  const [finishBook, setFinishBook] = useState<Book | null>(null);
+  const audio = useAudiobook();
   const [selected,setSelected]=useState<string[]>([]);
   const closeMenu=(e:{currentTarget:Element})=>{e.currentTarget.closest('details')?.removeAttribute('open');};
   useEffect(()=>{
@@ -294,6 +306,7 @@ export function Library({
           <span className="import-label">Add book</span>
         </button>
         <div className="library-utility">
+          <span className="header-goal"><GoalChip library={l} onClick={onStats} /></span>
           <StreakChip streak={streak} onClick={() => setCalendar(true)} />
           <ThemeToggleButton />
           <button
@@ -317,6 +330,7 @@ export function Library({
           }}
         />
       )}
+      {finishBook && <FinishByEditor library={l} book={finishBook} onClose={() => setFinishBook(null)} />}
       {celebration.show && !calendar && <StreakCelebration streak={streak} days={readDays} onClose={celebration.close} />}
       <main className="library-main">
         {view === "collections" && (
@@ -357,8 +371,9 @@ export function Library({
               />
             </button>
             <div className="continue-copy">
-              <div className="eyebrow">
+              <div className="eyebrow continue-eyebrow">
                 {started ? "Continue reading" : "Start reading"}
+                <span className="continue-goal"><GoalChip library={l} onClick={onStats} /></span>
               </div>
               <ResponsiveBookTitle text={current.title}/>
               <div className="chapter-label">
@@ -366,6 +381,7 @@ export function Library({
                   ? `Chapter ${at.section + 1} · ${current.sections[at.section]?.title}`
                   : `${current.author} · ${current.pagination==='flow'?'':`${current.printPageCount} pages · `}${readTime(current, l.speedFor(current))}`}
               </div>
+              {finishLine(l, current) && <div className="finish-line"><CalendarClock size={14} aria-hidden="true" />{finishLine(l, current)}</div>}
               {started && (
                 <div className="continue-progress">
                   <div className="progress-track">
@@ -391,6 +407,7 @@ export function Library({
                 >
                   {started ? "Resume" : "Start reading"}
                 </button>
+                <ListenButton book={current} />
                 {notes.length > 0 && (
                   <button
                     className="button"
@@ -507,7 +524,9 @@ export function Library({
                         />
                       </div>
                       <span title="Full-book progress and estimated time at your reading pace">
-                        {info.pct > 0
+                        {info.pct >= 0.99 && finishedEarly(b, progressByBook.get(b.id)?.updatedAt)
+                          ? finishedEarly(b, progressByBook.get(b.id)?.updatedAt)
+                          : info.pct > 0
                           ? `${Math.round(info.pct * 100)}% · ${readDuration(info.bookMinutes)} left`
                           : `Not started · ${readTime(b, l.speedFor(b))}`}
                       </span>
@@ -522,6 +541,8 @@ export function Library({
                         <button key={value} type="button" className="card-menu-item" aria-pressed={(b.readingStatus || '') === value} onClick={e => { closeMenu(e); void l.saveBook({ ...b, readingStatus: (value || undefined) as Book['readingStatus'] }); }}>{label}</button>
                       ))}
                       <hr />
+                      {audio?.supported && <button type="button" className="card-menu-item" onClick={e => { closeMenu(e); if (audio.book?.id === b.id) audio.toggle(); else audio.play(b); }}><Headphones size={14} />{audio.book?.id === b.id && audio.playing ? "Pause listening" : "Listen"}</button>}
+                      <button type="button" className="card-menu-item" onClick={e => { closeMenu(e); setFinishBook(b); }}><CalendarClock size={14} />{b.finishBy ? "Change finish date" : "Set a finish date"}</button>
                       <button type="button" className="card-menu-item" onClick={e=>{closeMenu(e);const tags=window.prompt('Collections, separated by commas',b.tags?.join(', ') || '');if(tags!==null)void l.saveBook({...b,tags:[...new Set(tags.split(',').map(t=>t.trim()).filter(Boolean))].slice(0,30)});}}>Collections</button>
                       <button type="button" className="card-menu-item" aria-label={`Edit ${b.title}`} onClick={e => { closeMenu(e); setCoverBook(b); }}><Icon name="image" size={14} />Edit cover</button>
                       <button type="button" className="card-menu-item danger" aria-label={`Delete ${b.title}`} onClick={e => { closeMenu(e); setDeleteError('');if(l.settings.confirmBookDeletion===false)removeBook(b);else setDeletion({owner:l.paceOwner,book:b}); }}>Delete</button>

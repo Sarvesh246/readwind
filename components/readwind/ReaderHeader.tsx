@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "react";
 import type { Book, Settings } from "@/lib/readwind/types";
 import { Icon } from "./Icon";
+import { Headphones } from "lucide-react";
 
 type Props = {
   book: Book;
@@ -16,6 +17,9 @@ type Props = {
   onContents: () => void;
   onSearch: () => void;
   onNotebook: () => void;
+  /** Absent when this device has no speech voices, or the book is shown in its original layout. */
+  onListen?: () => void;
+  listening?: boolean;
   onComfort: () => void;
   onCover: () => void;
   onFullScreen: () => void;
@@ -142,6 +146,18 @@ export function ReaderHeader(props: Props) {
         >
           <Icon name="search" size={19} />
         </button>
+        {props.onListen && (
+          <button
+            className="reader-tool listen-tool"
+            aria-label={props.listening ? "Pause reading aloud" : "Listen to this book"}
+            aria-pressed={!!props.listening}
+            title={props.listening ? "Pause reading aloud" : "Listen: read the book aloud from here"}
+            onClick={props.onListen}
+          >
+            <Headphones size={18} strokeWidth={1.8} aria-hidden="true" />
+            <span>Listen</span>
+          </button>
+        )}
         <button
           className="reader-tool"
           aria-label="Notebook"

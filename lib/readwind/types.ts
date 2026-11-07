@@ -51,6 +51,8 @@ export type Book = {
   revision?: number;
   readingMode?: 'original'|'reflow';
   readingStatus?: 'reading'|'to-read'|'finished';
+  /** Optional finish-by date (YYYY-MM-DD); the daily time it needs is recalculated every day. */
+  finishBy?: string;
   tags?: string[];
   importReport?: import('./pdf-layout').PdfImportReport;
   footnotes?: { id: string; marker: string; text: string; pageIndex?: number }[];
@@ -96,8 +98,18 @@ export type Settings = {
   warmLight: boolean;
   restNudge: boolean;
   focusParagraph: boolean;
+  goals?: import('./goals').Goals;
+  listen?: ListenSettings;
   colorNames: Record<Color, string>;
 };
+export type ListenSettings = {
+  rate: number;
+  /** Chosen voice per language, so a French book keeps its French voice. */
+  voiceByLang: Record<string, string>;
+  highlight: "sentence" | "word";
+  readCaptions: boolean;
+};
+export const listenDefaults: ListenSettings = { rate: 1, voiceByLang: {}, highlight: "sentence", readCaptions: false };
 export const defaults: Settings = {
   paper: "Paper",
   font: "Literata",

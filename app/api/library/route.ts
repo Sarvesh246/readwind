@@ -39,6 +39,7 @@ const catalogMetadata = z
         customCoverBlobId: book.shape.customCoverBlobId.nullable(),
         readingMode: book.shape.readingMode,
         readingStatus: book.shape.readingStatus,
+        finishBy: book.shape.finishBy,
         tags: book.shape.tags,
       })
       .strict(),

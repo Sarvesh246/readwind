@@ -92,6 +92,7 @@ export const book = z
     sample: z.boolean().optional(),
     revision: z.number().int().min(0).max(2147483646).optional(),
     readingStatus: z.enum(["reading","to-read","finished"]).optional(),
+    finishBy: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     tags: z.array(z.string().trim().min(1).max(60)).max(30).optional(),
     readingMode: z.enum(["original", "reflow"]).optional(),
     importReport: z
@@ -228,6 +229,7 @@ export const settings = z.object({
     pages:z.number().int().min(0).max(100000),
     words:z.number().min(0).max(10000000),
     seconds:z.number().min(0).max(86400),
+    listenSeconds:z.number().min(0).max(86400).optional(),
   })).refine(value=>Object.keys(value).length<=20000).optional(),
   paper: z.enum(["Paper", "Sepia", "Dusk", "Night"]),
   font: z.enum(["Literata", "Source Serif", "Atkinson"]),
@@ -238,6 +240,20 @@ export const settings = z.object({
   warmLight: z.boolean(),
   restNudge: z.boolean(),
   focusParagraph: z.boolean(),
+  goals: z.object({
+    unit: z.enum(["minutes","pages"]),
+    target: z.number().int().min(1).max(600),
+    weeklyDays: z.number().int().min(1).max(7),
+    history: z.array(z.object({from:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),unit:z.enum(["minutes","pages"]),target:z.number().int().min(1).max(600)})).max(200),
+    showInReader: z.boolean().optional(),
+    celebrate: z.boolean().optional(),
+  }).optional(),
+  listen: z.object({
+    rate: z.number().min(0.5).max(3),
+    voiceByLang: z.record(z.string().max(40), z.string().max(300)).refine(v=>Object.keys(v).length<=60),
+    highlight: z.enum(["sentence","word"]),
+    readCaptions: z.boolean(),
+  }).optional(),
   colorNames: z.object({
     yellow: z.string().max(80),
     green: z.string().max(80),

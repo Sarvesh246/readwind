@@ -3,6 +3,7 @@ import type { Settings } from "@/lib/readwind/types";
 import { useMemo } from "react";
 import { Flame } from "./Flame";
 import { Modal } from "./Modal";
+import { GoalsPanel } from "./Goals";
 import { wordProgress, start } from "@/lib/readwind/anchors";
 import { dailyTotals, dayFromNumber, dayKey, dayNumber, qualifyingDays, statsOf, streakOf, type ReadingLog } from "@/lib/readwind/reading-log";
 import type { Annotation, Book, Progress } from "@/lib/readwind/types";
@@ -112,6 +113,8 @@ export function ReadingStats({ library: l, onClose }: { library: Source; onClose
         </div>
       </section>
 
+      <GoalsPanel library={l} />
+
       <dl className="stats-grid">
         {tiles.map((t) => (
           <div key={t.label} className="stat-tile">
@@ -164,7 +167,7 @@ export function ReadingStats({ library: l, onClose }: { library: Source; onClose
         <small>Late-night reading counts toward the day it started.</small>
       </label>
       <p className="stats-foot">
-        Words and time come from pages you actually read. Flipping quickly, skimming and idle gaps are left out, so these numbers stay honest.
+        Words and time come from pages you actually read or listened to. Flipping quickly, skimming and idle gaps are left out, so these numbers stay honest.
       </p>
     </Modal>
   );

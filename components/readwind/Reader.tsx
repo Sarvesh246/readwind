@@ -33,6 +33,11 @@ import { BookEditor } from "./CoverPicker";
 import { Highlighter } from "lucide-react";
 import { hasReadableContent } from '@/lib/readwind/content';
 import { searchBook } from '@/lib/readwind/search';
+import { useAudiobook, ReaderPlayer } from "./Audiobook";
+import { anchorOf, chunkAt } from "@/lib/readwind/speech";
+import { rangesFor, paintHighlight, clearHighlight, offsetAtPoint } from "@/lib/readwind/speech-highlight";
+import { todayGoal, unitLabel } from "@/lib/readwind/goals";
+import { Headphones } from "lucide-react";
 type Turn = { dir: number; p: number; kind: "page" | "open" | "close" };
 export function Reader({
   book,
@@ -120,7 +125,11 @@ export function Reader({
   // A chapter jump may land on the right of a spread beside the previous chapter.
   const visibleAnchor = anchor;
   const info = wordProgress(book, visibleAnchor, l.speedFor(book));
-  useReadingPace(`${l.paceOwner}:${book.id}`, info.before, !busy && !closed && !panel && !selection && !editing && !l.conflict && !isContentsSection(book,visibleAnchor.section), l.recordReading, l.recordActivity, l.speedFor(book), { bookId: book.id, density: bookDensity(book), calibrate: l.recordCalibration });
+  const audio = useAudiobook();
+  const listening = !!audio && audio.book?.id === book.id;
+  // Listening has its own credit (and must not teach the reader's pace the voice's speed).
+  const listeningNow = listening && !!audio?.playing;
+  useReadingPace(`${l.paceOwner}:${book.id}`, info.before, !listeningNow && !busy && !closed && !panel && !selection && !editing && !l.conflict && !isContentsSection(book,visibleAnchor.section), l.recordReading, l.recordActivity, l.speedFor(book), { bookId: book.id, density: bookDensity(book), calibrate: l.recordCalibration });
   const wpm = l.speedFor(book);
   const lastInput = useLastInput();
   const warm = useWarmHour(s.warmLight);
@@ -128,9 +137,12 @@ export function Reader({
   const bookmarked = annotations.find(a => a.kind === 'bookmark' && first &&
     compare(a.range.start, first.start) >= 0 && compare(a.range.start, first.end) < 0);
   const { saveProgress, loadBlob } = l;
+  // A page move by the reader (never by the voice) stops the page following the voice.
+  const stopFollowing = useRef<() => void>(() => {});
   const commitAnchor = useCallback(
     (at: Anchor) => {
       navigated.current = true;
+      stopFollowing.current();
       anchorRef.current = at;
       setAnchor(at);
       void saveProgress(book.id, at, wordProgress(book, at).before);
@@ -284,6 +296,88 @@ export function Reader({
     window.addEventListener("keydown", find);
     return () => window.removeEventListener("keydown", find);
   }, []);
+  // Read aloud: the page follows the voice until the reader turns away, then offers "Back to voice".
+  const [following, setFollowing] = useState(true);
+  useEffect(() => {
+    stopFollowing.current = () => {
+      if (listeningNow) setFollowing(false);
+    };
+  }, [listeningNow]);
+  const spoken = listening ? audio!.chunk : null;
+  useEffect(() => {
+    if (!spoken || !following || busy || s.turn === "Scroll" || spoken.kind === "caption") return;
+    const at = anchorOf(spoken);
+    const end = last?.end;
+    if (first && end && compare(at, first.start) >= 0 && compare(at, end) < 0) return;
+    anchorRef.current = at;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the page follows the speech engine
+    setAnchor(at);
+  }, [spoken, following, busy, s.turn, first, last]);
+  // Arriving from the player ("Show text") opens the book straight to the voice's page.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- runs once the phone layout has closed the cover
+    if (listening) setClosed(false);
+  }, [listening, phone]);
+  const spokenWord = listening && audio!.settings.highlight === "word" ? audio!.word : null;
+  useEffect(() => {
+    const el = root.current;
+    if (!el || !spoken || spoken.kind !== "text" || busy) {
+      clearHighlight("rw-speech");
+      clearHighlight("rw-speech-word");
+      return;
+    }
+    const id = requestAnimationFrame(() => {
+      const sentence = rangesFor(el, spoken.section, spoken.block, spoken.start, spoken.end);
+      paintHighlight("rw-speech", sentence);
+      paintHighlight("rw-speech-word", spokenWord ? rangesFor(el, spoken.section, spoken.block, spokenWord.start, spokenWord.end) : []);
+      // In scroll view keep the spoken sentence in the upper part of the screen.
+      if (s.turn === "Scroll" && following && sentence[0]) {
+        const r = sentence[0].getBoundingClientRect();
+        if (r.top < 60 || r.bottom > window.innerHeight * 0.66)
+          (sentence[0].startContainer.parentElement as HTMLElement | null)?.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [spoken, spokenWord, busy, index, pages, s.turn, following, reduced]);
+  useEffect(() => () => {
+    clearHighlight("rw-speech");
+    clearHighlight("rw-speech-word");
+  }, []);
+  const listen = () => {
+    if (!audio) return;
+    if (listening) audio.toggle();
+    else audio.play(book, s.turn === "Scroll" || closed ? anchor : first?.start || anchor);
+    setFollowing(true);
+  };
+  // Tapping a sentence while listening reads from there.
+  const readFromHere = (e: React.MouseEvent) => {
+    if (!listeningNow || !audio?.script || (e.target as HTMLElement).closest("[data-highlight],button,a")) return;
+    if (!document.getSelection()?.isCollapsed) return;
+    const at = offsetAtPoint(e.clientX, e.clientY);
+    if (!at) return;
+    setFollowing(true);
+    audio.seek(chunkAt(audio.script, at));
+  };
+  // Goals: an optional "minutes to goal" line, and a quiet toast at the next page turn once met.
+  const goal = todayGoal(s.goals, l.readingLog);
+  const goalMet = useRef<boolean | null>(null),
+    [celebrate, setCelebrate] = useState(false);
+  useEffect(() => {
+    if (!goal) return;
+    if (goalMet.current === false && goal.met && s.goals?.celebrate !== false) setCelebrate(true);
+    goalMet.current = goal.met;
+  }, [goal?.met, goal, s.goals?.celebrate]);
+  useEffect(() => {
+    if (!celebrate || immersive || !goal) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the celebration waits for a page turn
+    setCelebrate(false);
+    const text = `Today’s ${unitLabel(goal.unit, goal.target)}, done.`;
+    setMessage(text);
+    const t = setTimeout(() => setMessage(m => (m === text ? "" : m)), 4000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- shown on the next page turn, never mid-page
+  }, [index]);
+  const goalLeft = goal && s.goals?.showInReader && !goal.met ? Math.max(1, Math.ceil(goal.target - goal.value)) : 0;
   const canTurn = (dir: number) =>
     dir > 0 ? index + (spread ? 2 : 1) < pages.length : index > 0;
   // Toasts clear themselves so a hint never lingers over the page controls.
@@ -855,6 +949,8 @@ export function Reader({
           onContents={()=>setPanel("contents")}
           onSearch={()=>setPanel("search")}
           onNotebook={openNotebook}
+          onListen={audio?.supported ? listen : undefined}
+          listening={listeningNow}
           onComfort={()=>setPanel("comfort")}
           onCover={()=>setPanel("cover")}
           onFullScreen={fullscreen}
@@ -880,6 +976,7 @@ export function Reader({
             }
           }}
           onMouseUp={onSelect}
+          onClickCapture={readFromHere}
           onKeyUp={onSelect}
           onTouchEnd={() => setTimeout(onSelect, 80)}
           onPointerDownCapture={(e) => {
@@ -1069,7 +1166,7 @@ export function Reader({
                   <span className="reader-time-left">
                     {closed
                       ? "Tap the cover to open"
-                      : `${info.minutes} min left in chapter`}
+                      : `${info.minutes} min left in chapter${goalLeft ? ` · ${unitLabel(goal!.unit, goalLeft)} to today’s goal` : ""}`}
                   </span>
                 </div>
               </div>
@@ -1103,6 +1200,7 @@ export function Reader({
               </>
             )}
             {full && <>
+              {audio?.supported && <button onClick={listen} aria-label={listeningNow ? "Pause reading aloud" : "Listen to this book"} aria-pressed={listeningNow}><Headphones size={17} strokeWidth={1.7} aria-hidden="true"/><span className="dock-label">Listen</span></button>}
               <button onClick={() => setPanel('comfort')} aria-label="Type and comfort settings">Aa</button>
               <button aria-label="Notebook" title="Notebook" onClick={openNotebook}><Icon name="notebook" size={18}/><span className="dock-label">Notebook</span></button>
             </>}
@@ -1135,6 +1233,7 @@ export function Reader({
           {message}
         </button>
       )}
+      {listening && !closed && <ReaderPlayer hidden={controlsHidden} following={following} onFollow={() => setFollowing(true)} />}
       {panel === "comfort" && (
         <Comfort
           settings={s}

@@ -3,7 +3,8 @@
  * Keys are `YYYY-MM-DD.deviceId` so each device only ever grows its own counters and
  * devices merge without conflicts (take the larger counter per key).
  */
-export type LogEntry = { pages: number; words: number; seconds: number };
+/** `listenSeconds` is the part of `seconds` spent listening; it counts toward goals and streaks the same way. */
+export type LogEntry = { pages: number; words: number; seconds: number; listenSeconds?: number };
 export type ReadingLog = Record<string, LogEntry>;
 
 export const KEEP_DAYS = 730;
@@ -31,7 +32,10 @@ export function dayFromNumber(n: number) {
 }
 
 function newest(a: LogEntry, b: LogEntry): LogEntry {
-  return { pages: Math.max(a.pages, b.pages), words: Math.max(a.words, b.words), seconds: Math.max(a.seconds, b.seconds) };
+  const merged: LogEntry = { pages: Math.max(a.pages, b.pages), words: Math.max(a.words, b.words), seconds: Math.max(a.seconds, b.seconds) };
+  const listened = Math.max(a.listenSeconds || 0, b.listenSeconds || 0);
+  if (listened) merged.listenSeconds = listened;
+  return merged;
 }
 export function pruneLog(log: ReadingLog, today = dayKey()): ReadingLog {
   const cutoff = dayFromNumber(dayNumber(today) - KEEP_DAYS);
@@ -67,6 +71,9 @@ export function addActivity(log: ReadingLog, device: string, credit: LogEntry, n
         pages: old.pages + credit.pages,
         words: Math.round(old.words + credit.words),
         seconds: Math.round(old.seconds + credit.seconds),
+        ...(old.listenSeconds || credit.listenSeconds
+          ? { listenSeconds: Math.round((old.listenSeconds || 0) + (credit.listenSeconds || 0)) }
+          : {}),
       },
     },
     day,

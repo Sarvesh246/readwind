@@ -20,6 +20,7 @@ import { Flame } from "./Flame";
 import { ReadingStats } from "./ReadingStats";
 import { AppearanceControl } from "./Theme";
 import { labelAt } from "@/lib/readwind/anchors";
+import { AudiobookProvider } from "./Audiobook";
 type User = { id: string; name: string; email: string };
 function AuthForm({
   auth,
@@ -383,7 +384,7 @@ function Workspace({
     }
   }
   return (
-    <>
+    <AudiobookProvider library={library} path={path} navigate={navigate}>
       <span className="sr-only" role="status" aria-live="polite">{book ? book.title : path.includes("notebook") ? "Notebook" : path.includes("collections") ? "Collections" : "Library"}</span>
       {match && book ? (
         match[2] ? (
@@ -553,7 +554,7 @@ function Workspace({
           </div>
         </Modal>
       )}
-    </>
+    </AudiobookProvider>
   );
 }
 export default function ReadwindApp() {

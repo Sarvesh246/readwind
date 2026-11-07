@@ -32,6 +32,7 @@ export function bookMetadataUpdate(book: Book) {
       customCoverBlobId: book.customCoverBlobId ?? null,
       readingMode: book.readingMode,
       readingStatus: book.readingStatus,
+      finishBy: book.finishBy,
       tags: book.tags,
     },
   };
