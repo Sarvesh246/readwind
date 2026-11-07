@@ -43,7 +43,7 @@ export function VoiceSettings() {
     setPreviewing(id);
     setPreviewError("");
     a.previewNatural(id, sample)
-      .catch(() => setPreviewError("Couldn’t play the preview. Try again."))
+      .catch(error => setPreviewError(`Couldn’t play the preview. Try again.${error?.message ? ` (${String(error.message).slice(0, 160)})` : ""}`))
       .finally(() => setPreviewing(null));
   };
   const lang = (typeof navigator !== "undefined" ? navigator.language : "en")

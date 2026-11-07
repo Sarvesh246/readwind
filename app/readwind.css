@@ -4961,7 +4961,24 @@ html[data-input="pointer"] :is(button, a, summary, [role="button"], [role="tab"]
 .now-playing-open:hover .now-playing-text strong { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .now-playing-button.primary { width: 48px; height: 48px; background: var(--toolbar-ink); color: var(--toolbar-bg); }
 body:has(.now-playing) .library-main, body:has(.now-playing) .notebook { padding-bottom: 96px; }
-.listen-toast { bottom: 96px; }
+/* Phone header: five utility controls must fit beside the wordmark without overlapping it. */
+@media (max-width: 639px) {
+  .library-header .wordmark .lockup { height: auto !important; }
+  .library-header .wordmark img { height: 22px; width: auto; }
+  .library-utility .icon-button, .library-utility .theme-toggle { width: 36px; height: 36px; min-width: 36px; }
+  .library-utility .account-button { padding-inline: 6px; }
+}
+@media (max-width: 380px) {
+  .library-header .wordmark img { height: 19px; }
+  .library-header { padding-inline: 14px; }
+  .library-utility .account-button { font-size: 11.5px; padding-inline: 4px; }
+  .streak-chip { padding: 0 6px 0 5px; }
+}
+@media (max-width: 340px) {
+  .library-header .wordmark img { height: 16px; }
+}
+/* On phones the shared .toast rule pins to the top; without top:auto these would stretch the full height. */
+.listen-toast { top: auto; bottom: calc(96px + env(safe-area-inset-bottom)); width: max-content; max-width: calc(100vw - 32px); }
 
 .reader-player {
   position: fixed; z-index: 30; left: 50%; bottom: 74px; transform: translateX(-50%);
@@ -4979,7 +4996,7 @@ body:has(.now-playing) .library-main, body:has(.now-playing) .notebook { padding
 .reader-player button.follow { padding: 0 12px; font: 600 12.5px Inter, sans-serif; color: var(--reader-accent, var(--accent)); white-space: nowrap; }
 .reader-player-sleep { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; font: 600 12px Inter, sans-serif; font-variant-numeric: tabular-nums; opacity: 0.75; }
 .reader-player-line { position: fixed; z-index: 30; left: 0; right: 0; bottom: 0; height: 2px; background: var(--reader-accent, var(--accent)); opacity: 0.5; transform-origin: left; transition: transform 0.6s linear; }
-.reader .listen-toast { bottom: 132px; }
+.reader .listen-toast { top: auto; bottom: 132px; }
 @media (max-width: 639px) {
   .now-playing { bottom: max(10px, env(safe-area-inset-bottom)); border-radius: 18px; }
   .reader-player { max-width: calc(100vw - 20px); }

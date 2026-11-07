@@ -167,7 +167,7 @@ export function AudiobookProvider({
   const pendingPlay = useRef<{ book: Book; at?: Anchor } | null>(null);
 
   // The engine runs on refs so speech callbacks always see the latest state.
-  const live = useRef({ book, script, index, playing, sleep, settings, token: 0, startedAt: 0, lastSave: 0, voiceWpm: VOICE_WPM, chunkStart: 0, waiting: false, engine: "system" as "natural" | "system", watchdog: 0, cancelledAt: -1e9, natural: DEFAULT_NATURAL_VOICE, downloaded: [] as string[], fallback: false as false | "slow" | "error" });
+  const live = useRef({ book, script, index, playing, sleep, settings, token: 0, startedAt: 0, lastSave: 0, voiceWpm: VOICE_WPM, chunkStart: 0, waiting: false, engine: "system" as "natural" | "system", watchdog: 0, cancelledAt: -1e9, natural: DEFAULT_NATURAL_VOICE, downloaded: [] as string[], fallback: false as false | "slow" | "error", lastError: "" });
   const speakRef = useRef<(i: number) => void>(() => {});
   // Persisted values flow in only when they change, so a just-chosen rate is not undone by a stale render.
   useEffect(() => {
@@ -480,12 +480,16 @@ export function AudiobookProvider({
       const waitStarted = performance.now();
       const showWait = window.setTimeout(() => token === live.current.token && setBuffering(true), 350);
       /** One sentence failed to arrive or play: start the voice over and try it again before giving up. */
-      const retry = (cancelledOnly: boolean) => {
+      const retry = (cancelledOnly: boolean, detail = "") => {
+        if (detail) {
+          live.current.lastError = detail;
+          console.error("Natural voice:", detail);
+        }
         clearTimeout(showWait);
         clearTimeout(live.current.watchdog);
         if (token !== live.current.token) return;
         if (attempt >= 2) {
-          toSystem(i, "error", "The natural voice stopped working, so the device voice is reading for now.");
+          toSystem(i, "error", `The natural voice stopped working, so the device voice is reading for now.${live.current.lastError ? ` (${live.current.lastError.slice(0, 160)})` : ""}`);
           return;
         }
         // A cancelled request (a seek or voice change) leaves the voice healthy; any other failure gets a clean worker.
@@ -523,7 +527,7 @@ export function AudiobookProvider({
             finished(i, token, `piper:${live.current.natural}`);
           };
           // A clip the browser cannot decode would otherwise leave the book silent forever.
-          el.onerror = () => retry(false);
+          el.onerror = () => retry(false, `The audio couldn’t be played${el.error ? ` (code ${el.error.code}${el.error.message ? `: ${el.error.message}` : ""})` : ""}.`);
           live.current.chunkStart = performance.now();
           // If the sentence neither ends nor errors in about twice its length, something stalled.
           clearTimeout(live.current.watchdog);
@@ -531,7 +535,7 @@ export function AudiobookProvider({
             () => {
               if (token !== live.current.token || !live.current.playing) return;
               if (el.paused) stopWith("Playback was interrupted. Press play to continue.");
-              else retry(false);
+              else retry(false, "The voice stopped responding mid-sentence.");
             },
             (c.seconds / Math.max(0.5, rate)) * 1000 * 2 + 8000,
           );
@@ -541,7 +545,7 @@ export function AudiobookProvider({
             stopWith(error?.name === "NotAllowedError" ? "Tap play to keep listening." : "The voice couldn’t play. Press play to try again.");
           });
         })
-        .catch(error => retry(error?.message === "cancelled"));
+        .catch(error => retry(error?.message === "cancelled", error?.message === "cancelled" ? "" : String(error?.message || error || "")));
     },
     [unlockAudio, clipFor, prefetch, finished, stopWith, toSystem],
   );

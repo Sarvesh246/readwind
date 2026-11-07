@@ -16,3 +16,5 @@ for (const lang of ['eng','spa','fra','deu','por','hin','ara','jpn','chi_sim']) 
 fs.mkdirSync('public/piper',{recursive:true});
 for(const file of ['piper_phonemize.data','piper_phonemize.wasm'])fs.copyFileSync(`node_modules/@diffusionstudio/piper-wasm/build/${file}`,`public/piper/${file}`);
 fs.copyFileSync('node_modules/onnxruntime-web/dist/ort-wasm-simd.wasm','public/piper/ort-wasm-simd.wasm');
+// Phones without WebAssembly SIMD (older iPhones) ask the runtime for the plain build instead.
+fs.copyFileSync('node_modules/onnxruntime-web/dist/ort-wasm.wasm','public/piper/ort-wasm.wasm');

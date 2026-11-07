@@ -18,6 +18,14 @@ type Request =
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const ATTEMPTS = 4;
 const message = (error: unknown) => String((error as Error)?.message || error || "Voice failed");
+/** Names the step that failed, so a report says "model couldn't start" rather than just "voice failed". */
+const step = async <T,>(label: string, work: () => Promise<T>): Promise<T> => {
+  try {
+    return await work();
+  } catch (error) {
+    throw new Error(`${label}: ${message(error)}`);
+  }
+};
 
 const piperDirectory = async (create: boolean) =>
   (await navigator.storage.getDirectory()).getDirectoryHandle("piper", {
@@ -71,14 +79,6 @@ function ensureVoice(
   return running;
 }
 
-async function removeFiles(voice: string) {
-  try {
-    const directory = await piperDirectory(false);
-    for (const name of voiceFiles(voice))
-      await directory.removeEntry(name).catch(() => {});
-  } catch {}
-}
-
 /** The runtime files are served by this app; keep them in a cache so the voice also starts offline. */
 async function cacheRuntime() {
   const cache = await caches.open("piper-runtime");
@@ -102,7 +102,7 @@ async function cacheRuntime() {
 
 let current: { voice: string; session: Promise<TtsSession> } | null = null;
 async function createSession(voice: string) {
-  await cacheRuntime();
+  await step("Voice runtime files unavailable", cacheRuntime);
   await ensureVoice(voice, (loaded, total) =>
     postMessage({ type: "progress", loaded, total }),
   );
@@ -115,21 +115,20 @@ async function createSession(voice: string) {
         piperWasm: "/piper/piper_phonemize.wasm",
       },
     });
-  TtsSession._instance = null;
-  try {
-    return await create();
-  } catch (error) {
-    // A file cut off by a closed tab or an evicted cache loads as garbage: discard it and fetch it fresh, once.
+  // Downloads are verified (exact length, config written last), so a failure here is the runtime, not the
+  // file: try once more, and never delete a voice the person spent 63 MB downloading.
+  let failure: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
     TtsSession._instance = null;
-    await removeFiles(voice);
-    await ensureVoice(voice);
     try {
-      return await create();
-    } catch {
-      TtsSession._instance = null;
-      throw error;
+      return await step("The voice model couldn’t start", create);
+    } catch (error) {
+      failure = error;
+      await wait(400);
     }
   }
+  TtsSession._instance = null;
+  throw failure;
 }
 function sessionFor(voice: string) {
   if (current?.voice === voice) return current.session;
@@ -194,7 +193,7 @@ self.onmessage = (event: MessageEvent<Request>) => {
         location: self.location,
         encodeURIComponent,
       };
-      const audio = await tts.predict(request.text);
+      const audio = await step("Speaking failed", () => tts.predict(request.text));
       const buffer = await audio.arrayBuffer();
       if (cancelled.delete(request.id)) return;
       postMessage(
