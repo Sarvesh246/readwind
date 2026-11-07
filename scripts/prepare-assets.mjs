@@ -12,3 +12,7 @@ fs.mkdirSync('public/ocr/lang',{recursive:true});
 for (const lang of ['eng','spa','fra','deu','por','hin','ara','jpn','chi_sim']) {
   fs.copyFileSync(`node_modules/@tesseract.js-data/${lang}/4.0.0_best_int/${lang}.traineddata.gz`,`public/ocr/lang/${lang}.traineddata.gz`);
 }
+// Piper phonemizer and single-threaded ONNX runtime, served locally for offline playback.
+fs.mkdirSync('public/piper',{recursive:true});
+for(const file of ['piper_phonemize.data','piper_phonemize.wasm'])fs.copyFileSync(`node_modules/@diffusionstudio/piper-wasm/build/${file}`,`public/piper/${file}`);
+fs.copyFileSync('node_modules/onnxruntime-web/dist/ort-wasm-simd.wasm','public/piper/ort-wasm-simd.wasm');

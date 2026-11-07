@@ -1,4 +1,5 @@
 "use client";
+import { ReadAloudVoiceRow } from "./ReadAloudVoiceRow";
 import type { Settings } from "@/lib/readwind/types";
 import { themes, families } from "@/lib/readwind/types";
 import { Modal } from "./Modal";
@@ -150,6 +151,7 @@ export function Comfort({
           </button>
         </div>
       ))}
+      <ReadAloudVoiceRow />
       <button className="button primary comfort-done" onClick={onClose}>
         Done
       </button>

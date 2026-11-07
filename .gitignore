@@ -70,3 +70,4 @@ ruvector.db
 plugins/
 supabase/.temp/
 READWIND-RECOVERY-HANDOFF.md
+/public/piper/

@@ -1,7 +1,7 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Bookmark, BookOpen, Headphones, ListMusic, Moon, Pause, Play, RotateCcw, RotateCw, SkipBack, SkipForward, X } from "lucide-react";
+import { Bookmark, BookOpen, Headphones, ListMusic, Loader2, Moon, Pause, Play, RotateCcw, RotateCw, SkipBack, SkipForward, X } from "lucide-react";
 import type { Anchor, Book, ListenSettings } from "@/lib/readwind/types";
 import { listenDefaults } from "@/lib/readwind/types";
 import type { Library } from "@/lib/readwind/useLibrary";
@@ -25,12 +25,23 @@ import {
   type Script,
 } from "@/lib/readwind/speech";
 import { Cover } from "./Library";
+import { cancelClips, generateClip, loadNaturalVoice, naturalVoiceDownloaded, naturalVoiceSupported, removeNaturalVoice, type ClipRequest } from "@/lib/readwind/natural-voice";
+import { VoiceSettings } from "./VoiceSettings";
+import { DEFAULT_NATURAL_VOICE, naturalVoice } from "@/lib/readwind/voices";
 import { Modal } from "./Modal";
 
 export const RATES = [0.8, 1, 1.2, 1.5, 1.75, 2];
 const SLEEP_MINUTES = [15, 30, 45];
 /** A pause between chapters, so the next title doesn't run into the last line. */
 const CHAPTER_GAP_MS = 900;
+/** Seconds of natural speech kept ready ahead of the voice. */
+const PREFETCH_SECONDS = 60;
+/** Waiting this long for the next natural sentence counts as the phone falling behind. */
+const UNDERRUN_MS = 2500;
+/** How long the system voice gets to make a sound before we say it didn't. */
+const SYSTEM_START_TIMEOUT_MS = 4000;
+/** Silence, played inside the first tap to unlock audio on iOS. */
+const SILENT_WAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";
 const SAVE_EVERY_MS = 15000;
 /** The last stretch of a sleep timer is read a little softer and slower. */
 const WIND_DOWN_MS = 10000;
@@ -72,6 +83,17 @@ type Audiobook = {
   setReadCaptions: (on: boolean) => void;
   bookmark: () => void;
   openSheet: (open: boolean) => void;
+  engine: "natural" | "system";
+  /** Waiting for the natural voice to finish the next sentence. */
+  buffering: boolean;
+  download: { state: "idle" | "loading" | "ready" | "error"; progress: number; error?: string };
+  voicePanel: boolean;
+  openVoicePanel: (open: boolean) => void;
+  chooseEngine: (engine: "natural" | "system") => void;
+  downloadNatural: () => void;
+  removeNatural: () => void;
+  setNaturalVoice: (id: string) => void;
+  previewNatural: (id: string, text: string) => Promise<void>;
   dismissNotice: () => void;
 };
 
@@ -108,7 +130,8 @@ export function AudiobookProvider({
   navigate: (url: string) => void;
   children: ReactNode;
 }) {
-  const supported = typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+  const speechOK = typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+  const supported = speechOK || naturalVoiceSupported();
   const settings = useMemo(() => ({ ...listenDefaults, ...l.settings.listen }), [l.settings.listen]);
   const [bookId, setBookId] = useState<string | null>(null);
   const book = l.books.find(b => b.id === bookId) || null;
@@ -121,9 +144,11 @@ export function AudiobookProvider({
     [sleepLeft, setSleepLeft] = useState(0),
     [voices, setVoices] = useState<VoiceInfo[]>([]),
     [sheet, setSheet] = useState(false);
+  const [voicePanel, setVoicePanel] = useState(false);
+  const pendingPlay = useRef<{ book: Book; at?: Anchor } | null>(null);
 
   // The engine runs on refs so speech callbacks always see the latest state.
-  const live = useRef({ book, script, index, playing, sleep, settings, token: 0, startedAt: 0, lastSave: 0, voiceWpm: VOICE_WPM, chunkStart: 0, waiting: false });
+  const live = useRef({ book, script, index, playing, sleep, settings, token: 0, startedAt: 0, lastSave: 0, voiceWpm: VOICE_WPM, chunkStart: 0, waiting: false, engine: "system" as "natural" | "system", watchdog: 0, cancelledAt: -1e9 });
   const speakRef = useRef<(i: number) => void>(() => {});
   // Persisted values flow in only when they change, so a just-chosen rate is not undone by a stale render.
   useEffect(() => {
@@ -142,7 +167,7 @@ export function AudiobookProvider({
   const gap = useRef(0);
 
   useEffect(() => {
-    if (!supported) return;
+    if (!speechOK) return;
     const load = () =>
       setVoices(
         speechSynthesis.getVoices().map(v => ({ uri: v.voiceURI, name: v.name, lang: v.lang, local: v.localService })),
@@ -150,7 +175,7 @@ export function AudiobookProvider({
     load();
     speechSynthesis.addEventListener("voiceschanged", load);
     return () => speechSynthesis.removeEventListener("voiceschanged", load);
-  }, [supported]);
+  }, [speechOK]);
 
   const lang = deviceLang();
   const voice = useMemo(() => {
@@ -189,23 +214,252 @@ export function AudiobookProvider({
     [l],
   );
 
+  // Which engine speaks: the natural (on-device model) voice once it is downloaded, else the system voice.
+  // A phone too slow for the natural voice falls back for the rest of the session.
+  const [fallback, setFallback] = useState(false);
+  const [buffering, setBuffering] = useState(false);
+  const engine: "natural" | "system" =
+    settings.engine === "natural" && !fallback && naturalVoiceDownloaded() && naturalVoiceSupported() ? "natural" : "system";
+  useEffect(() => {
+    live.current.engine = engine;
+  }, [engine]);
+  const audioEl = useRef<HTMLAudioElement | null>(null);
+  const clips = useRef(new Map<string, ClipRequest>());
+  const underruns = useRef(0);
+  /** The one audio element, created and unlocked inside a tap so iOS lets it play later on its own. */
+  const unlockAudio = useCallback(() => {
+    if (typeof Audio === "undefined") return null;
+    if (!audioEl.current) {
+      const el = new Audio();
+      el.preload = "auto";
+      (el as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = true;
+      audioEl.current = el;
+    }
+    const el = audioEl.current;
+    if (!el.src) {
+      el.src = SILENT_WAV;
+      void el.play().catch(() => {});
+    }
+    return el;
+  }, []);
+  const clipKey = (i: number) => `${live.current.settings.naturalVoice}:${live.current.script?.chunks[i]?.say}`;
+  const clipFor = useCallback((i: number) => {
+    const chunk = live.current.script?.chunks[i];
+    if (!chunk) return null;
+    const key = clipKey(i);
+    let clip = clips.current.get(key);
+    if (!clip) {
+      clip = generateClip(chunk.say, DEFAULT_NATURAL_VOICE);
+      clips.current.set(key, clip);
+      clip.catch(() => clips.current.delete(key));
+    }
+    return clip;
+  }, []);
+  /** Keeps about a minute of speech ready ahead, so a locked screen or a slow sentence never leaves a gap. */
+  const prefetch = useCallback(
+    (i: number) => {
+      const s = live.current.script;
+      if (!s) return;
+      let seconds = 0;
+      for (let j = i; j < s.chunks.length && j < i + 24 && seconds < PREFETCH_SECONDS; j++) {
+        void clipFor(j)?.catch(() => {});
+        seconds += secondsFor(s.chunks[j].words, VOICE_WPM);
+      }
+      // Free clips well behind the voice.
+      const keep = new Set(Array.from({ length: 30 }, (_, k) => clipKey(i - 2 + k)));
+      const stale: number[] = [];
+      for (const [key, clip] of clips.current)
+        if (!keep.has(key)) {
+          clips.current.delete(key);
+          stale.push(clip.id);
+          void clip.then(c => URL.revokeObjectURL(c.url)).catch(() => {});
+        }
+      cancelClips(stale);
+    },
+    [clipFor],
+  );
+
   const halt = useCallback(() => {
     live.current.token++;
     clearTimeout(gap.current);
-    if (supported) speechSynthesis.cancel();
-  }, [supported]);
+    clearTimeout(live.current.watchdog);
+    const el = audioEl.current;
+    if (el) {
+      el.onended = null;
+      el.ontimeupdate = null;
+      el.pause();
+    }
+    // Cancelling an idle synthesizer on iOS can swallow the next speak(), so only cancel real speech.
+    if (speechOK && (speechSynthesis.speaking || speechSynthesis.pending)) {
+      speechSynthesis.cancel();
+      live.current.cancelledAt = performance.now();
+    }
+  }, [speechOK]);
 
   const voiceFor = useCallback((uri?: string) => {
-    if (!supported) return undefined;
+    if (!speechOK) return undefined;
     const target = uri ?? live.current.settings.voiceByLang[deviceLang()];
     const all = speechSynthesis.getVoices();
     return all.find(v => v.voiceURI === target) || all.find(v => v.voiceURI === voice?.uri);
-  }, [supported, voice]);
+  }, [speechOK, voice]);
+
+  /** Stops playback and explains why, keeping the exact place. */
+  const stopWith = useCallback(
+    (message: string) => {
+      halt();
+      live.current.playing = false;
+      setPlaying(false);
+      setBuffering(false);
+      flushCredit();
+      savePlace(true);
+      setNotice(message);
+    },
+    [halt, flushCredit, savePlace],
+  );
+
+  /** What happens after any sentence ends, whichever engine spoke it. */
+  const finished = useCallback(
+    (i: number, token: number, learnKey: string | null) => {
+      const { script } = live.current;
+      const chunk = script?.chunks[i];
+      if (token !== live.current.token || !script || !chunk) return;
+      const seconds = (performance.now() - (live.current.chunkStart || performance.now())) / 1000;
+      // Learn this voice's real pace so time estimates match what is heard.
+      if (seconds > 1.5 && chunk.words >= 6 && learnKey) {
+        const measured = ((chunk.words * 60) / seconds) * Math.max(0.25, script.density) / Math.max(0.5, live.current.settings.rate);
+        const next = live.current.voiceWpm * 0.85 + measured * 0.15;
+        live.current.voiceWpm = next;
+        writeNumber(voiceKey(learnKey), next);
+      }
+      const c = credit.current.add(chunk.words, seconds);
+      if (c) void l.recordActivity(c).catch(() => {});
+      const after = script.chunks[i + 1];
+      const sleepNow = live.current.sleep;
+      const timeUp = sleepNow?.kind === "time" && Date.now() >= sleepNow.until;
+      const chapterUp = sleepNow?.kind === "chapter" && (!after || after.section !== sleepNow.section);
+      if (timeUp || chapterUp) {
+        live.current.playing = false;
+        setPlaying(false);
+        setSleepState(null);
+        live.current.index = after ? i + 1 : i;
+        setIndex(live.current.index);
+        flushCredit();
+        savePlace(true);
+        return;
+      }
+      if (after && after.section !== chunk.section) {
+        live.current.waiting = true;
+        gap.current = window.setTimeout(() => speakRef.current(i + 1), CHAPTER_GAP_MS);
+      } else speakRef.current(i + 1);
+    },
+    [l, flushCredit, savePlace],
+  );
+
+  const speakSystem = useCallback(
+    (i: number, chunk: Chunk, token: number, winding: boolean) => {
+      const u = new SpeechSynthesisUtterance(chunk.say);
+      const v = voiceFor();
+      if (v) {
+        u.voice = v;
+        u.lang = v.lang;
+      }
+      u.rate = live.current.settings.rate * (winding ? 0.92 : 1);
+      u.volume = winding ? 0.6 : 1;
+      let started = false;
+      u.onstart = () => {
+        started = true;
+        if (token === live.current.token) live.current.chunkStart = performance.now();
+      };
+      u.onboundary = e => {
+        if (token !== live.current.token || e.name !== "word" || live.current.settings.highlight !== "word") return;
+        const from = chunk.map[e.charIndex];
+        if (from === undefined || chunk.kind !== "text") return;
+        const length = e.charLength || chunk.say.slice(e.charIndex).search(/\s|$/);
+        const to = chunk.map[Math.min(chunk.map.length - 1, e.charIndex + Math.max(1, length) - 1)] + 1;
+        setWord({ start: from, end: to });
+      };
+      u.onend = () => finished(i, token, v?.voiceURI || null);
+      u.onerror = e => {
+        if (token !== live.current.token || e.error === "interrupted" || e.error === "canceled") return;
+        stopWith("The voice stopped unexpectedly. Press play to continue.");
+      };
+      // Some iPhones accept speak() and then never make a sound; say so instead of looking broken.
+      live.current.watchdog = window.setTimeout(() => {
+        if (token === live.current.token && !started && live.current.playing)
+          stopWith(
+            naturalVoiceSupported()
+              ? "Your iPhone didn’t start its voice. Check the Silent switch, or turn on Natural voices in voice settings."
+              : "Your device didn’t start its voice. Check its volume and Silent switch, then press play.",
+          );
+      }, SYSTEM_START_TIMEOUT_MS);
+      // Right after a cancel, iOS drops an immediate speak(); a beat later it is heard.
+      const sinceCancel = performance.now() - live.current.cancelledAt;
+      if (sinceCancel < 120) setTimeout(() => token === live.current.token && speechSynthesis.speak(u), 120 - sinceCancel);
+      else speechSynthesis.speak(u);
+    },
+    [voiceFor, finished, stopWith],
+  );
+
+  const speakNatural = useCallback(
+    (i: number, chunk: Chunk, token: number, winding: boolean) => {
+      const el = unlockAudio();
+      const queued = clips.current.has(clipKey(i));
+      const clip = clipFor(i);
+      if (!el || !clip) return;
+      prefetch(i);
+      const waitStarted = performance.now();
+      const showWait = window.setTimeout(() => token === live.current.token && setBuffering(true), 350);
+      clip
+        .then(c => {
+          clearTimeout(showWait);
+          if (token !== live.current.token) return;
+          setBuffering(false);
+          // A phone that keeps the listener waiting can't make the voice in real time: fall back.
+          if (queued && performance.now() - waitStarted > UNDERRUN_MS) underruns.current++;
+          if (underruns.current >= 2 || (c.load > 1.6 && i > 3 && underruns.current >= 1)) {
+            underruns.current = 0;
+            setFallback(true);
+            live.current.engine = "system";
+            setNotice("This device can’t make the natural voice fast enough, so the device voice is reading for now.");
+            speakRef.current(i);
+            return;
+          }
+          el.src = c.url;
+          el.playbackRate = live.current.settings.rate * (winding ? 0.92 : 1);
+          el.volume = winding ? 0.6 : 1;
+          el.ontimeupdate = () => {
+            if (token !== live.current.token || live.current.settings.highlight !== "word" || chunk.kind !== "text" || !el.duration) return;
+            // The model reports no word timings, so estimate them from the position in the sentence.
+            const at = Math.min(chunk.say.length - 1, Math.floor((el.currentTime / el.duration) * chunk.say.length));
+            const startAt = chunk.say.lastIndexOf(" ", at) + 1;
+            const endAt = chunk.say.indexOf(" ", at);
+            const from = chunk.map[startAt],
+              to = chunk.map[(endAt < 0 ? chunk.say.length : endAt) - 1];
+            if (from !== undefined && to !== undefined) setWord({ start: from, end: to + 1 });
+          };
+          el.onended = () => finished(i, token, `piper:${live.current.settings.naturalVoice}`);
+          live.current.chunkStart = performance.now();
+          el.play().catch(error => {
+            if (token !== live.current.token) return;
+            stopWith(error?.name === "NotAllowedError" ? "Tap play to keep listening." : "The voice couldn’t play. Press play to try again.");
+          });
+        })
+        .catch(() => {
+          clearTimeout(showWait);
+          if (token !== live.current.token) return;
+          setFallback(true);
+          live.current.engine = "system";
+          setNotice("The natural voice stopped working, so the device voice is reading for now.");
+          speakRef.current(i);
+        });
+    },
+    [unlockAudio, clipFor, prefetch, finished, stopWith],
+  );
 
   const speak = useCallback(
     (i: number) => {
       const { script } = live.current;
-      if (!supported || !script) return;
+      if (!script) return;
       halt();
       live.current.waiting = false;
       const chunk = script.chunks[i];
@@ -223,69 +477,12 @@ export function AudiobookProvider({
       setIndex(i);
       setWord(null);
       savePlace(i === 0 || chunk.section !== script.chunks[i - 1]?.section);
-      const { settings, sleep } = live.current;
-      const u = new SpeechSynthesisUtterance(chunk.say);
-      const v = voiceFor();
-      if (v) {
-        u.voice = v;
-        u.lang = v.lang;
-      }
+      const { sleep } = live.current;
       const winding = sleep?.kind === "time" && sleep.until - Date.now() < WIND_DOWN_MS;
-      u.rate = settings.rate * (winding ? 0.92 : 1);
-      u.volume = winding ? 0.6 : 1;
-      u.onstart = () => {
-        if (token === live.current.token) live.current.chunkStart = performance.now();
-      };
-      u.onboundary = e => {
-        if (token !== live.current.token || e.name !== "word" || live.current.settings.highlight !== "word") return;
-        const from = chunk.map[e.charIndex];
-        if (from === undefined || chunk.kind !== "text") return;
-        const length = e.charLength || chunk.say.slice(e.charIndex).search(/\s|$/);
-        const to = chunk.map[Math.min(chunk.map.length - 1, e.charIndex + Math.max(1, length) - 1)] + 1;
-        setWord({ start: from, end: to });
-      };
-      u.onend = () => {
-        if (token !== live.current.token) return;
-        const seconds = (performance.now() - (live.current.chunkStart || performance.now())) / 1000;
-        // Learn this voice's real pace so time estimates match what is heard.
-        if (seconds > 1.5 && chunk.words >= 6 && v) {
-          const measured = ((chunk.words * 60) / seconds) * Math.max(0.25, script.density) / Math.max(0.5, live.current.settings.rate);
-          const next = live.current.voiceWpm * 0.85 + measured * 0.15;
-          live.current.voiceWpm = next;
-          writeNumber(voiceKey(v.voiceURI), next);
-        }
-        const c = credit.current.add(chunk.words, seconds);
-        if (c) void l.recordActivity(c).catch(() => {});
-        const after = script.chunks[i + 1];
-        const sleepNow = live.current.sleep;
-        const timeUp = sleepNow?.kind === "time" && Date.now() >= sleepNow.until;
-        const chapterUp = sleepNow?.kind === "chapter" && (!after || after.section !== sleepNow.section);
-        if (timeUp || chapterUp) {
-          live.current.playing = false;
-          setPlaying(false);
-          setSleepState(null);
-          live.current.index = after ? i + 1 : i;
-          setIndex(live.current.index);
-          flushCredit();
-          savePlace(true);
-          return;
-        }
-        if (after && after.section !== chunk.section) {
-          live.current.waiting = true;
-          gap.current = window.setTimeout(() => speakRef.current(i + 1), CHAPTER_GAP_MS);
-        } else speakRef.current(i + 1);
-      };
-      u.onerror = e => {
-        if (token !== live.current.token || e.error === "interrupted" || e.error === "canceled") return;
-        live.current.playing = false;
-        setPlaying(false);
-        flushCredit();
-        savePlace(true);
-        setNotice("The voice stopped unexpectedly. Press play to continue.");
-      };
-      speechSynthesis.speak(u);
+      if (live.current.engine === "natural") speakNatural(i, chunk, token, winding);
+      else if (speechOK) speakSystem(i, chunk, token, winding);
     },
-    [supported, halt, voiceFor, flushCredit, savePlace, l],
+    [speechOK, halt, flushCredit, savePlace, speakNatural, speakSystem],
   );
   useEffect(() => {
     speakRef.current = speak;
@@ -303,6 +500,10 @@ export function AudiobookProvider({
 
   const resume = useCallback(() => {
     if (!live.current.script) return;
+    if (!live.current.settings.engine) {
+      setVoicePanel(true);
+      return;
+    }
     live.current.playing = true;
     setPlaying(true);
     setNotice("");
@@ -323,6 +524,12 @@ export function AudiobookProvider({
       }
       const from = at || l.progress.find(p => p.bookId === target.id)?.at;
       const i = from ? Math.max(0, chunkAt(s, from)) : 0;
+      if (!live.current.settings.engine) {
+        // First listen: choose a voice first; the choice (a tap) starts playback.
+        pendingPlay.current = { book: target, at: from };
+        setVoicePanel(true);
+        return;
+      }
       live.current.book = target;
       live.current.script = s;
       live.current.index = i;
@@ -381,7 +588,8 @@ export function AudiobookProvider({
     (rate: number) => {
       live.current.settings = { ...live.current.settings, rate };
       saveSettings({ rate });
-      if (live.current.playing) speak(live.current.index);
+      if (live.current.engine === "natural" && audioEl.current) audioEl.current.playbackRate = rate;
+      else if (live.current.playing) speak(live.current.index);
     },
     [saveSettings, speak],
   );
@@ -396,7 +604,7 @@ export function AudiobookProvider({
   );
   const preview = useCallback(
     (uri: string, text: string) => {
-      if (!supported) return;
+      if (!speechOK) return;
       if (live.current.playing) pause();
       halt();
       const u = new SpeechSynthesisUtterance(text);
@@ -408,7 +616,78 @@ export function AudiobookProvider({
       u.rate = live.current.settings.rate;
       speechSynthesis.speak(u);
     },
-    [supported, pause, halt, voiceFor],
+    [speechOK, pause, halt, voiceFor],
+  );
+  const [download, setDownload] = useState<{ state: "idle" | "loading" | "ready" | "error"; progress: number; error?: string }>(() => ({
+    state: naturalVoiceDownloaded() ? "ready" : "idle",
+    progress: 0,
+  }));
+  const previewEl = useRef<HTMLAudioElement | null>(null);
+  const forgetClips = useCallback(() => {
+    for (const clip of clips.current.values()) void clip.then(c => URL.revokeObjectURL(c.url)).catch(() => {});
+    cancelClips([...clips.current.values()].map(c => c.id));
+    clips.current.clear();
+  }, []);
+  /** Switches engine (inside a tap), then starts the book the first Listen was waiting on. */
+  const chooseEngine = useCallback(
+    (engine: "natural" | "system") => {
+      const naturalVoice = DEFAULT_NATURAL_VOICE;
+      live.current.settings = { ...live.current.settings, engine, naturalVoice };
+      live.current.engine = engine === "natural" && naturalVoiceDownloaded() ? "natural" : "system";
+      setFallback(false);
+      underruns.current = 0;
+      saveSettings({ engine, naturalVoice });
+      const waiting = pendingPlay.current;
+      if (waiting && live.current.engine === engine) {
+        pendingPlay.current = null;
+        setVoicePanel(false);
+        play(waiting.book, waiting.at);
+      } else if (live.current.playing) speak(live.current.index);
+    },
+    [saveSettings, play, speak],
+  );
+  const downloadNatural = useCallback(() => {
+    setDownload({ state: "loading", progress: 0 });
+    loadNaturalVoice((loaded, total) => setDownload({ state: "loading", progress: total ? loaded / total : 0 }))
+      .then(() => {
+        // "Use natural voices" is the next tap; iOS only starts audio from a tap.
+        setDownload({ state: "ready", progress: 1 });
+      })
+      .catch(error => setDownload({ state: "error", progress: 0, error: String(error?.message || error) }));
+  }, []);
+  const removeNatural = useCallback(() => {
+    if (live.current.engine === "natural") pause();
+    forgetClips();
+    void removeNaturalVoice().then(() => {
+      setDownload({ state: "idle", progress: 0 });
+      live.current.engine = "system";
+      live.current.settings = { ...live.current.settings, engine: "system" };
+      saveSettings({ engine: "system" });
+    });
+  }, [pause, forgetClips, saveSettings]);
+  const setNaturalVoice = useCallback(
+    (id: string) => {
+      live.current.settings = { ...live.current.settings, naturalVoice: id };
+      saveSettings({ naturalVoice: id });
+      forgetClips();
+      if (live.current.playing && live.current.engine === "natural") speak(live.current.index);
+    },
+    [saveSettings, forgetClips, speak],
+  );
+  const previewNatural = useCallback(
+    (id: string, text: string) => {
+      if (live.current.playing) pause();
+      const el = (previewEl.current ??= new Audio());
+      el.src = SILENT_WAV;
+      void el.play().catch(() => {});
+      return generateClip(text, id).then(c => {
+        el.src = c.url;
+        el.playbackRate = live.current.settings.rate;
+        el.onended = () => URL.revokeObjectURL(c.url);
+        return el.play();
+      });
+    },
+    [pause],
   );
   const setSleep = useCallback((value: "off" | "chapter" | number) => {
     const s = live.current.script;
@@ -451,11 +730,11 @@ export function AudiobookProvider({
 
   // iOS stops speech when the screen locks; say so plainly and keep the exact place.
   useEffect(() => {
-    if (!supported) return;
+    if (!speechOK) return;
     const back = () => {
       if (document.visibilityState !== "visible" || !live.current.playing) return;
       setTimeout(() => {
-        if (!live.current.playing || live.current.waiting || speechSynthesis.speaking || speechSynthesis.pending) return;
+        if (!live.current.playing || live.current.engine !== "system" || live.current.waiting || speechSynthesis.speaking || speechSynthesis.pending) return;
         const chunk = live.current.script?.chunks[live.current.index];
         halt();
         live.current.playing = false;
@@ -468,7 +747,7 @@ export function AudiobookProvider({
     };
     document.addEventListener("visibilitychange", back);
     return () => document.removeEventListener("visibilitychange", back);
-  }, [supported, halt, flushCredit, savePlace]);
+  }, [speechOK, halt, flushCredit, savePlace]);
 
   // Keep the screen on while listening in the foreground.
   useEffect(() => {
@@ -596,6 +875,19 @@ export function AudiobookProvider({
     setReadCaptions: readCaptions => saveSettings({ readCaptions }),
     bookmark,
     openSheet: setSheet,
+    engine,
+    buffering,
+    download,
+    voicePanel,
+    openVoicePanel: (open: boolean) => {
+      setVoicePanel(open);
+      if (!open) pendingPlay.current = null;
+    },
+    chooseEngine,
+    downloadNatural,
+    removeNatural,
+    setNaturalVoice,
+    previewNatural,
     dismissNotice: () => setNotice(""),
   };
   const inReader = !!book && path === `/book/${book.id}`;
@@ -604,6 +896,7 @@ export function AudiobookProvider({
       {children}
       {book && !inReader && <NowPlayingBar />}
       {book && sheet && <PlayerSheet library={l} navigate={navigate} />}
+      {voicePanel && <VoiceSettings />}
       {notice && !inReader && (
         <button className="toast listen-toast" onClick={() => setNotice("")}>
           {notice}
@@ -695,8 +988,8 @@ export function ReaderPlayer({ hidden, following, onFollow }: { hidden: boolean;
         <button onClick={() => a.skip(-15)} aria-label="Back 15 seconds">
           <RotateCcw size={17} />
         </button>
-        <button className="primary" onClick={a.toggle} aria-label={a.playing ? "Pause" : "Play"}>
-          {a.playing ? <Pause size={19} /> : <Play size={19} />}
+        <button className="primary" onClick={a.toggle} aria-label={a.buffering ? "Preparing the voice" : a.playing ? "Pause" : "Play"}>
+          {a.buffering ? <Loader2 size={19} className="spin" /> : a.playing ? <Pause size={19} /> : <Play size={19} />}
         </button>
         <button onClick={() => a.skip(30)} aria-label="Forward 30 seconds">
           <RotateCw size={17} />
@@ -813,8 +1106,8 @@ function PlayerSheet({ library: l, navigate }: { library: Library; navigate: (ur
               <RotateCcw size={24} />
               <small>15</small>
             </button>
-            <button className="primary" onClick={a.toggle} aria-label={a.playing ? "Pause" : "Play"}>
-              {a.playing ? <Pause size={30} /> : <Play size={30} />}
+            <button className="primary" onClick={a.toggle} aria-label={a.buffering ? "Preparing the voice" : a.playing ? "Pause" : "Play"}>
+              {a.buffering ? <Loader2 size={30} className="spin" /> : a.playing ? <Pause size={30} /> : <Play size={30} />}
             </button>
             <button onClick={() => a.skip(30)} aria-label="Forward 30 seconds" className="labelled">
               <RotateCw size={24} />
@@ -867,8 +1160,8 @@ function PlayerSheet({ library: l, navigate }: { library: Library; navigate: (ur
             <button className="button" onClick={() => setView("chapters")}>
               <ListMusic size={16} /> Chapters
             </button>
-            <button className="button" onClick={() => setView("voices")}>
-              Voice{a.voice ? ` · ${a.voice.name.split(/[ (]/)[0]}` : ""}
+            <button className="button" onClick={() => a.openVoicePanel(true)}>
+              Voice · {a.engine === "natural" ? naturalVoice(a.settings.naturalVoice).name : a.voice?.name.split(/[ (]/)[0] || "Device"}
             </button>
             <button className="button" onClick={a.bookmark}>
               <Bookmark size={16} /> Bookmark

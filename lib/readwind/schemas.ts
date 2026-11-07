@@ -253,6 +253,8 @@ export const settings = z.object({
     voiceByLang: z.record(z.string().max(40), z.string().max(300)).refine(v=>Object.keys(v).length<=60),
     highlight: z.enum(["sentence","word"]),
     readCaptions: z.boolean(),
+    engine: z.enum(["natural","system"]).optional(),
+    naturalVoice: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/).optional(),
   }).optional(),
   colorNames: z.object({
     yellow: z.string().max(80),

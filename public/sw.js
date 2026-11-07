@@ -6,5 +6,5 @@ self.addEventListener('fetch',event=>{
  // Account data and tokens are never stored in the shared app-shell cache.
  if(req.method!=='GET'||url.origin!==self.location.origin||url.pathname.startsWith('/api/')||url.pathname.startsWith('/signin')||url.pathname.startsWith('/signout')||url.pathname.includes('/node_modules/')||url.pathname.startsWith('/@'))return;
  if(req.mode==='navigate') {event.respondWith(fetch(req).then(r=>{if(r.ok){const copy=r.clone();caches.open(CACHE).then(c=>c.put(req,copy));}return r;}).catch(async()=>await caches.match(req)||await caches.match('/')||Response.error()));return;}
- if(/\.(?:js|mjs|css|woff2?|svg|png|wasm|bcmap|pfb|otf|ttf|traineddata\.gz)$/.test(url.pathname))event.respondWith(caches.match(req).then(hit=>hit||fetch(req).then(r=>{if(r.ok){const copy=r.clone();caches.open(CACHE).then(c=>c.put(req,copy));}return r;})));
+ if(/\.(?:js|mjs|css|woff2?|svg|png|wasm|data|bcmap|pfb|otf|ttf|traineddata\.gz)$/.test(url.pathname))event.respondWith(caches.match(req).then(hit=>hit||fetch(req).then(r=>{if(r.ok){const copy=r.clone();caches.open(CACHE).then(c=>c.put(req,copy));}return r;})));
 });

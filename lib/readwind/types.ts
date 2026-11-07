@@ -108,6 +108,10 @@ export type ListenSettings = {
   voiceByLang: Record<string, string>;
   highlight: "sentence" | "word";
   readCaptions: boolean;
+  /** Unset until the reader chooses: on-device natural voices, or the system voice. */
+  engine?: "natural" | "system";
+  /** A natural voice id from lib/readwind/voices.ts. */
+  naturalVoice?: string;
 };
 export const listenDefaults: ListenSettings = { rate: 1, voiceByLang: {}, highlight: "sentence", readCaptions: false };
 export const defaults: Settings = {
