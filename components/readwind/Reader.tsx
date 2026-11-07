@@ -1,5 +1,6 @@
 "use client";
 import { useReadingPace } from "@/lib/readwind/useReadingPace";
+import { isReading, useLastInput, useWakeLock, useWarmHour } from "@/lib/readwind/reader-care";
 import { StablePositions, shouldPromptContinue } from "@/lib/readwind/position";
 import {isContentsSection} from '@/lib/readwind/reading-layout';
 import { findPrintedPage } from "@/lib/readwind/chapters";
@@ -120,6 +121,10 @@ export function Reader({
   const visibleAnchor = anchor;
   const info = wordProgress(book, visibleAnchor, l.speedFor(book));
   useReadingPace(`${l.paceOwner}:${book.id}`, info.before, !busy && !closed && !panel && !selection && !editing && !l.conflict && !isContentsSection(book,visibleAnchor.section), l.recordReading, l.recordActivity, l.speedFor(book), { bookId: book.id, density: bookDensity(book), calibrate: l.recordCalibration });
+  const wpm = l.speedFor(book);
+  const lastInput = useLastInput();
+  const warm = useWarmHour(s.warmLight);
+  useWakeLock(!busy && !closed && !panel, lastInput, wpm);
   const bookmarked = annotations.find(a => a.kind === 'bookmark' && first &&
     compare(a.range.start, first.start) >= 0 && compare(a.range.start, first.end) < 0);
   const { saveProgress, loadBlob } = l;
@@ -253,7 +258,7 @@ export function Reader({
       shown = 0;
     const id = setInterval(() => {
       const now = Date.now();
-      if (document.visibilityState === "visible" && !closed && !panel) {
+      if (!closed && !panel && isReading(performance.now() - lastInput.current, wpm)) {
         active += now - last;
         if (active >= 20 * 60 * 1000) {
           setMessage("Rest your eyes. Look about 20 ft away for 20 seconds.");
@@ -268,7 +273,17 @@ export function Reader({
       last = now;
     }, 1000);
     return () => clearInterval(id);
-  }, [s.restNudge, closed, panel]);
+  }, [s.restNudge, closed, panel, wpm, lastInput]);
+  useEffect(() => {
+    const find = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "f" || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+      // Pages outside the current view are not in the DOM, so the browser's find would miss most of the book.
+      event.preventDefault();
+      setPanel("search");
+    };
+    window.addEventListener("keydown", find);
+    return () => window.removeEventListener("keydown", find);
+  }, []);
   const canTurn = (dir: number) =>
     dir > 0 ? index + (spread ? 2 : 1) < pages.length : index > 0;
   // Toasts clear themselves so a hint never lingers over the page controls.
@@ -806,8 +821,6 @@ export function Reader({
       {...extra}
     />
   );
-  const warm =
-    s.warmLight && (new Date().getHours() >= 19 || new Date().getHours() < 6);
   return (
     <div
       ref={shell}
@@ -1116,7 +1129,7 @@ export function Reader({
           </button>
         )}
       </main>
-      {warm && <div className="warm-overlay" />}
+      <div className={`warm-overlay ${warm ? "is-on" : ""}`} aria-hidden="true" />
       {message && (
         <button className="toast" onClick={() => setMessage("")}>
           {message}

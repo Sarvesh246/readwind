@@ -1508,6 +1508,16 @@ legend {
   mix-blend-mode: multiply;
   pointer-events: none;
   z-index: 10;
+  opacity: 0;
+  transition: opacity 8s ease;
+}
+.warm-overlay.is-on {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .warm-overlay {
+    transition: none;
+  }
 }
 .scroll-reader {
   width: min(100%, 760px);
