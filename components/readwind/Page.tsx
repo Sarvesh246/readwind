@@ -61,14 +61,6 @@ export function textRuns(
     if (a.range.end.section === f.section && a.range.end.block === f.block)
       boundaries.add(Math.min(f.end, a.range.end.offset));
   }
-  const marks = book.pageMarks.filter(
-    (m) =>
-      m.at.section === f.section &&
-      m.at.block === f.block &&
-      m.at.offset >= f.start &&
-      m.at.offset < f.end,
-  );
-  marks.forEach((m) => boundaries.add(m.at.offset));
   if (f.drop) boundaries.add(f.start + 1);
   const source = book.sections[f.section].blocks[f.block];
   const styles=source.type==='figure'?[]:source.styles || [];
@@ -95,8 +87,7 @@ export function textRuns(
           compare({ section: f.section, block: f.block, offset }, a.range.end) <
             0,
       );
-    const mark = marks.find((m) => m.at.offset === offset),
-      raw = text.slice(offset, end);
+    const raw = text.slice(offset, end);
     const style=styles.find(r=>r.start<=offset&&r.end>=end);
     const content = a ? raw.trimEnd() : raw,
       trail = a ? raw.slice(content.length) : "";
@@ -109,14 +100,6 @@ export function textRuns(
       : "transparent";
     return (
       <span key={offset}>
-        {mark && offset !== f.start && (
-          <span
-            className="print-marker"
-            title={`Print page ${mark.label} begins here`}
-          >
-            {mark.label}
-          </span>
-        )}
         <span
           data-offset={offset}
           data-section={f.section}

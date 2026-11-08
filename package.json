@@ -19,6 +19,7 @@
     "test:mobile-reader": "node scripts/test-mobile-reader-browser.mjs",
     "test:reader": "node scripts/test-reader-browser.mjs",
     "test:pdf": "node scripts/test-pdf-browser.mjs",
+    "test:page-numbers": "node scripts/test-page-numbers-browser.mjs",
     "test:import": "node scripts/test-import-browser.mjs",
     "test:chapters": "node scripts/test-chapters-browser.mjs",
     "test:reading-layout": "node scripts/test-reading-layout-browser.mjs",

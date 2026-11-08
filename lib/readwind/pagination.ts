@@ -247,20 +247,6 @@ export async function paginate(
               para.appendChild(d);
               begin++;
             }
-            for (const m of book.pageMarks.filter(
-              (m) =>
-                m.at.section === si &&
-                m.at.block === bi &&
-                m.at.offset > begin &&
-                m.at.offset < end,
-            )) {
-              appendStyledText(para,text,begin,m.at.offset,block.styles);
-              const mark = document.createElement("span");
-              mark.className = "print-marker";
-              mark.textContent = m.label;
-              para.appendChild(mark);
-              begin = m.at.offset;
-            }
             appendStyledText(para,text,begin,end,block.styles);
           }
           setText(text.length);

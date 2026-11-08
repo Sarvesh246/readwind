@@ -19,11 +19,20 @@ type Candidate<T> = {
 
 const ROMAN =
   /^(?=[mdclxvi])m{0,3}(?:cm|cd|d?c{0,3})(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})$/;
-const ROMAN_VALUES: Record<string, number> = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
+const ROMAN_VALUES: Record<string, number> = {
+  i: 1,
+  v: 5,
+  x: 10,
+  l: 50,
+  c: 100,
+  d: 500,
+  m: 1000,
+};
 const WINDOW = 6;
 
 function romanValue(text: string): number | undefined {
-  if (text !== text.toLowerCase() && text !== text.toUpperCase()) return undefined;
+  if (text !== text.toLowerCase() && text !== text.toUpperCase())
+    return undefined;
   const t = text.toLowerCase();
   if (!ROMAN.test(t)) return undefined;
   let total = 0;
@@ -47,21 +56,41 @@ function candidatesOf<T extends NumberLine>(
     text.match(/^(?:[-–—•·]\s*)?(\d{1,4})(?:\s*[-–—•·])?$/) ||
     text.match(/^page\s+(\d{1,4})$/i) ||
     text.match(/^(\d{1,4})\s*(?:\/|of)\s*\d{1,4}$/i);
-  if (whole) return [{ line, page, value: Number(whole[1]), roman: false, kind: "whole" }];
+  if (whole)
+    return [
+      { line, page, value: Number(whole[1]), roman: false, kind: "whole" },
+    ];
   const roman = romanValue(text);
-  if (roman !== undefined) return [{ line, page, value: roman, roman: true, kind: "whole" }];
+  if (roman !== undefined)
+    return [{ line, page, value: roman, roman: true, kind: "whole" }];
   const found: Candidate<T>[] = [];
   const prefix = text.match(/^(\d{1,4})\s+(?=\p{L})/u);
   if (prefix && /\p{L}/u.test(text.slice(prefix[0].length)))
-    found.push({ line, page, value: Number(prefix[1]), roman: false, kind: "prefix" });
+    found.push({
+      line,
+      page,
+      value: Number(prefix[1]),
+      roman: false,
+      kind: "prefix",
+    });
   const suffix = text.match(/\p{L}[^\d]*\s(\d{1,4})$/u);
-  if (suffix && !prefix) found.push({ line, page, value: Number(suffix[1]), roman: false, kind: "suffix" });
+  if (suffix && !prefix)
+    found.push({
+      line,
+      page,
+      value: Number(suffix[1]),
+      roman: false,
+      kind: "suffix",
+    });
   return found;
 }
 
 function trim<T extends NumberLine>(line: T, kind: "prefix" | "suffix") {
   const original = line.text;
-  const m = kind === "prefix" ? original.match(/^\s*\d{1,4}\s+/) : original.match(/\s+\d{1,4}\s*$/);
+  const m =
+    kind === "prefix"
+      ? original.match(/^\s*\d{1,4}\s+/)
+      : original.match(/\s+\d{1,4}\s*$/);
   if (!m) return;
   const cut = m[0].length;
   if (kind === "prefix") {
@@ -70,7 +99,11 @@ function trim<T extends NumberLine>(line: T, kind: "prefix" | "suffix") {
     line.text = original.slice(cut);
     if (line.styles)
       line.styles = line.styles
-        .map((r) => ({ ...r, start: Math.max(0, r.start - cut), end: r.end - cut }))
+        .map((r) => ({
+          ...r,
+          start: Math.max(0, r.start - cut),
+          end: r.end - cut,
+        }))
         .filter((r) => r.end > r.start);
   } else {
     line.text = original.slice(0, original.length - cut);
@@ -97,7 +130,9 @@ export function stripPageNumbers<T extends NumberLine>(
   body: number,
 ): number {
   const all = pages.flatMap((lines, page) =>
-    lines.flatMap((line) => candidatesOf(line, page, heights[page] || 800, body)),
+    lines.flatMap((line) =>
+      candidatesOf(line, page, heights[page] || 800, body),
+    ),
   );
   const byPage = new Map<number, Candidate<T>[]>();
   for (const c of all) byPage.set(c.page, [...(byPage.get(c.page) || []), c]);
@@ -107,7 +142,9 @@ export function stripPageNumbers<T extends NumberLine>(
         if (
           byPage
             .get(j)
-            ?.some((o) => o.roman === c.roman && j - o.value === c.page - c.value)
+            ?.some(
+              (o) => o.roman === c.roman && j - o.value === c.page - c.value,
+            )
         )
           return true;
     return false;
@@ -119,7 +156,8 @@ export function stripPageNumbers<T extends NumberLine>(
   }
   if (drop.size)
     for (const lines of pages) {
-      for (let i = lines.length - 1; i >= 0; i--) if (drop.has(lines[i])) lines.splice(i, 1);
+      for (let i = lines.length - 1; i >= 0; i--)
+        if (drop.has(lines[i])) lines.splice(i, 1);
     }
   return verified.length;
 }

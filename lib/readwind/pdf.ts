@@ -7,6 +7,7 @@ import {normalizeStyledText,pdfFontStyle,type TextStyleRun} from './rich-text';
 import {bookWordEvidence,joinPrintedLine,joinPageParagraphs,dropRepeatedHeadings} from './text-cleanup';
 import {fidelityIssues,structuredBlocks,needsSourcePage,textLayerCheck,textLayerDisagrees,extractionLoss,ocrAddsContent} from './pdf-fidelity';
 import {isContentsTitle,normalizePageLabel,printedPageToken} from './navigation-labels';
+import {stripPageNumbers} from './page-numbers';
 import {pageNotes,appendEndnotes} from './book-notes';
 import {hasTextBands} from './auto-ocr';
 export type ImportOptions = {
@@ -467,6 +468,18 @@ export async function importPDF(
     const toc = contentsChapters(all, pageLabels, contentsLinks, heights, outlinePages);
     pageLabels = interpolatePrintedLabels(pageLabels);
     const median = dominantSize(all.flat().filter(l=>!l.header));
+    if (options.removeHeaders) {
+      // Page numbers label detection missed would otherwise read as story text.
+      if (stripPageNumbers(all, heights, median)) {
+        frequency.clear();
+        for (const lines of all)
+          for (const line of lines.filter((l) => l.header)) {
+            const key = normal(line.text);
+            if (!frequency.has(key)) frequency.set(key, new Set());
+            frequency.get(key)!.add(line.page);
+          }
+      }
+    }
     const wordEvidence=bookWordEvidence(all);
     const pageContinuations=new Set<number>();
     const sections: Section[] = [],
