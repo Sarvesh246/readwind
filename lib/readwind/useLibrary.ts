@@ -61,11 +61,19 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   const editingLocked = useRef(false);
   const restoringArchive = useRef(false);
   const [optimisticDeletes,setOptimisticDeletes]=useState<{owner:string;ids:Set<string>}>({owner:db.name,ids:new Set()});
-  const storedBooks = useLiveQuery(() => db.transaction('r',[db.books,db.pending],async()=>{
-    const deleted=new Set((await db.pending.where('entity').equals('delete-book').toArray()).map(p=>p.bookId));
-    return {owner:db.name,books:(await db.books.toArray()).filter(b=>!deleted.has(b.id))};
-  }), [db]);
-  const books=useMemo(()=>storedBooks?.owner===db.name?storedBooks.books.filter(b=>optimisticDeletes.owner!==db.name || !optimisticDeletes.ids.has(b.id)):[],[storedBooks,optimisticDeletes,db]);
+  // Two separate live queries on purpose. Books carry their full text, and every
+  // reading-position change writes to `pending`; a single query that read both
+  // tables re-deserialised the whole shelf on each queued change. Now the (large)
+  // books table reloads only when books change, and the (tiny) deletion list is
+  // joined in memory.
+  const storedBooks = useLiveQuery(async()=>({owner:db.name,books:await db.books.toArray()}), [db]);
+  const pendingDeletes = useLiveQuery(async()=>({owner:db.name,ids:new Set((await db.pending.where('entity').equals('delete-book').toArray()).map(p=>p.bookId))}), [db]);
+  const books=useMemo(()=>{
+    // Show nothing until both halves have loaded, as the single query did.
+    if(storedBooks?.owner!==db.name || pendingDeletes?.owner!==db.name)return [];
+    const deleted=pendingDeletes.ids;
+    return storedBooks.books.filter(b=>!deleted.has(b.id) &&(optimisticDeletes.owner!==db.name || !optimisticDeletes.ids.has(b.id)));
+  },[storedBooks,pendingDeletes,optimisticDeletes,db]);
   const annotationSnapshot =
     useLiveQuery(
       async() => ({owner:db.name,values:await db.annotations.filter((a) => !a.deleted).toArray()}),
