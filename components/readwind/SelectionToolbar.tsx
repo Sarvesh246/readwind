@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { colors, type Color } from "@/lib/readwind/types";
 import { Icon } from "./Icon";
 import { DefinitionCard } from "./DefinitionCard";
+import { placeToolbar, type SelectionAnchor } from "@/lib/readwind/selection-placement";
 export function SelectionToolbar({
   quote,
   note,
@@ -20,7 +21,7 @@ export function SelectionToolbar({
   onColor: (c: Color) => void;
   onDelete?: () => void;
   onClose: () => void;
-  position: { x: number; y: number } | null;
+  position: SelectionAnchor | null;
   onSearch: () => void;
   selectedColor?: Color;
 }) {
@@ -37,7 +38,8 @@ export function SelectionToolbar({
       const v = window.visualViewport;
       const width = v?.width || window.innerWidth, height = v?.height || window.innerHeight;
       const x = v?.offsetLeft || 0, y = v?.offsetTop || 0;
-      const top = Math.max(12, Math.min(height - el.offsetHeight - 12, position?.y || height - el.offsetHeight - 90));
+      // Opposite side of the native iOS menu so the two never overlap.
+      const { top } = placeToolbar({ anchor: position, height: el.offsetHeight, viewportHeight: height });
       // On phones the definition sits on whichever side of the toolbar has more room, so the selected word stays visible.
       const below = height - (top + el.offsetHeight + 8) - 12, above = top - 56 - 12;
       const dock = below >= Math.min(above, 280) ? "bottom" : "top";

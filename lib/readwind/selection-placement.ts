@@ -15,7 +15,11 @@ export type ToolbarSide = "above" | "below";
 export const HANDLE_CLEARANCE = 32;
 const MARGIN = 12;
 
-export function nativeMenuSide(top: number, bottom: number, viewportHeight: number): ToolbarSide {
+export function nativeMenuSide(
+  top: number,
+  bottom: number,
+  viewportHeight: number,
+): ToolbarSide {
   return (top + bottom) / 2 < viewportHeight / 2 ? "below" : "above";
 }
 
@@ -31,14 +35,16 @@ export function placeToolbar({
   const min = MARGIN;
   const max = Math.max(min, viewportHeight - height - MARGIN);
   const clamp = (v: number) => Math.max(min, Math.min(max, v));
-  if (!anchor) return { top: clamp(viewportHeight - height - 90), side: "below" };
+  if (!anchor)
+    return { top: clamp(viewportHeight - height - 90), side: "below" };
   if (anchor.top === undefined || anchor.bottom === undefined) {
     return { top: clamp(anchor.y), side: "below" };
   }
   const native = nativeMenuSide(anchor.top, anchor.bottom, viewportHeight);
   const above = anchor.top - HANDLE_CLEARANCE - height;
   const below = anchor.bottom + HANDLE_CLEARANCE;
-  const fits = (side: ToolbarSide) => (side === "above" ? above >= min : below <= max);
+  const fits = (side: ToolbarSide) =>
+    side === "above" ? above >= min : below <= max;
   const preferred: ToolbarSide = native === "below" ? "above" : "below";
   const other: ToolbarSide = preferred === "above" ? "below" : "above";
   // If the opposite side is cramped (tall selection, tiny viewport) fall back

@@ -26,6 +26,7 @@ import { Icon } from "./Icon";
 import { Modal } from "./Modal";
 import { OriginalPdfPreview } from "./OriginalPdfPreview";
 import { SelectionToolbar } from "./SelectionToolbar";
+import type { SelectionAnchor } from "@/lib/readwind/selection-placement";
 import { Comfort } from "./Comfort";
 import { ReaderHeader } from "./ReaderHeader";
 import { ChapterNavigation } from "./ChapterNavigation";
@@ -86,10 +87,7 @@ export function Reader({
     } | null>(null),
     [editing, setEditing] = useState<Annotation | null>(null),
     [note, setNote] = useState("");
-  const [selectionPoint, setSelectionPoint] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
+  const [selectionPoint, setSelectionPoint] = useState<SelectionAnchor | null>(null);
   const [selectMode, setSelectMode] = useState(false),
     [navIdle, setNavIdle] = useState(false),
     navTimer = useRef(0),
@@ -668,6 +666,8 @@ export function Reader({
       setSelectionPoint({
         x: bounds.left + bounds.width / 2,
         y: Math.max(70, Math.min(window.innerHeight - 170, bounds.bottom + 12)),
+        top: bounds.top,
+        bottom: bounds.bottom,
       });
       setSelection({ start: sa, end: ea, quote: sel.toString().trim() });
       setNote("");

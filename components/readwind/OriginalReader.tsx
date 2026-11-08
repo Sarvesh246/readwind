@@ -16,6 +16,7 @@ import {SelectionToolbar} from './SelectionToolbar';
 import {Modal} from './Modal';
 import {Comfort} from './Comfort';
 import {ChapterNavigation} from './ChapterNavigation';
+import type {SelectionAnchor} from '@/lib/readwind/selection-placement';
 export function OriginalReader({book,library:l,navigate}:{book:Book;library:Library;navigate:(u:string)=>void}){
  const [searchOpen,setSearchOpen]=useState(false),[query,setQuery]=useState('');
  const deferredQuery=useDeferredValue(query);
@@ -24,7 +25,7 @@ export function OriginalReader({book,library:l,navigate}:{book:Book;library:Libr
  const {loadBlob}=l,saved=l.progress.find(p=>p.bookId===book.id);
  const initial=Math.max(0,...book.pageMarks.filter(m=>compare(m.at,saved?.at||start)<=0).map(m=>m.index));
  const [index,setIndex]=useState(initial),[pdf,setPdf]=useState<PDFDocumentProxy|null>(null),[error,setError]=useState(''),[retry,setRetry]=useState(0),[password,setPassword]=useState(''),[unlock,setUnlock]=useState<((s:string)=>void)|null>(null),[passwordMessage,setPasswordMessage]=useState(''),[url,setUrl]=useState(''),[width,setWidth]=useState(800),[zoom,setZoom]=useState(1),[contents,setContents]=useState(false),[go,setGo]=useState(''),[goError,setGoError]=useState('');
- const [selection,setSelection]=useState<Annotation|null>(null),[note,setNote]=useState(''),[point,setPoint]=useState<{x:number;y:number}|null>(null);
+ const [selection,setSelection]=useState<Annotation|null>(null),[note,setNote]=useState(''),[point,setPoint]=useState<SelectionAnchor|null>(null);
  const navigated=useRef(false);
  const area=useRef<HTMLDivElement>(null),navRef=useRef<(n:number)=>void>(()=>{}),selectionRef=useRef(selection);useEffect(()=>{selectionRef.current=selection;},[selection]);
  const annotations=l.annotations.filter(a=>a.bookId===book.id&&!a.deleted),theme=themes[l.settings.paper];
@@ -59,7 +60,7 @@ export function OriginalReader({book,library:l,navigate}:{book:Book;library:Libr
   if(!node||node!==end)return;
   const pageIndex=Number(node.dataset.pdfPage),box=node.getBoundingClientRect();
   const rects=Array.from(range.getClientRects()).filter(r=>r.width>0&&r.height>0).map(r=>{const x=Math.max(0,(r.left-box.left)/box.width),y=Math.max(0,(r.top-box.top)/box.height);return{x,y,width:Math.max(0,Math.min(1-x,r.width/box.width)),height:Math.max(0,Math.min(1-y,r.height/box.height))};}).slice(0,2000);
-  if(!rects.length)return;const now=Date.now();setSelection({id:crypto.randomUUID(),bookId:book.id,kind:'highlight',range:{start:at(pageIndex),end:at(pageIndex)},quote:s.toString().trim(),note:'',color:'yellow',createdAt:now,updatedAt:now,pdfRange:{pageIndex,rects}});setNote('');setPoint({x:box.left+box.width/2,y:Math.min(window.innerHeight-240,Math.max(70,range.getBoundingClientRect().bottom+12))});
+  if(!rects.length)return;const now=Date.now();setSelection({id:crypto.randomUUID(),bookId:book.id,kind:'highlight',range:{start:at(pageIndex),end:at(pageIndex)},quote:s.toString().trim(),note:'',color:'yellow',createdAt:now,updatedAt:now,pdfRange:{pageIndex,rects}});setNote('');{const b=range.getBoundingClientRect();setPoint({x:box.left+box.width/2,y:Math.min(window.innerHeight-240,Math.max(70,b.bottom+12)),top:b.top,bottom:b.bottom});}
  }
  function save(color:Color,text=note){if(!selection)return;const a={...selection,color,note:text};void l.saveAnnotation(a);setSelection(null);window.getSelection()?.removeAllRanges();}
  const bookmarked=annotations.find(a=>a.kind==='bookmark'&&compare(a.range.start,at(index))===0);
