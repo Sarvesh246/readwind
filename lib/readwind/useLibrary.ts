@@ -417,16 +417,20 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
           // here, rather than re-reading the whole table for each later step.
           const editedBooks = new Set(changes.filter((change) => change.entity !== "delete-book").map((change) => change.bookId));
           const liveBooks: Book[] = [];
+          const removedIds: string[] = [];
           for (const b of await db.books.toArray()) {
             if (remoteBooks.has(b.id) || editedBooks.has(b.id)) { liveBooks.push(b); continue; }
-            await db.books.delete(b.id);
-            await db.progress.delete(b.id);
-            await db.annotations.where("bookId").equals(b.id).delete();
+            removedIds.push(b.id);
+          }
+          if (removedIds.length) {
+            // Bulk deletes and a single pass over pending, instead of one full
+            // pending scan per removed book.
+            const removed = new Set(removedIds);
+            await db.books.bulkDelete(removedIds);
+            await db.progress.bulkDelete(removedIds);
+            await db.annotations.where("bookId").anyOf(removedIds).delete();
             await db.pending
-              .filter(
-                (change) =>
-                  change.bookId === b.id && change.id !== `book:${b.id}`,
-              )
+              .filter((change) => !!change.bookId && removed.has(change.bookId) && change.id !== `book:${change.bookId}`)
               .delete();
           }
           const live = new Set(liveBooks.map((b) => b.id));

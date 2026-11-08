@@ -109,12 +109,20 @@ export function Discover({
     };
   }, []);
   useEffect(() => {
-    const save = () => {
+    const write = () => {
       if (!restoring.current && !leaving.current) rememberView(query, limit);
     };
+    // Scroll fires faster than the frame rate; persist at most once per frame.
+    let frame = 0;
+    const save = () => {
+      if (!frame) frame = requestAnimationFrame(() => { frame = 0; write(); });
+    };
     window.addEventListener("scroll", save, { passive: true });
-    save();
-    return () => window.removeEventListener("scroll", save);
+    write();
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", save);
+    };
   }, [query, limit]);
   useEffect(() => {
     if (!loaded || !restoring.current) return;

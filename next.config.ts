@@ -3,6 +3,11 @@ import type { NextConfig } from "next";
 import { securityHeaders } from "./lib/readwind/security";
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  compress: true,
+  // Barrel-heavy packages: import only the icons/primitives actually used.
+  experimental: {
+    optimizePackageImports: ["lucide-react", "radix-ui", "date-fns", "recharts", "motion"],
+  },
   turbopack: {
     resolveAlias: {
       fs: { browser: "./lib/readwind/empty-module.ts" },

@@ -73,8 +73,15 @@ export function Interactions() {
       if (cover && el.matches(TILT))
         animate(cover, { rotateX: 0, rotateY: 0 }, { duration: 0.45, ease: "easeOut" });
     };
-    const move = (e: PointerEvent) => {
-      if (e.pointerType !== "mouse") return;
+    // Pointermove can fire well above the frame rate. Keep only the latest
+    // event and do the layout read + animation once per frame.
+    let latest: PointerEvent | null = null;
+    let frame = 0;
+    const tilt = () => {
+      frame = 0;
+      const e = latest;
+      latest = null;
+      if (!e) return;
       const el = closest(e.target, TILT);
       const cover = el?.querySelector<HTMLElement>(".shelf-cover");
       if (!el || !cover) return;
@@ -89,20 +96,28 @@ export function Interactions() {
         { duration: 0.18, ease: "easeOut" },
       );
     };
+    const move = (e: PointerEvent) => {
+      if (e.pointerType !== "mouse") return;
+      if (!closest(e.target, TILT)) return;
+      latest = e;
+      if (!frame) frame = requestAnimationFrame(tilt);
+    };
 
-    document.addEventListener("pointerdown", down, true);
-    document.addEventListener("pointerup", up, true);
-    document.addEventListener("pointercancel", up, true);
-    document.addEventListener("pointerover", over, true);
-    document.addEventListener("pointerout", out, true);
-    document.addEventListener("pointermove", move, true);
+    const opts = { capture: true, passive: true } as const;
+    document.addEventListener("pointerdown", down, opts);
+    document.addEventListener("pointerup", up, opts);
+    document.addEventListener("pointercancel", up, opts);
+    document.addEventListener("pointerover", over, opts);
+    document.addEventListener("pointerout", out, opts);
+    document.addEventListener("pointermove", move, opts);
     return () => {
-      document.removeEventListener("pointerdown", down, true);
-      document.removeEventListener("pointerup", up, true);
-      document.removeEventListener("pointercancel", up, true);
-      document.removeEventListener("pointerover", over, true);
-      document.removeEventListener("pointerout", out, true);
-      document.removeEventListener("pointermove", move, true);
+      if (frame) cancelAnimationFrame(frame);
+      document.removeEventListener("pointerdown", down, opts);
+      document.removeEventListener("pointerup", up, opts);
+      document.removeEventListener("pointercancel", up, opts);
+      document.removeEventListener("pointerover", over, opts);
+      document.removeEventListener("pointerout", out, opts);
+      document.removeEventListener("pointermove", move, opts);
     };
   }, []);
   return null;

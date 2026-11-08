@@ -1,7 +1,5 @@
 "use client";
-import {AccountStorage} from './AccountStorage';
-import { createArchive, readBackup } from "@/lib/readwind/backup";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import type { Book, Anchor } from "@/lib/readwind/types";
 import { useLibrary } from "@/lib/readwind/useLibrary";
 import type { AuthClient } from "@/lib/readwind/useLibrary";
@@ -9,18 +7,23 @@ import { Library } from "./Library";
 import { MotionConfig, motion } from "motion/react";
 import { ReadwindLockup } from "./Logo";
 import { Interactions } from "./Fx";
-import { BookReader } from "./BookReader";
-import { Notebook } from "./Notebook";
-import { Import } from "./Import";
-import {Discover} from './Discover';
 import {bookAssets} from '@/lib/readwind/catalog';
 import { Modal } from "./Modal";
 import { Icon } from "./Icon";
 import { Flame } from "./Flame";
-import { ReadingStats } from "./ReadingStats";
 import { AppearanceControl } from "./Theme";
 import { labelAt } from "@/lib/readwind/anchors";
 import { AudiobookProvider } from "./Audiobook";
+
+// Each route and rarely-opened dialog is its own chunk, so the shelf paints
+// without parsing the reader, importer, notebook or stats code first. The
+// service worker precaches every chunk, so this stays offline-safe.
+const BookReader = lazy(() => import("./BookReader").then((m) => ({ default: m.BookReader })));
+const Notebook = lazy(() => import("./Notebook").then((m) => ({ default: m.Notebook })));
+const Import = lazy(() => import("./Import").then((m) => ({ default: m.Import })));
+const Discover = lazy(() => import("./Discover").then((m) => ({ default: m.Discover })));
+const ReadingStats = lazy(() => import("./ReadingStats").then((m) => ({ default: m.ReadingStats })));
+const AccountStorage = lazy(() => import("./AccountStorage").then((m) => ({ default: m.AccountStorage })));
 type User = { id: string; name: string; email: string };
 function AuthForm({
   auth,
@@ -363,6 +366,7 @@ function Workspace({
       const progress=(await library.db.progress.toArray()).filter(p=>selected.has(p.bookId));
       const files=[];
       for(const id of used)files.push({id,load:async()=>{const blob=await library.loadBlob(id);if(!blob)throw new Error('An attachment is unavailable. Connect before exporting.');return blob;}});
+      const {createArchive}=await import("@/lib/readwind/backup");
       const archive=await createArchive({format:'folio-backup-1',books,annotations,progress,settings:library.settings},files,password,sink);
       if(sink){await sink.close();setNotice('Encrypted backup saved.');return;}
       const url=URL.createObjectURL(archive);
@@ -375,6 +379,7 @@ function Workspace({
   }
   async function restore(f: File) {
     try {
+      const {readBackup} = await import("@/lib/readwind/backup");
       const {data,files} = await readBackup(f, () => window.prompt("Enter the backup password."));
       if(!window.confirm(`Restore ${data.books.length} books? Matching IDs replace local copies; other books stay. Settings and reading statistics are merged. The entire restore is applied together.`))return;
       await library.restoreArchive(data,files);
@@ -386,6 +391,7 @@ function Workspace({
   return (
     <AudiobookProvider library={library} path={path} navigate={navigate}>
       <span className="sr-only" role="status" aria-live="polite">{book ? book.title : path.includes("notebook") ? "Notebook" : path.includes("collections") ? "Collections" : "Library"}</span>
+      <Suspense fallback={null}>
       {match && book ? (
         match[2] ? (
           <Notebook
@@ -438,6 +444,7 @@ function Workspace({
           view={path === "/collections" ? "collections" : "library"}
         />
       )}
+      </Suspense>
       {notice && (
         <button className="toast" onClick={() => setNotice("")}>
           {notice}
@@ -467,7 +474,11 @@ function Workspace({
           </div>
         </Modal>
       )}
-      {stats && <ReadingStats library={library} onClose={() => setStats(false)} />}
+      {stats && (
+        <Suspense fallback={null}>
+          <ReadingStats library={library} onClose={() => setStats(false)} />
+        </Suspense>
+      )}
       {account && (
         <Modal title="Your reading room" onClose={() => setAccount(false)}>
           <div className="account-profile">
@@ -507,7 +518,7 @@ function Workspace({
           </section>
           <div className="settings-stack">
           {auth && <AccountPassword auth={auth} />}
-          <AccountStorage library={library} onDeleted={()=>{location.href=new URL('/',location.origin).href;}}/>
+          <Suspense fallback={null}><AccountStorage library={library} onDeleted={()=>{location.href=new URL('/',location.origin).href;}}/></Suspense>
           </div>
           <p className="muted">
             Your books and notes belong to this account. Sign out removes downloaded

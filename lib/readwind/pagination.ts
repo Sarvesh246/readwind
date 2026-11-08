@@ -113,6 +113,7 @@ export function pageIndex(pages: ScreenPage[], at: Anchor, spread: boolean) {
   }
   return spread ? i - (i % 2) : i;
 }
+const MAX_CACHED_LAYOUTS = 12;
 const cache = new Map<string, ScreenPage[]>();
 export async function paginate(
   book: Book,
@@ -131,7 +132,13 @@ export async function paginate(
     settings.font,
     g.spread,
   ].join("|");
-  if (cache.has(key)) return cache.get(key)!;
+  const hit = cache.get(key);
+  if (hit) {
+    // Re-insert so the Map's insertion order doubles as recency order.
+    cache.delete(key);
+    cache.set(key, hit);
+    return hit;
+  }
   await Promise.all([
     document.fonts.load(`${g.fs}px ${families[settings.font].split(",")[0]}`),
     document.fonts.load(`italic ${Math.round(g.fs * 1.9)}px Literata`),
@@ -394,7 +401,7 @@ export async function paginate(
       }
     }
     cache.set(key, pages);
-    if (cache.size > 12) cache.delete(cache.keys().next().value!);
+    while (cache.size > MAX_CACHED_LAYOUTS) cache.delete(cache.keys().next().value!);
     return pages;
   } finally {
     root.remove();

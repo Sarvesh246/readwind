@@ -159,13 +159,20 @@ export function Reader({
     // Measured after mount so server and client markup match on hydration.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setClosed(media());
+    // One update per frame, and none when the box did not really change:
+    // a fresh object each time would re-render (and re-paginate) the reader.
+    let frame = 0;
     const ro = new ResizeObserver((entries) => {
       const r = entries[0].contentRect;
-      setSize({ w: r.width, h: r.height });
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() =>
+        setSize((old) => (old.w === r.width && old.h === r.height ? old : { w: r.width, h: r.height })),
+      );
     });
     if (root.current) ro.observe(root.current);
     window.addEventListener("resize", media);
     return () => {
+      cancelAnimationFrame(frame);
       ro.disconnect();
       window.removeEventListener("resize", media);
     };

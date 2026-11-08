@@ -919,6 +919,7 @@ export function AudiobookProvider({
   // Lock-screen and headphone controls.
   const chunk = script?.chunks[index] || null;
   const section = chunk?.section ?? -1;
+  const loadBlob = l.loadBlob;
   useEffect(() => {
     if (!("mediaSession" in navigator) || !book) return;
     let url = "";
@@ -932,16 +933,20 @@ export function AudiobookProvider({
     };
     meta();
     const blob = book.cover.kind !== "typeset" ? book.cover.blobId : undefined;
+    // Depend on the stable loader, not the whole library object (new every
+    // render), so the cover URL is not rebuilt on each unrelated update.
+    let cancelled = false;
     if (blob)
-      void l.loadBlob(blob).then(b => {
-        if (!b) return;
+      void loadBlob(blob).then(b => {
+        if (!b || cancelled) return;
         url = URL.createObjectURL(b);
         meta([{ src: url, sizes: "512x768", type: b.type || "image/jpeg" }]);
       });
     return () => {
+      cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [book, section, l]);
+  }, [book, section, loadBlob]);
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
     const ms = navigator.mediaSession;
