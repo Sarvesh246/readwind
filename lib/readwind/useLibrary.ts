@@ -222,7 +222,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
             await db.transaction('rw',[db.books,db.progress,db.annotations,db.pending],async()=>{
               if(await db.pending.get(`delete-book:${book.id}`))return;
               const latest=await db.pending.get(change.id);if(latest?.restoreDeleted || latest && JSON.stringify(latest.value)!==JSON.stringify(change.value))return;
-              await db.books.delete(book.id);await db.progress.delete(book.id);await db.annotations.where('bookId').equals(book.id).delete();await db.pending.filter(p=>p.bookId===book.id).delete();
+              await db.books.delete(book.id);await db.progress.delete(book.id);await db.annotations.where('bookId').equals(book.id).delete();await db.pending.where("bookId").equals(book.id).delete();
             });continue;
           }
           if (!response.ok) {
@@ -423,14 +423,14 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
             removedIds.push(b.id);
           }
           if (removedIds.length) {
-            // Bulk deletes and a single pass over pending, instead of one full
-            // pending scan per removed book.
-            const removed = new Set(removedIds);
+            // Bulk deletes plus an indexed pending lookup (no full-table scans).
             await db.books.bulkDelete(removedIds);
             await db.progress.bulkDelete(removedIds);
             await db.annotations.where("bookId").anyOf(removedIds).delete();
             await db.pending
-              .filter((change) => !!change.bookId && removed.has(change.bookId) && change.id !== `book:${change.bookId}`)
+              .where("bookId")
+              .anyOf(removedIds)
+              .filter((change) => change.id !== `book:${change.bookId}`)
               .delete();
           }
           const live = new Set(liveBooks.map((b) => b.id));
@@ -928,7 +928,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
       await db.books.delete(id);
       await db.progress.delete(id);
       await db.annotations.where("bookId").equals(id).delete();
-      await db.pending.filter(change=>change.bookId===id).delete();
+      await db.pending.where("bookId").equals(id).delete();
       if(!guest)await db.pending.put({id:`delete-book:${id}`,entity:'delete-book',bookId:id,value:{files:[...new Set(files)]}});
     });}catch(error){if(alive.current)setOptimisticDeletes(old=>old.owner!==db.name?old:{owner:old.owner,ids:new Set([...old.ids].filter(value=>value!==id))});throw error;}
     if(conflicted.current===`progress:${id}`){conflicted.current=null;setConflict(null);}

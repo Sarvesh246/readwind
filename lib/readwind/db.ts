@@ -39,6 +39,11 @@ export class ReadwindDB extends Dexie {
       pending: "id,entity",
       preferences: "id",
     });
+    // Adds an index for per-book pending lookups. Dexie backfills it from the
+    // existing rows, so no upgrade callback is needed and no data is rewritten.
+    this.version(2).stores({
+      pending: "id,entity,bookId",
+    });
   }
 }
 export function deviceId() {

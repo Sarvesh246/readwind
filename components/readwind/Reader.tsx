@@ -34,7 +34,7 @@ import { BookEditor } from "./CoverPicker";
 import { Highlighter } from "lucide-react";
 import { hasReadableContent } from '@/lib/readwind/content';
 import { searchBook } from '@/lib/readwind/search';
-import { useAudiobook, ReaderPlayer } from "./Audiobook";
+import { useAudiobook, useSpokenWord, ReaderPlayer } from "./Audiobook";
 import { anchorOf, chunkAt } from "@/lib/readwind/speech";
 import { rangesFor, paintHighlight, clearHighlight, offsetAtPoint } from "@/lib/readwind/speech-highlight";
 import { todayGoal, unitLabel } from "@/lib/readwind/goals";
@@ -323,7 +323,8 @@ export function Reader({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- runs once the phone layout has closed the cover
     if (listening) setClosed(false);
   }, [listening, phone]);
-  const spokenWord = listening && audio!.settings.highlight === "word" ? audio!.word : null;
+  const currentWord = useSpokenWord();
+  const spokenWord = listening && audio!.settings.highlight === "word" ? currentWord : null;
   useEffect(() => {
     const el = root.current;
     if (!el || !spoken || spoken.kind !== "text" || busy) {

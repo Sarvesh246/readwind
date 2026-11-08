@@ -56,8 +56,6 @@ type Audiobook = {
   index: number;
   chunk: Chunk | null;
   playing: boolean;
-  /** Source range of the word being spoken, when the voice reports word boundaries. */
-  word: { start: number; end: number } | null;
   notice: string;
   sleep: Sleep;
   sleepLeft: number;
@@ -106,6 +104,26 @@ type Audiobook = {
 
 const AudiobookContext = createContext<Audiobook | null>(null);
 export const useAudiobook = () => useContext(AudiobookContext);
+
+// The spoken word changes several times a second. Keeping it in context state
+// re-rendered the provider and every audiobook consumer on each change, so it
+// lives in a tiny external store that only the highlighting reader subscribes to.
+type SpokenWord = { start: number; end: number } | null;
+let spokenWord: SpokenWord = null;
+const wordListeners = new Set<() => void>();
+const setWord = (next: SpokenWord) => {
+  if (next === spokenWord || (next && spokenWord && next.start === spokenWord.start && next.end === spokenWord.end)) return;
+  spokenWord = next;
+  wordListeners.forEach(notify => notify());
+};
+const subscribeWord = (notify: () => void) => {
+  wordListeners.add(notify);
+  return () => void wordListeners.delete(notify);
+};
+const wordSnapshot = () => spokenWord;
+const noWord = () => null;
+/** Source range of the word being spoken, when the voice reports word boundaries. */
+export const useSpokenWord = () => useSyncExternalStore(subscribeWord, wordSnapshot, noWord);
 
 /** What is reading, in a few words: "Alan · Piper", "Samantha · Device", or a prompt to choose. */
 export function voiceLabel(a: Audiobook) {
@@ -157,7 +175,6 @@ export function AudiobookProvider({
   const script = useMemo(() => (book ? scriptOf(book, { readCaptions: settings.readCaptions }) : null), [book, settings.readCaptions]);
   const [index, setIndex] = useState(0),
     [playing, setPlaying] = useState(false),
-    [word, setWord] = useState<{ start: number; end: number } | null>(null),
     [notice, setNotice] = useState(""),
     [sleep, setSleepState] = useState<Sleep>(null),
     [sleepLeft, setSleepLeft] = useState(0),
@@ -1000,7 +1017,6 @@ export function AudiobookProvider({
     index,
     chunk,
     playing,
-    word,
     notice,
     sleep,
     sleepLeft,
