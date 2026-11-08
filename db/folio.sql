@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS folio_settings (owner_id text PRIMARY KEY, data jsonb
 CREATE TABLE IF NOT EXISTS folio_rate_limits (
   key text PRIMARY KEY, window_start timestamptz NOT NULL, hits integer NOT NULL
 );
+-- The maintenance sweep deletes the oldest windows first, so index them to avoid a full table scan.
+CREATE INDEX IF NOT EXISTS folio_rate_limits_window ON folio_rate_limits(window_start);
 CREATE TABLE IF NOT EXISTS folio_files (
   owner_id text NOT NULL, id text NOT NULL, bytes bigint NOT NULL CHECK(bytes BETWEEN 0 AND 20971520),
   PRIMARY KEY(owner_id,id)

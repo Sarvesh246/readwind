@@ -65,12 +65,10 @@ export const POST = safeRoute(async (request: Request) => {
       "The recovery version changed. Refresh and retry.",
     );
   const db = sql(user, `recovery:${user}`);
+  // Parse the book once; it is validated again below only through this result.
+  const parsedBook = input.kind === "book" ? book.parse(input.value) : undefined;
   const id =
-    input.kind === "book"
-      ? book.parse(input.value).id
-      : input.kind === "settings"
-        ? "reader"
-        : "complete";
+    parsedBook?.id ?? (input.kind === "settings" ? "reader" : "complete");
   const existing =
     await db`SELECT 1 FROM folio_recovery_snapshots WHERE owner_id=${user} AND device_id=${input.deviceId} AND epoch=${epoch} AND entity=${input.kind} AND entity_id=${id}`;
   if (!existing.length) {
@@ -88,7 +86,7 @@ export const POST = safeRoute(async (request: Request) => {
     }
   }
   if (input.kind === "book") {
-    const b = book.parse(input.value),
+    const b = parsedBook!,
       raw = input.value as Record<string, unknown>;
     let recoveredBook = input.value;
     if (b.catalog) {
@@ -132,11 +130,43 @@ export const POST = safeRoute(async (request: Request) => {
           : new Date(0);
       await db`INSERT INTO folio_progress(owner_id,book_id,at,revision,device_id,words_read,updated_at) SELECT ${user},${p.bookId},${JSON.stringify(p.at)}::jsonb,${Math.max(1, p.revision)},${p.deviceId},${p.wordsRead},${updated.toISOString()}::timestamptz WHERE EXISTS(SELECT 1 FROM folio_books WHERE owner_id=${user} AND id=${p.bookId}) ON CONFLICT(owner_id,book_id) DO UPDATE SET at=EXCLUDED.at,revision=GREATEST(folio_progress.revision,EXCLUDED.revision),device_id=EXCLUDED.device_id,words_read=EXCLUDED.words_read,updated_at=EXCLUDED.updated_at WHERE EXCLUDED.revision>folio_progress.revision OR (EXCLUDED.revision=folio_progress.revision AND EXCLUDED.updated_at>folio_progress.updated_at)`;
     }
+    // Validate every note first, then upsert in chunks: one statement per 500
+    // notes instead of one transaction per note. Duplicate IDs are collapsed to
+    // the newest copy because ON CONFLICT cannot touch a row twice in a statement.
+    const latest = new Map<
+      string,
+      { id: string; book_id: string; data: unknown; updated_at: string; at: number }
+    >();
     for (const value of input.annotations || []) {
       const a = annotation.parse(value);
       if (a.bookId !== b.id)
         throw new HttpError(400, "The annotation belongs to another book.");
-      await db`INSERT INTO folio_annotations(owner_id,id,book_id,data,updated_at) SELECT ${user},${a.id},${a.bookId},${JSON.stringify(value)}::jsonb,${new Date(a.updatedAt).toISOString()}::timestamptz WHERE EXISTS(SELECT 1 FROM folio_books WHERE owner_id=${user} AND id=${a.bookId}) ON CONFLICT(owner_id,id) DO UPDATE SET data=EXCLUDED.data,updated_at=EXCLUDED.updated_at WHERE EXCLUDED.updated_at>folio_annotations.updated_at`;
+      const seen = latest.get(a.id);
+      if (!seen || a.updatedAt > seen.at)
+        latest.set(a.id, {
+          id: a.id,
+          book_id: a.bookId,
+          data: value,
+          updated_at: new Date(a.updatedAt).toISOString(),
+          at: a.updatedAt,
+        });
+    }
+    const notes = [...latest.values()];
+    for (let from = 0; from < notes.length; from += 500) {
+      const chunk = JSON.stringify(
+        notes.slice(from, from + 500).map((n) => ({
+          id: n.id,
+          book_id: n.book_id,
+          data: n.data,
+          updated_at: n.updated_at,
+        })),
+      );
+      await db`INSERT INTO folio_annotations(owner_id,id,book_id,data,updated_at)
+        SELECT ${user},r.id,r.book_id,r.data,r.updated_at
+        FROM jsonb_to_recordset(${chunk}::jsonb) AS r(id text,book_id text,data jsonb,updated_at timestamptz)
+        WHERE EXISTS(SELECT 1 FROM folio_books WHERE owner_id=${user} AND id=r.book_id)
+        ON CONFLICT(owner_id,id) DO UPDATE SET data=EXCLUDED.data,updated_at=EXCLUDED.updated_at
+        WHERE EXCLUDED.updated_at>folio_annotations.updated_at`;
     }
   } else if (input.kind === "settings") {
     const local = settings.parse(input.value),

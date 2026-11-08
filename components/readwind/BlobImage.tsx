@@ -30,7 +30,7 @@ export function BlobImage({
   }, [id, loadBlob]);
   return url ? (
     // eslint-disable-next-line @next/next/no-img-element -- blob: URL, next/image cannot optimise it
-    <img src={url} alt={alt} className={className} />
+    <img src={url} alt={alt} className={className} decoding="async" />
   ) : (
     <span className="image-loading">Image · connect to download</span>
   );

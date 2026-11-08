@@ -6,16 +6,16 @@ import {safeRoute,readJson,HttpError,sameOrigin} from '@/lib/readwind/security';
 export const GET=safeRoute(async(request:Request)=>{
  const session=process.env.READWIND_BACKEND==='supabase'?await resolveSession(request):null;
  const user=session?.user.id || await owner(request);if(!user)return unauthorized();await rateLimit(`account:${user}`,60);
- const files=await sql(user)`SELECT count(*) AS files,COALESCE(sum(bytes),0) AS bytes FROM folio_files WHERE owner_id=${user}`;
- let sessions: {id:string;current:boolean;expiresAt:string;lastUsed:string}[]=[];
- if(process.env.READWIND_BACKEND==='supabase'){
-  const session=await resolveSession(request);
-  if(session){const db=postgresClient();const rows=await db`SELECT s.token_hash,s.expires_at,s.updated_at FROM folio_sessions s WHERE s.auth_user_id=(SELECT auth_user_id FROM folio_sessions WHERE token_hash=${session.tokenHash}) AND s.expires_at>now() ORDER BY s.updated_at DESC`;
-   sessions=rows.map(row=>({id:row.token_hash,current:row.token_hash===session.tokenHash,expiresAt:new Date(row.expires_at).toISOString(),lastUsed:new Date(row.updated_at).toISOString()}));
-  }
- }
- const deleting=await sql(user)`SELECT 1 FROM folio_settings WHERE owner_id=${user} AND data ? '_deletingAuthUser'`;
- const capacity=process.env.READWIND_BACKEND==='supabase'?await sql(user)`SELECT used_bytes,limit_bytes FROM folio_storage_capacity WHERE id`:[];
+ const supabase=process.env.READWIND_BACKEND==='supabase';
+ // The four lookups are independent; run them together instead of one after another.
+ // The session resolved above is reused rather than looked up a second time.
+ const [files,sessionRows,deleting,capacity]=await Promise.all([
+  sql(user)`SELECT count(*) AS files,COALESCE(sum(bytes),0) AS bytes FROM folio_files WHERE owner_id=${user}`,
+  supabase&&session?postgresClient()`SELECT s.token_hash,s.expires_at,s.updated_at FROM folio_sessions s WHERE s.auth_user_id=(SELECT auth_user_id FROM folio_sessions WHERE token_hash=${session.tokenHash}) AND s.expires_at>now() ORDER BY s.updated_at DESC`:Promise.resolve([]),
+  sql(user)`SELECT 1 FROM folio_settings WHERE owner_id=${user} AND data ? '_deletingAuthUser'`,
+  supabase?sql(user)`SELECT used_bytes,limit_bytes FROM folio_storage_capacity WHERE id`:Promise.resolve([]),
+ ]);
+ const sessions: {id:string;current:boolean;expiresAt:string;lastUsed:string}[]=session?sessionRows.map(row=>({id:row.token_hash,current:row.token_hash===session.tokenHash,expiresAt:new Date(row.expires_at).toISOString(),lastUsed:new Date(row.updated_at).toISOString()})):[];
  return Response.json({projectAvailable:capacity.length?Math.max(0,Number(capacity[0].limit_bytes)-Number(capacity[0].used_bytes)):undefined,deletionPending:!!deleting.length,bytes:Number(files[0].bytes),files:Number(files[0].files),limit:524288000,provider:usesS3Storage()?'s3':'supabase',sessions},{headers:{'Cache-Control':'private, no-store'}});
 });
 export const POST=safeRoute(async(request:Request)=>{

@@ -33,7 +33,7 @@ vi.mock("../lib/readwind/server", () => ({
 import { POST as add } from "../app/api/catalog/[editionId]/add/route";
 import { GET as asset } from "../app/api/catalog/assets/[id]/route";
 import { GET as search } from "../app/api/catalog/route";
-import { catalogEntries } from "../lib/readwind/catalog-server";
+import { catalogEntries, clearCatalogCache } from "../lib/readwind/catalog-server";
 import { POST as saveMetadata } from "../app/api/library/route";
 import {
   catalogMetadataUpdate,
@@ -76,6 +76,8 @@ const prepared: Book = {
   },
 };
 beforeEach(async () => {
+  // Each test builds a fresh database; the per-isolate catalog cache must not outlive it.
+  clearCatalogCache();
   originalFlag = process.env.READWIND_CATALOG_ENABLED;
   process.env.READWIND_CATALOG_ENABLED = "true";
   state.pg = new PGlite();
@@ -246,10 +248,20 @@ describe("catalog persistence and access", () => {
       ).status,
     ).toBe(200);
     await state.pg!.exec("UPDATE folio_catalog_versions SET published=false");
+    clearCatalogCache();
     const response = await search(
       new Request("https://readwind.test/api/catalog"),
     );
     expect(((await response.json()) as { items: unknown[] }).items).toEqual([]);
+  });
+  it("serves repeat reads from a short-lived cache until it is cleared", async () => {
+    const before = await catalogEntries();
+    expect(before.length).toBeGreaterThan(0);
+    await state.pg!.exec("UPDATE folio_catalog_versions SET published=false");
+    // Within the window the already-read list is reused instead of re-querying.
+    expect(await catalogEntries()).toBe(before);
+    clearCatalogCache();
+    expect(await catalogEntries()).toEqual([]);
   });
   it("authenticates additions and converges simultaneous requests without resetting edits", async () => {
     const context = { params: Promise.resolve({ editionId: "edition" }) };

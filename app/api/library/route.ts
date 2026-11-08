@@ -282,46 +282,64 @@ export const DELETE = safeRoute(async (request: Request) => {
     id,
     incoming.data.files || [],
   )) as { deletion: { files: string[] } }[];
-  const rows = await db`SELECT data FROM folio_books WHERE owner_id=${user}`;
-  const refs = (data: import("@/lib/readwind/types").Book) =>
-    [
-      data.sourcePdfBlobId,
-      data.sourceBlobId,
-      data.cover.blobId,
-      data.pdfCoverBlobId,
-      data.customCoverBlobId,
-      ...data.sections.flatMap((s) =>
-        s.blocks.map((b) => (b.type === "figure" ? b.blobId : undefined)),
-      ),
-    ].filter((v): v is string => !!v && safeId.test(v));
-  const used = new Set(rows.flatMap((row) => refs(row.data)));
-  const candidates = [...new Set(marked[0]?.deletion.files || [])].filter(
-    (file) => safeId.test(file) && !used.has(file),
+  const requested = [...new Set(marked[0]?.deletion.files || [])].filter((file) =>
+    safeId.test(file),
   );
-  const owned = new Set(
-    (await db`SELECT id FROM folio_files WHERE owner_id=${user}`).map(
-      (row) => row.id as string,
-    ),
-  );
+  // Ask the database which of these files another book still references, rather
+  // than shipping every book's full text (up to the library quota) to the Worker
+  // just to compare IDs. Only the candidate IDs travel; the answer is a short list.
+  const requestedJson = JSON.stringify(requested);
+  const stillUsed = requested.length
+    ? new Set(
+        (
+          await db`SELECT DISTINCT ref.value AS id
+            FROM folio_books b,
+            LATERAL jsonb_array_elements_text(
+              jsonb_build_array(b.data->>'sourcePdfBlobId',b.data->>'sourceBlobId',b.data->'cover'->>'blobId',b.data->>'pdfCoverBlobId',b.data->>'customCoverBlobId')
+              || jsonb_path_query_array(b.data,'$.sections[*].blocks[*] ? (@.type == "figure").blobId')
+            ) AS ref(value)
+            WHERE b.owner_id=${user}
+              AND ref.value IN (SELECT jsonb_array_elements_text(${requestedJson}::jsonb))`
+        ).map((row) => row.id as string),
+      )
+    : new Set<string>();
+  const candidates = requested.filter((file) => !stillUsed.has(file));
+  const owned = candidates.length
+    ? new Set(
+        (
+          await db`SELECT id FROM folio_files WHERE owner_id=${user}
+            AND id IN (SELECT jsonb_array_elements_text(${JSON.stringify(candidates)}::jsonb))`
+        ).map((row) => row.id as string),
+      )
+    : new Set<string>();
   // Delete private objects before releasing their quota. Failed deletes are retryable.
+  // Quota rows are released in one statement afterwards (also when a later delete
+  // fails) instead of one database round trip per file.
+  const removed: string[] = [];
   let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(4, candidates.length) }, async () => {
-      while (next < candidates.length) {
-        const file = candidates[next++];
-        if (!owned.has(file)) continue;
-        const result = await storageFetch(`${user}/${file}`, {
-          method: "DELETE",
-        });
-        if (!result.ok && result.status !== 404)
-          throw new HttpError(
-            502,
-            "Book deleted. Attached-file cleanup will retry.",
-          );
-        await db`DELETE FROM folio_files WHERE owner_id=${user} AND id=${file}`;
-      }
-    }),
-  );
+  try {
+    await Promise.all(
+      Array.from({ length: Math.min(4, candidates.length) }, async () => {
+        while (next < candidates.length) {
+          const file = candidates[next++];
+          if (!owned.has(file)) continue;
+          const result = await storageFetch(`${user}/${file}`, {
+            method: "DELETE",
+          });
+          if (!result.ok && result.status !== 404)
+            throw new HttpError(
+              502,
+              "Book deleted. Attached-file cleanup will retry.",
+            );
+          removed.push(file);
+        }
+      }),
+    );
+  } finally {
+    if (removed.length)
+      await db`DELETE FROM folio_files WHERE owner_id=${user}
+        AND id IN (SELECT jsonb_array_elements_text(${JSON.stringify(removed)}::jsonb))`;
+  }
   await finishBookCleanup(db, user, id);
   return Response.json({ ok: true });
 });

@@ -11,6 +11,8 @@ export const GET = safeRoute(async (request: Request) => {
           "Content-Type": "application/json",
           ETag: etag,
           "Cache-Control": "public, max-age=60",
+          "Vercel-CDN-Cache-Control":
+            "public, s-maxage=120, stale-while-revalidate=600",
         },
       });
 });

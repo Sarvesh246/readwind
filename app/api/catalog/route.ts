@@ -14,6 +14,13 @@ export const GET = safeRoute(async (request: Request) => {
       total: matches.length,
       nextOffset: offset + 24 < matches.length ? offset + 24 : null,
     },
-    { headers: { "Cache-Control": "public, max-age=30" } },
+    {
+      headers: {
+        "Cache-Control": "public, max-age=30",
+        // Public, cookie-free data: let the CDN absorb repeat searches.
+        "Vercel-CDN-Cache-Control":
+          "public, s-maxage=60, stale-while-revalidate=300",
+      },
+    },
   );
 });

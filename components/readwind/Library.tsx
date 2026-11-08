@@ -100,7 +100,14 @@ function CoverFan({
   );
 }
 // A real line from the opening of the book, cut at a sentence or word boundary.
+// Books are immutable snapshots, and this runs in render: scan each one only once.
+const openingLines = new WeakMap<Book, string>();
 function openingLine(book: Book) {
+  let line = openingLines.get(book);
+  if (line === undefined) openingLines.set(book, (line = computeOpeningLine(book)));
+  return line;
+}
+function computeOpeningLine(book: Book) {
   const text =
     book.sections
       .flatMap((s) => s.blocks)

@@ -385,14 +385,15 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
             ids = new Set(changes.map((p) => p.id)),
             deleting = new Set(changes.filter(p=>p.entity==='delete-book').map(p=>p.bookId)),
             remoteBooks = new Set(data.books.filter(b=>!deleting.has(b.id)).map((b) => b.id));
-          for (const b of data.books)
-            if (!ids.has(`book:${b.id}`) && !deleting.has(b.id)) await db.books.put(b);
-          for (const p of data.progress)
-            if (!ids.has(`progress:${p.bookId}`) && remoteBooks.has(p.bookId))
-              await db.progress.put({ ...p, updatedAt: Number(p.updatedAt) });
-          for (const a of data.annotations)
-            if (!ids.has(`annotation:${a.id}`) && remoteBooks.has(a.bookId))
-              await db.annotations.put(a);
+          // One bulk write per table instead of one awaited put per row.
+          const incomingBooks = data.books.filter((b) => !ids.has(`book:${b.id}`) && !deleting.has(b.id));
+          if (incomingBooks.length) await db.books.bulkPut(incomingBooks);
+          const incomingProgress = data.progress
+            .filter((p) => !ids.has(`progress:${p.bookId}`) && remoteBooks.has(p.bookId))
+            .map((p) => ({ ...p, updatedAt: Number(p.updatedAt) }));
+          if (incomingProgress.length) await db.progress.bulkPut(incomingProgress);
+          const incomingNotes = data.annotations.filter((a) => !ids.has(`annotation:${a.id}`) && remoteBooks.has(a.bookId));
+          if (incomingNotes.length) await db.annotations.bulkPut(incomingNotes);
           if (data.settings && !ids.has("settings"))
           {
             const local = (await db.preferences.get("reader"))?.value;
@@ -404,8 +405,12 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
           // The account is authoritative for books. Remove copies deleted on
           // another device, with their notes and position, unless this device
           // still has an unsent change for that book.
+          // Read the stored books once (they carry full text) and track survivors
+          // here, rather than re-reading the whole table for each later step.
+          const editedBooks = new Set(changes.filter((change) => change.entity !== "delete-book").map((change) => change.bookId));
+          const liveBooks: Book[] = [];
           for (const b of await db.books.toArray()) {
-            if (remoteBooks.has(b.id) || changes.some(change=>change.bookId===b.id && change.entity!=="delete-book")) continue;
+            if (remoteBooks.has(b.id) || editedBooks.has(b.id)) { liveBooks.push(b); continue; }
             await db.books.delete(b.id);
             await db.progress.delete(b.id);
             await db.annotations.where("bookId").equals(b.id).delete();
@@ -416,12 +421,12 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
               )
               .delete();
           }
-          const live = new Set((await db.books.toArray()).map((b) => b.id));
-          for (const p of await db.progress.toArray())
-            if (!live.has(p.bookId)) await db.progress.delete(p.bookId);
-          for (const a of await db.annotations.toArray())
-            if (!live.has(a.bookId)) await db.annotations.delete(a.id);
-          const used = new Set((await db.books.toArray()).flatMap(bookFileIds));
+          const live = new Set(liveBooks.map((b) => b.id));
+          const orphanProgress = await db.progress.filter((p) => !live.has(p.bookId)).primaryKeys();
+          if (orphanProgress.length) await db.progress.bulkDelete(orphanProgress);
+          const orphanNotes = await db.annotations.filter((a) => !live.has(a.bookId)).primaryKeys();
+          if (orphanNotes.length) await db.annotations.bulkDelete(orphanNotes);
+          const used = new Set(liveBooks.flatMap(bookFileIds));
           const unused=(await db.blobs.toCollection().primaryKeys()).filter(id=>!used.has(id));
           if(unused.length)await db.blobs.bulkDelete(unused);
           for(const change of changes.filter(p=>p.entity==='delete-book'))if(processedDeletes.has(change.id)&&!data.books.some(b=>b.id===change.bookId))await db.pending.delete(change.id);
@@ -944,7 +949,8 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     await db.transaction('rw',[db.books,db.pending,db.blobs],async()=>{
       const book=await db.books.get(id);if(!book)return;
       const pending=await db.pending.toArray();
-      const protectedIds=new Set((await db.books.toArray()).filter(b=>pending.some(p=>p.bookId===b.id)).flatMap(bookAssets));
+      const pendingBooks=new Set(pending.map(p=>p.bookId));
+      const protectedIds=new Set((await db.books.toArray()).filter(b=>pendingBooks.has(b.id)).flatMap(bookAssets));
       const assets=bookAssets(book);
       if(pending.some(p=>p.bookId===id)||assets.some(asset=>protectedIds.has(asset)))throw new Error('Sync this book and its shared attachments before removing downloads.');
       await db.blobs.bulkDelete(assets);
