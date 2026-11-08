@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import crypto from 'node:crypto';
+import { build } from 'esbuild';
 fs.copyFileSync('node_modules/pdfjs-dist/build/pdf.worker.min.mjs','public/pdf.worker.min.mjs');
 for(const [src,dest] of [['cmaps','cmaps'],['standard_fonts','standard_fonts'],['wasm','pdf-wasm']])fs.cpSync(`node_modules/pdfjs-dist/${src}`,`public/${dest}`,{recursive:true});
 fs.mkdirSync('public/ocr',{recursive:true});fs.copyFileSync('node_modules/tesseract.js/dist/worker.min.js','public/ocr/worker.min.js');
@@ -18,3 +20,13 @@ for(const file of ['piper_phonemize.data','piper_phonemize.wasm'])fs.copyFileSyn
 fs.copyFileSync('node_modules/onnxruntime-web/dist/ort-wasm-simd.wasm','public/piper/ort-wasm-simd.wasm');
 // Phones without WebAssembly SIMD (older iPhones) ask the runtime for the plain build instead.
 fs.copyFileSync('node_modules/onnxruntime-web/dist/ort-wasm.wasm','public/piper/ort-wasm.wasm');
+const runtimeFiles=['piper_phonemize.data','piper_phonemize.wasm','ort-wasm-simd.wasm','ort-wasm.wasm'];
+const runtimeHash=crypto.createHash('sha256');
+for(const file of runtimeFiles)runtimeHash.update(file).update(fs.readFileSync(`public/piper/${file}`));
+fs.writeFileSync('lib/readwind/piper-runtime-version.json',JSON.stringify({version:runtimeHash.digest('hex').slice(0,16)})+'\n');
+// Next and Vinext must serve the same executable worker, not a raw TypeScript asset.
+const bundled=await build({entryPoints:['lib/readwind/natural-voice.worker.ts'],bundle:true,format:'esm',platform:'browser',write:false,alias:{fs:'./lib/readwind/empty-module.ts',path:'./lib/readwind/empty-module.ts'}});
+const bytes=bundled.outputFiles[0].contents;
+const workerVersion=crypto.createHash('sha256').update(bytes).digest('hex').slice(0,16);
+fs.writeFileSync(`public/piper/worker-${workerVersion}.mjs`,bytes);
+fs.writeFileSync('lib/readwind/piper-worker-version.json',JSON.stringify({version:workerVersion})+'\n');

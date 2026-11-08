@@ -52,8 +52,7 @@ export function useLastInput(): RefObject<number> {
  * `sinceInputMs`: time since the last touch, key or scroll. `idleMs`: how long a silence still counts as reading.
  */
 export function shouldHoldWakeLock(bookOpen: boolean, visible: boolean, sinceInputMs: number, idleMs: number): boolean {
-  // TODO(human): decide when the screen should stay on.
-  return false;
+  return bookOpen && visible && sinceInputMs >= 0 && sinceInputMs < idleMs;
 }
 
 type WakeLockSentinelLike = { released: boolean; release(): Promise<void> };
@@ -67,20 +66,21 @@ export function useWakeLock(bookOpen: boolean, lastInput: RefObject<number>, wpm
     let lock: WakeLockSentinelLike | null = null,
       pending = false,
       stopped = false;
-    const check = () => {
-      const want = shouldHoldWakeLock(
+    const wantsLock = () => shouldHoldWakeLock(
         bookOpen,
         document.visibilityState === "visible",
         performance.now() - lastInput.current,
         idleLimitMs(wpm),
       );
+    const check = () => {
+      const want = wantsLock();
       const held = !!lock && !lock.released;
       if (want && !held && !pending) {
         pending = true;
         api
           .request("screen")
           .then(sentinel => {
-            if (stopped) void sentinel.release();
+            if (stopped || !wantsLock()) void sentinel.release().catch(() => {});
             else lock = sentinel;
           })
           .catch(() => {})
@@ -96,12 +96,12 @@ export function useWakeLock(bookOpen: boolean, lastInput: RefObject<number>, wpm
     // The browser drops the lock whenever the tab hides, so re-check as soon as it returns.
     const id = setInterval(check, 10_000);
     document.addEventListener("visibilitychange", check);
-    window.addEventListener("pointerdown", check, { passive: true });
+    for (const event of INPUT_EVENTS) window.addEventListener(event, check, { passive: true });
     return () => {
       stopped = true;
       clearInterval(id);
       document.removeEventListener("visibilitychange", check);
-      window.removeEventListener("pointerdown", check);
+      for (const event of INPUT_EVENTS) window.removeEventListener(event, check);
       if (lock && !lock.released) void lock.release().catch(() => {});
     };
   }, [bookOpen, lastInput, wpm]);

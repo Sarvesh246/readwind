@@ -7,7 +7,7 @@ import {normalizeStyledText,pdfFontStyle,type TextStyleRun} from './rich-text';
 import {bookWordEvidence,joinPrintedLine,joinPageParagraphs,dropRepeatedHeadings} from './text-cleanup';
 import {fidelityIssues,structuredBlocks,needsSourcePage,textLayerCheck,textLayerDisagrees,extractionLoss,ocrAddsContent} from './pdf-fidelity';
 import {isContentsTitle,normalizePageLabel,printedPageToken} from './navigation-labels';
-import {stripPageNumbers} from './page-numbers';
+import {isLikelyHeadingNumber,stripPageNumbers} from './page-numbers';
 import {pageNotes,appendEndnotes} from './book-notes';
 import {hasTextBands} from './auto-ocr';
 export type ImportOptions = {
@@ -497,7 +497,7 @@ export async function importPDF(
           l.header && l.size <= median * 1.15 && /\p{L}/u.test(l.text) && !/^(chapter|part|book|section)\b/i.test(l.text) &&
           (frequency.get(normal(l.text))?.size || 0) >=
             Math.max(2, Math.ceil(pdf.numPages * 0.3));
-        const numbered = l.header && l.size <= median && normalizePageLabel(l.text) === normalizePageLabel(pageLabel) && printedPageToken.test(normalizePageLabel(l.text));
+        const numbered = l.header && l.size <= median && !isLikelyHeadingNumber(l,lines,median) && normalizePageLabel(l.text) === normalizePageLabel(pageLabel) && printedPageToken.test(normalizePageLabel(l.text));
         if (options.removeHeaders && (repeated || numbered)) {
           removed++;
           return false;

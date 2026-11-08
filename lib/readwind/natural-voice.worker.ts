@@ -2,6 +2,7 @@
 import { HF_BASE, PATH_MAP, TtsSession } from "@mintplex-labs/piper-tts-web";
 import { fetchInto } from "./piper-download";
 import { voiceFiles } from "./voices";
+import { cachePiperRuntime } from "./piper-runtime";
 
 /**
  * Two roles share this file. The "synth" worker turns sentences into speech; a short-lived "download"
@@ -16,7 +17,6 @@ type Request =
   | { type: "cancel"; ids: number[] };
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-const ATTEMPTS = 4;
 const message = (error: unknown) => String((error as Error)?.message || error || "Voice failed");
 /** Names the step that failed, so a report says "model couldn't start" rather than just "voice failed". */
 const step = async <T,>(label: string, work: () => Promise<T>): Promise<T> => {
@@ -79,30 +79,10 @@ function ensureVoice(
   return running;
 }
 
-/** The runtime files are served by this app; keep them in a cache so the voice also starts offline. */
-async function cacheRuntime() {
-  const cache = await caches.open("piper-runtime");
-  for (const url of [
-    "/piper/piper_phonemize.data",
-    "/piper/piper_phonemize.wasm",
-    "/piper/ort-wasm-simd.wasm",
-  ]) {
-    if (await cache.match(url)) continue;
-    for (let attempt = 1; ; attempt++) {
-      try {
-        await cache.add(url);
-        break;
-      } catch (error) {
-        if (attempt >= ATTEMPTS) throw error;
-        await wait(500 * attempt);
-      }
-    }
-  }
-}
 
 let current: { voice: string; session: Promise<TtsSession> } | null = null;
 async function createSession(voice: string) {
-  await step("Voice runtime files unavailable", cacheRuntime);
+  await step("Voice runtime files unavailable", cachePiperRuntime);
   await ensureVoice(voice, (loaded, total) =>
     postMessage({ type: "progress", loaded, total }),
   );
@@ -153,6 +133,7 @@ self.onmessage = (event: MessageEvent<Request>) => {
     ensureVoice(request.voice, (loaded, total) =>
       postMessage({ type: "progress", req: request.req, loaded, total }),
     )
+      .then(() => step("Voice runtime files unavailable", cachePiperRuntime))
       .then(() => postMessage({ type: "ready", req: request.req }))
       .catch((error) =>
         postMessage({

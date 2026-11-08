@@ -1,5 +1,6 @@
 "use client";
 import { DEFAULT_NATURAL_VOICE, NATURAL_VOICES, isNaturalVoice, voiceFiles } from "./voices";
+import workerVersion from "./piper-worker-version.json";
 /**
  * Main-thread side of the natural voice: one shared worker, a request queue, and WAV blobs that play
  * through an ordinary <audio> element.
@@ -51,7 +52,7 @@ let watchdog: ReturnType<typeof setInterval> | undefined;
 const clips = new Map<number, ClipRequestState>();
 const jobs = new Map<number, JobState>();
 
-const spawn = () => new Worker(new URL("./natural-voice.worker.ts", import.meta.url), { type: "module" });
+const spawn = () => new Worker(`/piper/worker-${workerVersion.version}.mjs`, { type: "module" });
 const failure = (text?: string) => new Error(text || "The voice stopped.");
 
 /** Stops the speech worker and frees its memory; the next request starts a fresh one. */
@@ -261,7 +262,10 @@ export async function removeNaturalVoice(voice?: string) {
     if (voice) for (const name of voiceFiles(voice)) await directory.removeEntry(name).catch(() => {});
     else await (await navigator.storage.getDirectory()).removeEntry("piper", { recursive: true });
   } catch {}
-  if (!voice) await Promise.all(["transformers-cache", "kokoro-voices", "piper-runtime"].map(name => caches.delete(name).catch(() => false)));
+  if (!voice) {
+    const names = await caches.keys();
+    await Promise.all(names.filter(name => name === "transformers-cache" || name === "kokoro-voices" || name === "piper-runtime" || name.startsWith("piper-runtime-")).map(name => caches.delete(name).catch(() => false)));
+  }
   await refreshDownloadedVoices();
 }
 

@@ -35,16 +35,25 @@ describe("stray page number removal", () => {
     expect(run(pages).text.flat().every((t) => t === "Preface.")).toBe(true);
   });
 
-  it("strips a number glued to the first line and a running-header number", () => {
+  it("preserves ambiguous numbers attached to prose and running headers", () => {
     const pages = book(8, (i) => [
       { text: `${i + 40} person I want. I really do not care`, x: 60, y: 60, size: 12, endX: 300 },
       { text: `${i + 40} WALDEN`, x: 60, y: 30, size: 10, endX: 120 },
       body("Prose."),
     ]);
     const { text } = run(pages);
-    expect(text[0]).toContain("person I want. I really do not care");
-    expect(text.flat().some((t) => /^\d/.test(t))).toBe(false);
-    expect(text[0]).toContain("WALDEN");
+    expect(text[0]).toContain("40 person I want. I really do not care");
+    expect(text[0]).toContain("40 WALDEN");
+  });
+
+  it("preserves numbered chapter headings and list items even when they match page numbers", () => {
+    const pages = [[body('1 Introduction', 50), body('Section 1', 760)], [body('2 Methods', 50), body('Section 2', 760)]];
+    expect(run(pages).text).toEqual([['1 Introduction', 'Section 1'], ['2 Methods', 'Section 2']]);
+  });
+
+  it("preserves standalone chapter numbers immediately before titles", () => {
+    const pages = [[body('1', 40), body('Introduction', 60)], [body('2', 40), body('Methods', 60)]];
+    expect(run(pages).text).toEqual([['1', 'Introduction'], ['2', 'Methods']]);
   });
 
   it("keeps legitimate numbers that do not follow the page sequence", () => {

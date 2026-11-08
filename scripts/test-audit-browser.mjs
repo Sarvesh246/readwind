@@ -29,6 +29,8 @@ try{
  await page.evaluate(()=>navigator.serviceWorker.ready);await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
  const cached=await page.evaluate(async()=>{const cache=await caches.open((await caches.keys()).find(k=>k.startsWith('readwind-')));return (await cache.keys()).map(r=>new URL(r.url).pathname);});
  assert(cached.includes('/pdf.worker.min.mjs'),'PDF worker is precached');assert(cached.some(p=>p.startsWith('/_next/static/')),'production chunks are precached');assert(cached.some(p=>p.startsWith('/cmaps/')),'PDF character maps are precached');
+ const voiceWorker='/piper/worker-'+JSON.parse(fs.readFileSync('lib/readwind/piper-worker-version.json','utf8')).version+'.mjs';
+ assert(cached.includes(voiceWorker),'executable voice worker is precached');
  offline=true;await context.setOffline(true);
  const fresh=await context.newPage();await fresh.goto(origin);await fresh.getByRole('button',{name:'Read Offline account fixture',exact:true}).first().waitFor();
  await fresh.getByRole('button',{name:'Read Offline account fixture',exact:true}).first().click();
@@ -47,6 +49,25 @@ try{
  await fresh.getByText(/Sign-out paused:/).waitFor();
  const pending=await fresh.evaluate(()=>new Promise((resolve,reject)=>{const request=indexedDB.open('folio-audit-isolated-account');request.onerror=()=>reject(request.error);request.onsuccess=()=>{const db=request.result;const count=db.transaction('pending').objectStore('pending').count();count.onsuccess=()=>{db.close();resolve(count.result);};};}));assert(pending>0,'offline sign-out retains pending work');
  assert.equal(errors.length,0,errors.join('\n'));await context.close();
+ // An older runtime cache must never shadow this build's Piper assets.
+ const voiceContext=await browser.newContext();const voicePage=await voiceContext.newPage();
+ await voicePage.goto(origin);await voicePage.evaluate(()=>navigator.serviceWorker.ready);await voicePage.waitForFunction(()=>!!navigator.serviceWorker.controller);
+ const workerReply=await voicePage.evaluate(url=>new Promise((resolve,reject)=>{const worker=new Worker(url,{type:'module'});const timer=setTimeout(()=>{worker.terminate();reject(new Error('Voice worker did not respond'));},10000);worker.onerror=e=>{clearTimeout(timer);worker.terminate();reject(new Error(e.message));};worker.onmessage=({data})=>{clearTimeout(timer);worker.terminate();resolve(data);};worker.postMessage({type:'download',req:1,voice:'invalid-voice'});}),voiceWorker);
+ assert.equal(workerReply.type,'error','production voice worker executes and rejects an unknown voice');
+ const voiceResult=await voicePage.evaluate(async()=>{
+  const source=await (await fetch('/sw.js',{cache:'no-store'})).text();
+  const name=source.match(/const PIPER_CACHE='([^']+)'/)?.[1];if(!name)throw new Error('Missing versioned voice cache');
+  const url='/piper/piper_phonemize.wasm';
+  await (await caches.open('piper-runtime-old-test')).put(url,new Response('stale-runtime'));
+  const current=await caches.open(name);await current.delete(url);
+  const fresh=await (await fetch(url)).text();
+  await current.put(url,new Response('current-runtime'));
+  return {fresh:fresh==='stale-runtime',name};
+ });
+ assert.equal(voiceResult.fresh,false,'old runtime must not shadow current files');
+ await voiceContext.setOffline(true);
+ assert.equal(await voicePage.evaluate(async()=>await (await fetch('/piper/piper_phonemize.wasm')).text()),'current-runtime','current voice runtime is available offline');
+ await voiceContext.close();
  // Original PDF search and cold offline rendering use a separate guest context.
  const guest=await browser.newContext({viewport:{width:390,height:844}});const pdfPage=await guest.newPage();
  await guest.route('**/api/config',r=>r.fulfill({json:{authUrl:null}}));

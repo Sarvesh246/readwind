@@ -8,6 +8,7 @@ const eslintConfig = defineConfig([
   globalIgnores([
     "dist/**",
     "public/ocr/**",
+    "public/piper/**",
     "public/pdf.worker.min.mjs",
     "public/pdf-wasm/**",
     ".vinext/**",

@@ -6,7 +6,7 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,5 +18,19 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run build:next
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: node scripts/test-audit-browser.mjs --start
+      - run: npm run test:recovery
+      - name: Check sync and PDF chapter preservation
+        run: |
+          npm run dev > /tmp/readwind-dev.log 2>&1 &
+          server=$!
+          trap 'kill "$server" || true' EXIT
+          for i in $(seq 1 120); do
+            if curl --fail --silent http://127.0.0.1:5173/ >/dev/null; then break; fi
+            if ! kill -0 "$server" 2>/dev/null; then cat /tmp/readwind-dev.log; exit 1; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:5173/ >/dev/null || { cat /tmp/readwind-dev.log; exit 1; }
+          npm run test:sync
+          npm run test:page-numbers
