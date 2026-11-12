@@ -7,6 +7,7 @@ import { dailyTotals, dayKey, qualifyingDays, statsOf, streakOf } from "@/lib/re
 import { Icon } from "./Icon";
 import { Flame } from "./Flame";
 import { AppearanceControl, ThemeToggleButton } from "./Theme";
+import { SyncDifferences } from "./SyncDifferences";
 
 const AccountStorage = lazy(() => import("./AccountStorage").then((m) => ({ default: m.AccountStorage })));
 
@@ -263,26 +264,16 @@ export function Profile({
           {l.failedChanges.length > 0 && (
             <section className="profile-section" aria-labelledby="profile-attention">
               <h2 id="profile-attention">Needs your attention</h2>
-              <div className="profile-card profile-attention">
+              <p className="profile-lede">A few things changed on more than one device. Choose which version you’d like to keep.</p>
+              <div className="profile-attention-list">
                 {l.failedChanges.map((change) => (
-                  <div key={change.id} role="alert" className="profile-row profile-stack">
-                    <span className="row-text">
-                      <strong>A change to your {change.entity} didn’t sync</strong>
-                      <small>{change.error}</small>
-                    </span>
-                    {!!change.alternate && (
-                      <>
-                        <details className="profile-inline-details">
-                          <summary>Compare the two versions</summary>
-                          <pre>{JSON.stringify({ thisDevice: change.value, otherDevice: change.alternate }, null, 2)}</pre>
-                        </details>
-                        <div className="profile-button-row">
-                          <button className="button small" onClick={() => void l.resolveFailedChange(change.id, true)}>Keep this device’s version</button>
-                          <button className="button small" onClick={() => void l.resolveFailedChange(change.id, false)}>Use the other device’s version</button>
-                        </div>
-                      </>
-                    )}
-                  </div>
+                  <SyncDifferences
+                    key={change.id}
+                    change={change}
+                    books={l.books}
+                    onKeepThis={() => void l.resolveFailedChange(change.id, true)}
+                    onKeepOther={() => void l.resolveFailedChange(change.id, false)}
+                  />
                 ))}
               </div>
             </section>
