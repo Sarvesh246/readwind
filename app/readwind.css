@@ -5277,3 +5277,12 @@ body:has(.now-playing) .library-main, body:has(.now-playing) .notebook { padding
 .row-actions .button.small.primary { min-width: 96px; }
 .row-list li .row-text small { overflow-wrap: anywhere; }
 @media (max-width: 560px) { .row-actions { width: 100%; } .row-actions .button { flex: 1; } }
+
+/* Phone: the search field runs right up to the Add button instead of stopping short. */
+@media (max-width: 639px) {
+  .library-header { grid-template-columns: minmax(0, 1fr) 0 auto; }
+  .library-header .library-utility { grid-column: 1 / -1; }
+  .library-header .library-search { grid-column: 1 / 3; width: 100%; max-width: none; justify-self: stretch; }
+  .library-header .library-search input:not([type="file"]) { width: 100%; max-width: none; }
+  .library-header .library-import { grid-column: 3; }
+}
