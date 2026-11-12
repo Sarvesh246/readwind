@@ -5273,3 +5273,7 @@ body:has(.now-playing) .library-main, body:has(.now-playing) .notebook { padding
   .sync-diff-value::before { content: attr(data-side); display: block; margin-bottom: 2px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-2); }
   .sync-diff-actions .button { flex-basis: 100%; }
 }
+.row-actions { display: flex; flex: none; align-items: center; gap: 8px; }
+.row-actions .button.small.primary { min-width: 96px; }
+.row-list li .row-text small { overflow-wrap: anywhere; }
+@media (max-width: 560px) { .row-actions { width: 100%; } .row-actions .button { flex: 1; } }

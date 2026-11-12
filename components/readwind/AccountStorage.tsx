@@ -10,7 +10,7 @@ const mb=(bytes:number)=>(bytes/1024/1024).toFixed(1)+' MB';
 const day=(value:string)=>new Date(value).toLocaleDateString(undefined,{month:'short',day:'numeric'});
 /** Storage, device and account sections of the profile page. */
 export function AccountStorage({library:l,onDeleted,passwordForm,signOutRow}:{library:Library;onDeleted:()=>void;passwordForm?:ReactNode;signOutRow?:ReactNode}){
- const [usage,setUsage]=useState<Usage|null>(null),[device,setDevice]=useState<StorageEstimate|null>(null),[downloads,setDownloads]=useState<{id:string;title:string;bytes:number;complete:boolean}[]>([]),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[refresh,setRefresh]=useState(0);
+ const [usage,setUsage]=useState<Usage|null>(null),[device,setDevice]=useState<StorageEstimate|null>(null),[downloads,setDownloads]=useState<{id:string;title:string;bytes:number;complete:boolean}[]>([]),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[refresh,setRefresh]=useState(0),[fetching,setFetching]=useState<{id:string;done:number;total:number}|null>(null);
  useEffect(()=>{let alive=true;void (async()=>{
   const estimate=await navigator.storage?.estimate();if(alive)setDevice(estimate || null);
   const values=[];
@@ -19,6 +19,14 @@ export function AccountStorage({library:l,onDeleted,passwordForm,signOutRow}:{li
   if(navigator.onLine){const response=await boundedFetch('/api/account');if(response.ok && alive)setUsage(await response.json() as Usage);}
  })().catch(()=>{});return()=>{alive=false;};},[l.db,l.books,refresh]);
  async function revoke(id?:string){setBusy(true);try{const response=await boundedFetch('/api/account',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'revoke',id})});if(!response.ok)throw new Error('We couldn’t sign that device out. Please try again.');setMessage('Signed out. Books already downloaded to those devices stay there until they reconnect or are cleared.');setRefresh(n=>n+1);}catch(e){setMessage((e as Error).message);}finally{setBusy(false);}}
+ async function download(id:string){
+  const book=l.books.find(b=>b.id===id);if(!book)return;
+  if(!navigator.onLine){setMessage('Connect to the internet to download this book.');return;}
+  const assets=bookAssets(book);setMessage('');
+  try{for(let i=0;i<assets.length;i++){setFetching({id,done:i,total:assets.length});if(!await l.loadBlob(assets[i]))throw new Error('Part of this book isn’t available to download right now. Please try again later.');}setMessage(`“${book.title}” is ready to read offline.`);}
+  catch(e){setMessage((e as Error).message||'The download didn’t finish. Please try again.');}
+  finally{setFetching(null);setRefresh(n=>n+1);}
+ }
  async function remove(id:string){try{await l.removeDownload(id);setRefresh(n=>n+1);}catch(e){setMessage((e as Error).message);}}
  async function deleteAccount(){
   if(!window.confirm('Delete your account permanently? This removes your private books, notes, reading stats and backups. Books from the shared catalog stay available to other readers. Download a backup first if you want to keep anything. Devices that are offline may keep their downloaded copies until they reconnect.'))return;
@@ -42,7 +50,7 @@ export function AccountStorage({library:l,onDeleted,passwordForm,signOutRow}:{li
   <div className="profile-card">
    {usage&&<div className="profile-block meter-block"><div className="meter-head"><span>Cloud</span><strong>{mb(usage.bytes)} of {mb(usage.limit)}</strong></div><div className="meter" role="progressbar" aria-label="Cloud storage used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct(usage.bytes,usage.limit))}><span style={{width:`${pct(usage.bytes,usage.limit)}%`}}/></div><small>Your books and notes, kept safe so they follow you to every device.</small></div>}
    {device&&<div className="profile-block meter-block"><div className="meter-head"><span>This device</span><strong>{mb(device.usage || 0)} used</strong></div><div className="meter" role="progressbar" aria-label="Device storage used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct(device.usage||0,device.quota||0))}><span style={{width:`${pct(device.usage||0,device.quota||0)}%`}}/></div><small>Your browser may clear downloaded books if this device runs low on space.</small></div>}
-   {offline.length>0&&<div className="profile-block"><h3 className="profile-subhead">Saved for offline reading <span>{offline.length}</span></h3>{offline.length>5&&<div className="list-tools"><input type="search" aria-label="Search saved books" placeholder="Search by title" value={filter} onChange={e=>setFilter(e.target.value)}/></div>}<ul className="row-list scroll">{shown.map(book=><li key={book.id}><div className="row-text"><strong>{book.title}</strong><small>{mb(book.bytes)} · {book.complete?'Ready offline':'Not fully downloaded'}</small></div><button className="button small" disabled={busy} onClick={()=>void remove(book.id)}>Remove</button></li>)}{shown.length===0&&<li className="row-empty">No books match that search.</li>}</ul></div>}
+   {offline.length>0&&<div className="profile-block"><h3 className="profile-subhead">Saved for offline reading <span>{offline.length}</span></h3>{offline.length>5&&<div className="list-tools"><input type="search" aria-label="Search saved books" placeholder="Search by title" value={filter} onChange={e=>setFilter(e.target.value)}/></div>}<ul className="row-list scroll">{shown.map(book=><li key={book.id}><div className="row-text"><strong>{book.title}</strong><small>{mb(book.bytes)} · {book.complete?'Ready offline':book.bytes>0?'Partly downloaded':'Not downloaded yet'}</small></div><div className="row-actions">{!book.complete&&<button className="button small primary" disabled={busy||!!fetching} onClick={()=>void download(book.id)}>{fetching?.id===book.id?`Downloading ${fetching.done+1} of ${fetching.total}…`:'Download'}</button>}{book.bytes>0&&<button className="button small" disabled={busy||!!fetching} onClick={()=>void remove(book.id)}>Remove</button>}</div></li>)}{shown.length===0&&<li className="row-empty">No books match that search.</li>}</ul></div>}
    {!usage&&!device&&offline.length===0&&<p className="profile-empty">Storage details will appear here once you’re online.</p>}
   </div>
  </section>
