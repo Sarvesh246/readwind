@@ -5286,3 +5286,13 @@ body:has(.now-playing) .library-main, body:has(.now-playing) .notebook { padding
   .library-header .library-search input:not([type="file"]) { width: 100%; max-width: none; }
   .library-header .library-import { grid-column: 3; }
 }
+
+/* iOS Safari and home-screen apps zoom the page when a focused field's text is under 16px.
+   Keeping fields at 16px on touch screens stops that without disabling pinch-zoom. */
+@media (hover: none) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
