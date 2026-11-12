@@ -7,11 +7,7 @@ import { Library } from "./Library";
 import { MotionConfig, motion } from "motion/react";
 import { ReadwindLockup } from "./Logo";
 import { Interactions } from "./Fx";
-import {bookAssets} from '@/lib/readwind/catalog';
 import { Modal } from "./Modal";
-import { Icon } from "./Icon";
-import { Flame } from "./Flame";
-import { AppearanceControl } from "./Theme";
 import { labelAt } from "@/lib/readwind/anchors";
 import { AudiobookProvider } from "./Audiobook";
 
@@ -23,7 +19,7 @@ const Notebook = lazy(() => import("./Notebook").then((m) => ({ default: m.Noteb
 const Import = lazy(() => import("./Import").then((m) => ({ default: m.Import })));
 const Discover = lazy(() => import("./Discover").then((m) => ({ default: m.Discover })));
 const ReadingStats = lazy(() => import("./ReadingStats").then((m) => ({ default: m.ReadingStats })));
-const AccountStorage = lazy(() => import("./AccountStorage").then((m) => ({ default: m.AccountStorage })));
+const Profile = lazy(() => import("./Profile").then((m) => ({ default: m.Profile })));
 type User = { id: string; name: string; email: string };
 function AuthForm({
   auth,
@@ -256,23 +252,6 @@ function AuthForm({
     </Modal>
   );
 }
-function AccountPassword({ auth }: { auth: AuthClient }) {
-  const [current, setCurrent] = useState(''), [next, setNext] = useState(''), [confirm, setConfirm] = useState(''), [busy, setBusy] = useState(false), [message, setMessage] = useState('');
-  return <details className="settings-details"><summary>Change password</summary><form className="auth-form panel-body" onSubmit={async event => {
-    event.preventDefault(); setMessage('');
-    if (next !== confirm) { setMessage('The new passwords do not match.'); return; }
-    setBusy(true);
-    try { const result = await auth.changePassword({ currentPassword: current, newPassword: next }); if (result.error) throw new Error(result.error.message || 'Could not change your password.'); setCurrent(''); setNext(''); setConfirm(''); setMessage('Password updated.'); }
-    catch (error) { setMessage((error as Error).message); }
-    finally { setBusy(false); }
-  }}>
-    <label>Current password<input type="password" autoComplete="current-password" required value={current} onChange={event => setCurrent(event.target.value)} /></label>
-    <label>New password<input type="password" autoComplete="new-password" required minLength={12} maxLength={128} value={next} onChange={event => setNext(event.target.value)} /></label>
-    <label>Confirm new password<input type="password" autoComplete="new-password" required minLength={12} maxLength={128} value={confirm} onChange={event => setConfirm(event.target.value)} /></label>
-    {message && <p role="status">{message}</p>}
-    <button className="button" disabled={busy}>{busy ? 'Saving…' : 'Save new password'}</button>
-  </form></details>;
-}
 function Workspace({
   user,
   auth,
@@ -292,11 +271,8 @@ function Workspace({
 }) {
   const library = useLibrary(user?.id || "preview", auth),
     [file, setFile] = useState<File | null>(null),
-    [account, setAccount] = useState(false),
     [stats, setStats] = useState(false),
     [notice, setNotice] = useState("");
-  const [signingOut,setSigningOut]=useState(false);
-  const [selectedExport,setSelectedExport]=useState<string[]>([]);
   useEffect(()=>{
     const id=requestAnimationFrame(()=>{ const heading=document.querySelector<HTMLElement>('h1, main, [role="main"]'); if(heading){heading.tabIndex=-1;heading.focus({preventScroll:true});} });
     return ()=>cancelAnimationFrame(id);
@@ -317,7 +293,7 @@ function Workspace({
     setFile(f);
     navigate("/import");
   }
-  const openAccount = () => (user ? setAccount(true) : onAccount());
+  const openAccount = () => (user ? navigate("/profile") : onAccount());
   useEffect(() => {
     if ("serviceWorker" in navigator) {
       if (["localhost", "127.0.0.1"].includes(location.hostname)) {
@@ -336,61 +312,9 @@ function Workspace({
       } else navigator.serviceWorker.register("/sw.js").catch(() => {});
     }
   }, []);
-  async function backup() {
-    const password = window.prompt("Choose a backup password (at least 12 characters). Keep it safe: it cannot be recovered.");
-    if (!password) return;
-    if (password.length < 12) { setNotice("Use a backup password with at least 12 characters."); return; }
-    type Sink={write:(part:BlobPart)=>Promise<void>;close:()=>Promise<void>;abort:()=>Promise<void>};
-    let sink:Sink|undefined;
-    try {
-      const picker=(window as unknown as {showSaveFilePicker?: (options:unknown)=>Promise<{createWritable:()=>Promise<Sink>}>}).showSaveFilePicker;
-      if(picker)sink=await (await picker.call(window,{suggestedName:'readwind-backup.readwind'})).createWritable();
-      for (const b of library.books.filter(b=>!selectedExport.length || selectedExport.includes(b.id))) {
-        const ids = bookAssets(b);
-        for (const id of ids)
-          if (!(await library.loadBlob(id)))
-            throw new Error(
-              "Connect to download every attached file before making a full backup.",
-            );
-      }
-    } catch (e) {
-      await sink?.abort().catch(()=>{});
-      setNotice((e as Error).message);
-      return;
-    }
-    const books = (await library.db.books.toArray()).filter(b=>!selectedExport.length || selectedExport.includes(b.id));
-    const selected=new Set(books.map(b=>b.id));
-    const used=new Set(books.flatMap(bookAssets));
-    try {
-      const annotations=(await library.db.annotations.toArray()).filter(a=>selected.has(a.bookId));
-      const progress=(await library.db.progress.toArray()).filter(p=>selected.has(p.bookId));
-      const files=[];
-      for(const id of used)files.push({id,load:async()=>{const blob=await library.loadBlob(id);if(!blob)throw new Error('An attachment is unavailable. Connect before exporting.');return blob;}});
-      const {createArchive}=await import("@/lib/readwind/backup");
-      const archive=await createArchive({format:'folio-backup-1',books,annotations,progress,settings:library.settings},files,password,sink);
-      if(sink){await sink.close();setNotice('Encrypted backup saved.');return;}
-      const url=URL.createObjectURL(archive);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "readwind-backup.readwind";
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (e) { await sink?.abort().catch(()=>{});setNotice((e as Error).message); }
-  }
-  async function restore(f: File) {
-    try {
-      const {readBackup} = await import("@/lib/readwind/backup");
-      const {data,files} = await readBackup(f, () => window.prompt("Enter the backup password."));
-      if(!window.confirm(`Restore ${data.books.length} books? Matching IDs replace local copies; other books stay. Settings and reading statistics are merged. The entire restore is applied together.`))return;
-      await library.restoreArchive(data,files);
-      setNotice("Backup restored. Your library is syncing.");
-    } catch (e) {
-      setNotice((e as Error).message);
-    }
-  }
   return (
     <AudiobookProvider library={library} path={path} navigate={navigate}>
-      <span className="sr-only" role="status" aria-live="polite">{book ? book.title : path.includes("notebook") ? "Notebook" : path.includes("collections") ? "Collections" : "Library"}</span>
+      <span className="sr-only" role="status" aria-live="polite">{book ? book.title : path.includes("notebook") ? "Notebook" : path === "/profile" ? "Profile" : path.includes("collections") ? "Collections" : "Library"}</span>
       <Suspense fallback={null}>
       {match && book ? (
         match[2] ? (
@@ -413,6 +337,17 @@ function Workspace({
           library={library}
           navigate={navigate}
           onJump={(b, at) => void jump(b, at)}
+        />
+      ) : path === "/profile" ? (
+        <Profile
+          library={library}
+          user={user}
+          auth={auth}
+          navigate={navigate}
+          onStats={() => setStats(true)}
+          onSignIn={onAccount}
+          onSignOut={onSignOut}
+          onNotice={setNotice}
         />
       ) : path === '/discover' ? <Discover key={library.db.name} library={library} navigate={navigate}/> : path === "/import" ? (
         <Import
@@ -478,92 +413,6 @@ function Workspace({
         <Suspense fallback={null}>
           <ReadingStats library={library} onClose={() => setStats(false)} />
         </Suspense>
-      )}
-      {account && (
-        <Modal title="Your reading room" onClose={() => setAccount(false)}>
-          <div className="account-profile">
-            <Icon name="user" size={28} />
-            <div>
-              <h3>{user?.name}</h3>
-              <p>{user?.email}</p>
-            </div>
-          </div>
-          <div className="account-status" role="status" aria-live="polite">
-            <Icon name="cloud" />
-            <span>{library.status}</span>
-          </div>
-          <button
-            className="account-stats"
-            onClick={() => {
-              setAccount(false);
-              setStats(true);
-            }}
-          >
-            <Flame size={18} lit={false} />
-            <span>
-              <strong>Reading stats</strong>
-              <small>Speed, time, words and your streak</small>
-            </span>
-            <Icon name="next" size={18} />
-          </button>
-          {library.failedChanges.map(change=><div key={change.id} role="alert"><p>{change.entity} · {change.error}</p>{!!change.alternate && <><details><summary>Review local and other-device versions</summary><pre style={{maxHeight:240,overflow:'auto',whiteSpace:'pre-wrap'}}>{JSON.stringify({local:change.value,otherDevice:change.alternate},null,2)}</pre></details><button className="button" onClick={()=>void library.resolveFailedChange(change.id,true)}>Keep this device’s version</button><button className="button" onClick={()=>void library.resolveFailedChange(change.id,false)}>Use other device’s version</button></>}</div>)}
-          <AppearanceControl />
-          <section className="settings-card">
-          <label className="switch-row"><input type="checkbox" role="switch" className="switch" defaultChecked={typeof window!=='undefined' && localStorage.getItem('readwind-offline-enabled')==='true'} onChange={event=>{
-            localStorage.setItem('readwind-offline-enabled',String(event.target.checked));
-            if(event.target.checked && user)localStorage.setItem('folio-offline-user',JSON.stringify({...user,offlineUntil:Date.now()+30*86400000}));
-            else localStorage.removeItem('folio-offline-user');
-          }}/><span>Keep offline access between launches for 30 days</span></label>
-          <p className="muted">Anyone using this browser can open downloaded books when offline. Enable this only on a personal device. Cloud sync always requires a valid sign-in.</p>
-          </section>
-          <div className="settings-stack">
-          {auth && <AccountPassword auth={auth} />}
-          <Suspense fallback={null}><AccountStorage library={library} onDeleted={()=>{location.href=new URL('/',location.origin).href;}}/></Suspense>
-          </div>
-          <p className="muted">
-            Your books and notes belong to this account. Sign out removes downloaded
-            books and notes from this device. Sync first to save your latest changes.
-          </p>
-          <div className="account-actions">
-            <button
-              className="button primary"
-              onClick={() => void library.sync(true)}
-            >
-              Sync now
-            </button>
-            <details className="backup-select"><summary>Select books for backup (all by default)</summary><div className="backup-tools"><button type="button" className="button small" onClick={()=>setSelectedExport(library.books.map(b=>b.id))}>Select all</button><button type="button" className="button small" onClick={()=>setSelectedExport([])}>Reset to all</button></div><div className="backup-list">{library.books.map(b=><label key={b.id} className="check-row"><input type="checkbox" checked={selectedExport.includes(b.id)} onChange={event=>setSelectedExport(ids=>event.target.checked?[...ids,b.id]:ids.filter(id=>id!==b.id))}/><span>{b.title}</span></label>)}</div></details>
-            <div className="account-actions-grid">
-            <button className="button" onClick={() => void backup()}>
-              Download encrypted backup
-            </button>
-            <label className="button backup-restore">
-              Restore a backup
-              <input
-                type="file"
-                accept="application/json,.json,.readwind"
-                hidden
-                onChange={(e) => {
-                  if (e.target.files?.[0]) void restore(e.target.files[0]);
-                }}
-              />
-            </label>
-            <button
-              className="button"
-              disabled={signingOut}
-              onClick={async () => {
-                setSigningOut(true);
-                try {
-                  if(!await library.prepareSignOut())throw new Error('Sign-out paused: changes or recovery still need to sync. Resolve conflicts or download a backup, then retry. Your local work is preserved.');
-                  await onSignOut();
-                } catch(error){setNotice((error as Error).message);library.resumeEditing();}
-                finally{setSigningOut(false);}
-              }}
-            >
-              Sign out
-            </button>
-            </div>
-          </div>
-        </Modal>
       )}
     </AudiobookProvider>
   );
