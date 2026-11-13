@@ -1,6 +1,7 @@
 "use client";
 import { useEffect } from "react";
 import { ThemeProvider, useTheme } from "next-themes";
+import { DialogHost } from "@/components/readwind/DialogHost";
 
 /** Keeps the browser chrome in step with the resolved theme, including manual overrides. */
 function ThemeColorSync() {
@@ -46,6 +47,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     >
       <ThemeColorSync />
       <InputModality />
+      <DialogHost />
       {children}
     </ThemeProvider>
   );

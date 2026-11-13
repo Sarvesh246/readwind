@@ -1,4 +1,5 @@
 "use client";
+import "@/app/readwind-import.css";
 import { useEffect, useRef, useState } from "react";
 import type { Library } from "@/lib/readwind/useLibrary";
 import type { Imported } from "@/lib/readwind/pdf";

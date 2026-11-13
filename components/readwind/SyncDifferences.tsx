@@ -1,5 +1,5 @@
 "use client";
-import type { Anchor, Book } from "@/lib/readwind/types";
+import type { Anchor, ShelfBook } from "@/lib/readwind/types";
 import { labelAt } from "@/lib/readwind/anchors";
 import { Icon } from "./Icon";
 
@@ -62,7 +62,7 @@ const settingLabels: Record<string, string> = {
   readingPace: "Reading pace",
 };
 
-export function summarize(change: FailedChange, books: Book[]): Summary {
+export function summarize(change: FailedChange, books: ShelfBook[]): Summary {
   const mine = bag(change.value);
   const theirs = bag(change.alternate);
   const book = books.find((b) => b.id === change.bookId);
@@ -115,7 +115,7 @@ export function SyncDifferences({
   onKeepOther,
 }: {
   change: FailedChange;
-  books: Book[];
+  books: ShelfBook[];
   onKeepThis: () => void;
   onKeepOther: () => void;
 }) {

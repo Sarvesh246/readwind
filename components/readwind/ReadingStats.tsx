@@ -1,4 +1,5 @@
 "use client";
+import "@/app/readwind-stats.css";
 import type { Settings } from "@/lib/readwind/types";
 import { useMemo } from "react";
 import { Flame } from "./Flame";
@@ -6,7 +7,7 @@ import { Modal } from "./Modal";
 import { GoalsPanel } from "./Goals";
 import { wordProgress, start } from "@/lib/readwind/anchors";
 import { dailyTotals, dayFromNumber, dayKey, dayNumber, qualifyingDays, statsOf, streakOf, type ReadingLog } from "@/lib/readwind/reading-log";
-import type { Annotation, Book, Progress } from "@/lib/readwind/types";
+import type { Annotation, ShelfBook, Progress } from "@/lib/readwind/types";
 
 const number = new Intl.NumberFormat();
 const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
@@ -29,7 +30,7 @@ const dateLabel = (key: string) =>
   new Date(dayNumber(key) * 86400000).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
 
 type Source = {
-  books: Book[];
+  books: ShelfBook[];
   progress: Progress[];
   annotations: Annotation[];
   readingLog?: ReadingLog;

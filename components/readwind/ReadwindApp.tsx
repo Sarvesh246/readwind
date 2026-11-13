@@ -1,7 +1,8 @@
 "use client";
+import { askConfirm, tellUser } from "@/lib/readwind/dialogs";
 import { lazy, Suspense, useEffect, useState } from "react";
-import type { Book, Anchor } from "@/lib/readwind/types";
-import { useLibrary } from "@/lib/readwind/useLibrary";
+import type { Anchor } from "@/lib/readwind/types";
+import { useLibrary, useFullBook } from "@/lib/readwind/useLibrary";
 import type { AuthClient } from "@/lib/readwind/useLibrary";
 import { Library } from "./Library";
 import { MotionConfig, motion } from "motion/react";
@@ -278,10 +279,13 @@ function Workspace({
     return ()=>cancelAnimationFrame(id);
   },[path]);
   const match = path.match(/^\/book\/([^/]+)(\/notebook)?/),
-    book = match
+    shelfBook = match
       ? library.books.find((b) => b.id === decodeURIComponent(match[1]))
-      : undefined;
-  async function jump(b: Book, at: Anchor) {
+      : undefined,
+    // The reader needs the text, which the shelf rows leave out, so it loads just this book.
+    fullBook = useFullBook(library, shelfBook?.id),
+    book = fullBook && fullBook.id === shelfBook?.id ? fullBook : undefined;
+  async function jump(b: { id: string }, at: Anchor) {
     await library.saveProgress(b.id, at, 0);
     navigate(`/book/${b.id}`);
   }
@@ -314,7 +318,7 @@ function Workspace({
   }, []);
   return (
     <AudiobookProvider library={library} path={path} navigate={navigate}>
-      <span className="sr-only" role="status" aria-live="polite">{book ? book.title : path.includes("notebook") ? "Notebook" : path === "/profile" ? "Profile" : path.includes("collections") ? "Collections" : "Library"}</span>
+      <span className="sr-only" role="status" aria-live="polite">{shelfBook ? shelfBook.title : path.includes("notebook") ? "Notebook" : path === "/profile" ? "Profile" : path.includes("collections") ? "Collections" : "Library"}</span>
       <Suspense fallback={null}>
       {match && book ? (
         match[2] ? (
@@ -494,7 +498,7 @@ export default function ReadwindApp() {
     const preview = new ReadwindDB("preview");
     const hasImports = await preview.books.filter(b=>!b.sample).count();
     preview.close();
-    if (hasImports && window.confirm("Copy this device's guest books and notes into your account?")) {
+    if (hasImports && await askConfirm({title:"Bring your guest books along?",message:"Copy this device's guest books and notes into your account?",confirmLabel:"Copy them"})) {
       const { migratePreview } = await import("@/lib/readwind/migrate-preview");
       await migratePreview(u.id);
     }
@@ -525,7 +529,7 @@ export default function ReadwindApp() {
         return true;
       });
       cached.close();
-      if(!cleared)window.alert('Signed out. Newer changes from another tab were retained privately on this device. Sign back into the same account to sync them.');
+      if(!cleared)void tellUser('Signed out','Newer changes from another tab were retained privately on this device. Sign back into the same account to sync them.');
       // Recovery archives retain their owner-scoped safety copy until explicitly retired.
     }
     navigate("/");

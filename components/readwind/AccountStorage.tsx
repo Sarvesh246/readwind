@@ -1,4 +1,5 @@
 "use client";
+import {askForm} from '@/lib/readwind/dialogs';
 import {useEffect,useState} from 'react';
 import type {ReactNode} from 'react';
 import type {Library} from '@/lib/readwind/useLibrary';
@@ -29,9 +30,8 @@ export function AccountStorage({library:l,onDeleted,passwordForm,signOutRow}:{li
  }
  async function remove(id:string){try{await l.removeDownload(id);setRefresh(n=>n+1);}catch(e){setMessage((e as Error).message);}}
  async function deleteAccount(){
-  if(!window.confirm('Delete your account permanently? This removes your private books, notes, reading stats and backups. Books from the shared catalog stay available to other readers. Download a backup first if you want to keep anything. Devices that are offline may keep their downloaded copies until they reconnect.'))return;
-  const confirmation=window.prompt('To confirm, type DELETE.');if(confirmation!=='DELETE')return;
-  const password=window.prompt('Enter your password to finish deleting your account.');if(!password)return;
+  const form=await askForm({title:'Delete your account?',message:'Delete your account permanently? This removes your private books, notes, reading stats and backups. Books from the shared catalog stay available to other readers. Download a backup first if you want to keep anything. Devices that are offline may keep their downloaded copies until they reconnect.',fields:[{name:'confirmation',label:'Type DELETE to confirm',mustEqual:'DELETE',placeholder:'DELETE'},{name:'password',label:'Your password',type:'password',autoComplete:'current-password'}],confirmLabel:'Delete account',danger:true});
+  if(!form)return;const confirmation=form.confirmation,password=form.password;
   setBusy(true);try{
    if(!usage?.deletionPending && !await l.prepareSignOut())throw new Error('Let your changes finish syncing and resolve any conflicts before deleting your account.');
    let pending=true;

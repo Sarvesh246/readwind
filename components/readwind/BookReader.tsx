@@ -1,4 +1,5 @@
 "use client";
+import "@/app/readwind-reader.css";
 import type {Book} from '@/lib/readwind/types';
 import type {Library} from '@/lib/readwind/useLibrary';
 import {Reader} from './Reader';

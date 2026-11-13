@@ -1,4 +1,6 @@
 "use client";
+import "@/app/readwind-profile.css";
+import { askPassword, askConfirm } from "@/lib/readwind/dialogs";
 import { lazy, Suspense, useMemo, useState } from "react";
 import type { Library } from "@/lib/readwind/useLibrary";
 import type { AuthClient } from "@/lib/readwind/useLibrary";
@@ -112,12 +114,8 @@ export function Profile({
   const guest = !user;
 
   async function backup() {
-    const password = window.prompt("Choose a password to protect this backup (at least 12 characters). Keep it somewhere safe — it can’t be recovered.");
+    const password = await askPassword({ title: "Protect this backup", message: "Choose a password for this backup. Keep it somewhere safe — it can’t be recovered.", minLength: 12, hint: "At least 12 characters.", confirmLabel: "Create backup" });
     if (!password) return;
-    if (password.length < 12) {
-      onNotice("Please use a backup password with at least 12 characters.");
-      return;
-    }
     type Sink = { write: (part: BlobPart) => Promise<void>; close: () => Promise<void>; abort: () => Promise<void> };
     let sink: Sink | undefined;
     try {
@@ -170,8 +168,8 @@ export function Profile({
   async function restore(f: File) {
     try {
       const { readBackup } = await import("@/lib/readwind/backup");
-      const { data, files } = await readBackup(f, () => window.prompt("Enter the password for this backup."));
-      if (!window.confirm(`Restore ${data.books.length} ${data.books.length === 1 ? "book" : "books"} from this backup? Books that are already here will be replaced with the backup’s copy. Everything else on your shelf stays as it is.`)) return;
+      const { data, files } = await readBackup(f, () => askPassword({ title: "Backup password", message: "Enter the password for this backup.", confirmLabel: "Unlock backup" }));
+      if (!await askConfirm({ title: "Restore this backup?", confirmLabel: "Restore", message: `Restore ${data.books.length} ${data.books.length === 1 ? "book" : "books"} from this backup? Books that are already here will be replaced with the backup’s copy. Everything else on your shelf stays as it is.` })) return;
       await l.restoreArchive(data, files);
       onNotice(guest ? "Backup restored." : "Backup restored. Your library is syncing.");
     } catch (e) {

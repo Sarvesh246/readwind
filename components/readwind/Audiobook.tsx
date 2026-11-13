@@ -2,9 +2,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import { AudioLines, Bookmark, BookOpen, Headphones, ListMusic, Loader2, Moon, Pause, Play, RotateCcw, RotateCw, SkipBack, SkipForward, X } from "lucide-react";
-import type { Anchor, Book, ListenSettings } from "@/lib/readwind/types";
+import type { Anchor, Book, BookLike, ListenSettings } from "@/lib/readwind/types";
 import { listenDefaults } from "@/lib/readwind/types";
-import type { Library } from "@/lib/readwind/useLibrary";
+import { useFullBook, type Library } from "@/lib/readwind/useLibrary";
 import { labelAt, wordProgress } from "@/lib/readwind/anchors";
 import {
   ListenCredit,
@@ -65,7 +65,7 @@ type Audiobook = {
   wpm: number;
   sheet: boolean;
   /** Starts (or resumes) `book` from `at`, or from its saved place. */
-  play: (book: Book, at?: Anchor) => void;
+  play: (book: BookLike, at?: Anchor) => void;
   toggle: () => void;
   pause: () => void;
   stop: () => void;
@@ -171,7 +171,7 @@ export function AudiobookProvider({
   );
   const settings = useMemo(() => ({ ...listenDefaults, ...l.settings.listen }), [l.settings.listen]);
   const [bookId, setBookId] = useState<string | null>(null);
-  const book = l.books.find(b => b.id === bookId) || null;
+  const book = useFullBook(l, bookId ?? undefined) || null;
   const script = useMemo(() => (book ? scriptOf(book, { readCaptions: settings.readCaptions }) : null), [book, settings.readCaptions]);
   const [index, setIndex] = useState(0),
     [playing, setPlaying] = useState(false),
@@ -1010,6 +1010,12 @@ export function AudiobookProvider({
     if (bookId && l.ready && !book) stop();
   }, [bookId, book, l.ready, stop]);
 
+  /** The shelf only holds text-free rows, so a listen started from there loads the full book first. */
+  const playAny = useCallback((target: BookLike, at?: Anchor) => {
+    if ("stats" in target) void l.db.books.get(target.id).then((full) => { if (full) play(full, at); });
+    else play(target, at);
+  }, [l.db, play]);
+
   const value: Audiobook = {
     supported,
     book,
@@ -1025,7 +1031,7 @@ export function AudiobookProvider({
     voice,
     wpm,
     sheet,
-    play,
+    play: playAny,
     toggle,
     pause,
     stop,
@@ -1393,7 +1399,7 @@ function PlayerSheet({ library: l, navigate }: { library: Library; navigate: (ur
 }
 
 /** Library and menu entry point: start or resume listening to a book. */
-export function ListenButton({ book, className = "button", label = "Listen" }: { book: Book; className?: string; label?: string }) {
+export function ListenButton({ book, className = "button", label = "Listen" }: { book: BookLike; className?: string; label?: string }) {
   const a = useAudiobook();
   if (!a?.supported) return null;
   const current = a.book?.id === book.id;

@@ -1,7 +1,8 @@
 "use client";
+import "@/app/readwind-notebook.css";
 import { useState } from "react";
 import type { Library } from "@/lib/readwind/useLibrary";
-import type { Book, Color, Annotation } from "@/lib/readwind/types";
+import type { Book, ShelfBook, Color, Annotation } from "@/lib/readwind/types";
 import { colors } from "@/lib/readwind/types";
 import { labelAt, start } from "@/lib/readwind/anchors";
 import { DEFAULT_RETENTION, dueQueue, formatInterval, isLeech, predictedRecall, previewIntervals, review as scheduleReview, stabilityScale, type Grade } from "@/lib/readwind/spaced-repetition";
@@ -16,7 +17,7 @@ export function Notebook({
   library: Library;
   book?: Book;
   navigate: (path: string) => void;
-  onJump: (book: Book, at: Annotation["range"]["start"]) => void;
+  onJump: (book: { id: string }, at: Annotation["range"]["start"]) => void;
 }) {
   const [search,setSearch]=useState("");
   const [kind, setKind] = useState("Everything"),
@@ -57,7 +58,7 @@ export function Notebook({
   };
   const groups = new Map<
     string,
-    { title: string; book: Book; items: Annotation[] }
+    { title: string; book: ShelfBook; items: Annotation[] }
   >();
   filtered.forEach((a) => {
     const b = l.books.find((b) => b.id === a.bookId);

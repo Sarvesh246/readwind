@@ -1,4 +1,5 @@
 "use client";
+import { askPassword } from "@/lib/readwind/dialogs";
 import { useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { PdfPage } from "./PdfPage";
@@ -34,12 +35,13 @@ export function OriginalPdfPreview({ blob, index }: { blob: Blob; index: number 
         wasmUrl: "/pdf-wasm/",
       });
       task.onPassword = (update: (password: string) => void) => {
-        const password = window.prompt("Enter the PDF password.");
-        if (password !== null) update(password);
-        else {
-          void task?.destroy();
-          if (alive) setError("PDF unlock cancelled.");
-        }
+        void askPassword({ title: "This PDF is locked", message: "Enter the PDF password to open it.", confirmLabel: "Unlock" }).then((password) => {
+          if (password !== null) update(password);
+          else {
+            void task?.destroy();
+            if (alive) setError("PDF unlock cancelled.");
+          }
+        });
       };
       const document = await task.promise;
       if (alive) setPdf(document);

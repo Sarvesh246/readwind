@@ -57,6 +57,21 @@ export type Book = {
   importReport?: import('./pdf-layout').PdfImportReport;
   footnotes?: { id: string; marker: string; text: string; pageIndex?: number }[];
 };
+export type BookStats = { starts: number[]; sections: { start: number; end: number; blocks: number[] }[]; total: number; chars: number };
+/**
+ * What the shelf keeps of a book: everything except the text. Rows are derived from the stored
+ * book by a Dexie middleware (see db.ts), so listing the library never deserialises book bodies.
+ * Word offsets are block-exact, so progress read from the shelf is exact to the block.
+ */
+export type ShelfBook = Omit<Book, "sections" | "footnotes" | "importReport"> & {
+  sections: Pick<Section, "id" | "title" | "heading" | "level">[];
+  stats: BookStats;
+  /** A readable line from the opening, for the shelf card. */
+  opening: string;
+  /** Every stored file the book uses (covers, source PDF, figures, shared assets). */
+  assets: string[];
+};
+export type BookLike = Book | ShelfBook;
 export type Annotation = {
   revision?: number;
   id: string;

@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Minus, Plus, Target } from "lucide-react";
-import type { Book, Progress, Settings } from "@/lib/readwind/types";
+import type { BookLike, ShelfBook, Progress, Settings } from "@/lib/readwind/types";
 import type { ReadingLog } from "@/lib/readwind/reading-log";
 import { dayKey, dayNumber, dayFromNumber } from "@/lib/readwind/reading-log";
 import { wordProgress, start } from "@/lib/readwind/anchors";
@@ -51,7 +51,7 @@ export function GoalRing({ fraction, met, size = 44, stroke = 4, children }: { f
 }
 
 type GoalSource = {
-  books: Book[];
+  books: ShelfBook[];
   progress: Progress[];
   readingLog?: ReadingLog;
   readingSpeed: number;
@@ -251,12 +251,12 @@ function GoalEditor({ library: l, onDone }: { library: GoalSource; onDone: () =>
 }
 
 type FinishSource = GoalSource & {
-  speedFor: (b: Book) => number;
-  saveBook: (b: Book) => Promise<void>;
+  speedFor: (b: BookLike) => number;
+  patchBook: (id: string, patch: { finishBy?: string }) => Promise<void>;
 };
 
 /** Words left and the pace a finish date should use: the voice's when the reader mostly listens. */
-export function finishPace(l: FinishSource, book: Book) {
+export function finishPace(l: FinishSource, book: BookLike) {
   const p = l.progress.find(x => x.bookId === book.id);
   const remaining = Math.max(0, wordProgress(book, start).total - wordProgress(book, p?.at || start).before);
   const listening = mostlyListening(l.readingLog);
@@ -265,7 +265,7 @@ export function finishPace(l: FinishSource, book: Book) {
 }
 
 /** "≈ 18 min/day to finish by Dec 1", recalculated each day; empty with no date set. */
-export function finishLine(l: FinishSource, book: Book) {
+export function finishLine(l: FinishSource, book: BookLike) {
   if (!book.finishBy) return "";
   const { remaining, wpm } = finishPace(l, book);
   if (remaining <= 0) return "";
@@ -274,14 +274,14 @@ export function finishLine(l: FinishSource, book: Book) {
   return `≈ ${plan.minutesPerDay} min/day to finish by ${longDate(book.finishBy)}`;
 }
 
-export function FinishByEditor({ library: l, book, onClose }: { library: FinishSource; book: Book; onClose: () => void }) {
+export function FinishByEditor({ library: l, book, onClose }: { library: FinishSource; book: BookLike; onClose: () => void }) {
   const today = dayKey();
   const [date, setDate] = useState(book.finishBy || dayFromNumber(dayNumber(today) + 30));
   const { remaining, wpm, listening } = finishPace(l, book);
   const usual = usualMinutes(l.readingLog);
   const plan = remaining > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date) ? finishPlan(remaining, wpm, date, today, usual) : null;
   const save = (value?: string) => {
-    void l.saveBook({ ...book, finishBy: value });
+    void l.patchBook(book.id, { finishBy: value });
     onClose();
   };
   return (

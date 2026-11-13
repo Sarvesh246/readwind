@@ -1,5 +1,6 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- The worker already creates small immutable cover thumbnails. */
+import "@/app/readwind-discover.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Library } from "@/lib/readwind/useLibrary";
 import {

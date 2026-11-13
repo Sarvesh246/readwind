@@ -1,4 +1,4 @@
-import type { Book, Progress } from "./types";
+import type { Book, BookLike, Progress } from "./types";
 export type CatalogEntry = {
   id: string;
   workId: string;
@@ -96,7 +96,7 @@ export function searchCatalog(entries: CatalogEntry[], query: string) {
 }
 export function recommendCatalog(
   entries: CatalogEntry[],
-  books: Book[],
+  books: BookLike[],
   progress: Progress[],
   limit = 24,
 ) {
@@ -185,7 +185,8 @@ export function recommendCatalog(
   }
   return { personalized: signals.length > 0, items: selected };
 }
-export function bookAssets(book: Book) {
+export function bookAssets(book: BookLike): string[] {
+  if ("assets" in book) return book.assets;
   return [
     ...new Set(
       [
@@ -202,7 +203,7 @@ export function bookAssets(book: Book) {
     ),
   ];
 }
-export function privateBookAssets(book: Book) {
+export function privateBookAssets(book: BookLike) {
   const shared = new Set(book.catalog?.assets.map((a) => a.id));
   return bookAssets(book).filter((id) => !shared.has(id));
 }

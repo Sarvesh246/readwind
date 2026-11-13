@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ReadwindDB, deviceId, encodeFile, storedBlob } from "./db";
 import type { Pending } from "./db";
-import type { Book, Annotation, Anchor, Settings, Progress } from "./types";
+import type { Book, BookLike, ShelfBook, Annotation, Anchor, Settings, Progress } from "./types";
 import { defaults } from "./types";
 import {addPaceSample,addBookPaceSample,addCalibration,mergeReadingPace,readingSpeed,speedForBook,validPaceSample} from './reading-pace';
 import {mergeReviewCal,recordOutcome} from './spaced-repetition';
@@ -33,7 +33,7 @@ type LibraryPage = {
   settings?: Settings | null;
   nextOffset?: number | null;
 };
-function bookFileIds(book: Book) {
+function bookFileIds(book: BookLike) {
   return bookAssets(book);
 }
 async function responseError(response: Response, fallback: string) {
@@ -61,12 +61,11 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   const editingLocked = useRef(false);
   const restoringArchive = useRef(false);
   const [optimisticDeletes,setOptimisticDeletes]=useState<{owner:string;ids:Set<string>}>({owner:db.name,ids:new Set()});
-  // Two separate live queries on purpose. Books carry their full text, and every
-  // reading-position change writes to `pending`; a single query that read both
-  // tables re-deserialised the whole shelf on each queued change. Now the (large)
-  // books table reloads only when books change, and the (tiny) deletion list is
-  // joined in memory.
-  const storedBooks = useLiveQuery(async()=>({owner:db.name,books:await db.books.toArray()}), [db]);
+  // Two separate live queries on purpose: every reading-position change writes to
+  // `pending`, so the (tiny) deletion list is joined in memory rather than read in the
+  // same query. The shelf is the text-free mirror of `books`, so listing the library
+  // never deserialises book bodies.
+  const storedBooks = useLiveQuery(async()=>({owner:db.name,books:await db.shelf.toArray()}), [db]);
   const pendingDeletes = useLiveQuery(async()=>({owner:db.name,ids:new Set((await db.pending.where('entity').equals('delete-book').toArray()).map(p=>p.bookId))}), [db]);
   const books=useMemo(()=>{
     // Show nothing until both halves have loaded, as the single query did.
@@ -382,6 +381,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         "rw",
         [
           db.books,
+          db.shelf,
           db.progress,
           db.annotations,
           db.preferences,
@@ -416,9 +416,9 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
           // Read the stored books once (they carry full text) and track survivors
           // here, rather than re-reading the whole table for each later step.
           const editedBooks = new Set(changes.filter((change) => change.entity !== "delete-book").map((change) => change.bookId));
-          const liveBooks: Book[] = [];
+          const liveBooks: ShelfBook[] = [];
           const removedIds: string[] = [];
-          for (const b of await db.books.toArray()) {
+          for (const b of await db.shelf.toArray()) {
             if (remoteBooks.has(b.id) || editedBooks.has(b.id)) { liveBooks.push(b); continue; }
             removedIds.push(b.id);
           }
@@ -488,7 +488,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
         // Remove one-paragraph sample excerpts created by earlier builds.
         // Guests otherwise start with an empty shelf and can add the
         // public-domain classics explicitly.
-        const legacy = await db.books
+        const legacy = await db.shelf
           .filter((b) => b.id.startsWith("sample-"))
           .toArray();
         if (legacy.length) {
@@ -777,6 +777,11 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     });
     void sync();
   };
+  /** Edits part of a book. Callers on the shelf only hold the text-free row, so the stored book is merged here. */
+  const patchBook = async (id: string, patch: Partial<Omit<Book, "id" | "sections">>) => {
+    const current = await db.books.get(id);
+    if (current) await saveBook({ ...current, ...patch });
+  };
   const saveReadingMode = async (book: Book, readingMode: 'original'|'reflow') => {
     if(editingLocked.current)throw new Error("Account changes are paused while signing out or restoring.");
     await db.transaction('rw', [db.books,db.pending], async()=>{
@@ -809,7 +814,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     async (id: string) => {
       let file = await db.blobs.get(id);
       if(!file){
-        const shared=(await db.books.toArray()).flatMap(b=>b.catalog?.assets||[]).find(a=>a.id===id);
+        const shared=(await db.shelf.toArray()).flatMap(b=>b.catalog?.assets||[]).find(a=>a.id===id);
         if(shared){const blob=await verifiedAsset(await fetch(`/api/catalog/assets/${encodeURIComponent(id)}`,{signal:lifetime.current.signal}),shared);if(!alive.current||lifetime.current.signal.aborted)throw new Error('Account changed.');file=await encodeFile({id,blob});await db.blobs.put(file);}
       }
       if (!file && !guest) {
@@ -934,8 +939,8 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     if(conflicted.current===`progress:${id}`){conflicted.current=null;setConflict(null);}
     if(!guest&&alive.current)setStatus(navigator.onLine?'Deleting…':'Offline · deletion queued');
     // Cleanup runs after the shelf update and uses keys, never loading large PDF blobs.
-    void db.transaction('rw',[db.books,db.blobs],async()=>{
-      const used=new Set((await db.books.toArray()).flatMap(bookFileIds));
+    void db.transaction('rw',[db.books,db.shelf,db.blobs],async()=>{
+      const used=new Set((await db.shelf.toArray()).flatMap(bookFileIds));
       const unused=(await db.blobs.toCollection().primaryKeys()).filter(key=>!used.has(key));if(unused.length)await db.blobs.bulkDelete(unused);
     }).catch(()=>{});
     void sync();
@@ -958,11 +963,11 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   };
   const removeDownload=async(id:string)=>{
     if(guest)throw new Error('Guest books have no cloud copy. Export a backup before removing them.');
-    await db.transaction('rw',[db.books,db.pending,db.blobs],async()=>{
-      const book=await db.books.get(id);if(!book)return;
+    await db.transaction('rw',[db.books,db.shelf,db.pending,db.blobs],async()=>{
+      const book=await db.shelf.get(id);if(!book)return;
       const pending=await db.pending.toArray();
       const pendingBooks=new Set(pending.map(p=>p.bookId));
-      const protectedIds=new Set((await db.books.toArray()).filter(b=>pendingBooks.has(b.id)).flatMap(bookAssets));
+      const protectedIds=new Set((await db.shelf.toArray()).filter(b=>pendingBooks.has(b.id)).flatMap(bookAssets));
       const assets=bookAssets(book);
       if(pending.some(p=>p.bookId===id)||assets.some(asset=>protectedIds.has(asset)))throw new Error('Sync this book and its shared attachments before removing downloads.');
       await db.blobs.bulkDelete(assets);
@@ -1034,7 +1039,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     paceOwner:userId,
     readingSpeed:readingSpeed(settings.readingPace),
     /** Words per minute for this book's own words: reader pace, tuned to the book, corrected by calibration. */
-    speedFor:(b:Book)=>speedForBook(settings.readingPace,b.id,bookDensity(b)),
+    speedFor:(b:BookLike)=>speedForBook(settings.readingPace,b.id,bookDensity(b)),
     recordReading,
     recordCalibration,
     recordReviewOutcome,
@@ -1050,6 +1055,7 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
     addBook,
     addCatalogBook,
     saveBook,
+    patchBook,
     saveReadingMode,
     loadBlob,
     conflict:conflict?.owner===db.name?conflict:null,
@@ -1061,3 +1067,9 @@ export function useLibrary(userId: string, auth: AuthClient | null) {
   };
 }
 export type Library = ReturnType<typeof useLibrary>;
+
+/** The stored book with its full text, for the screen that is reading it. Re-reads only when that one book changes. */
+export function useFullBook(l: { db: ReadwindDB }, id: string | undefined) {
+  const found = useLiveQuery(async () => ({ id, book: id ? await l.db.books.get(id) : undefined, owner: l.db.name }), [l.db, id]);
+  return found && found.id === id && found.owner === l.db.name ? found.book : undefined;
+}

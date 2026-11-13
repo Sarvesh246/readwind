@@ -173,7 +173,7 @@ export async function encryptBackup(json: string, password: string) {
   });
 }
 
-export async function readBackup(file: File, password: () => string | null) {
+export async function readBackup(file: File, password: () => string | null | Promise<string | null>) {
   if(await file.slice(0,8).text()==='RDWIND02')return readArchive(file,password);
   if (file.size > 115 * 1024 * 1024) throw new Error("Backup exceeds 115 MB.");
 
@@ -189,7 +189,7 @@ export async function readBackup(file: File, password: () => string | null) {
       })
       .parse(input);
 
-    const secret = password();
+    const secret = await password();
 
     if (!secret) throw new Error("Restore cancelled.");
 
@@ -250,9 +250,9 @@ export async function createArchive(data: ArchiveData, files: {id:string;blob?:B
     await frame(new Uint8Array(await blob.slice(i,i+frameSize).arrayBuffer()));}
   return new Blob(parts,{type:'application/octet-stream'});
 }
-async function readArchive(file:File,password:()=>string|null){
+async function readArchive(file:File,password:()=>string|null|Promise<string|null>){
   if(file.size>maxArchive)throw new Error('Backup exceeds 650 MiB.');
-  const supplied=password();if(!supplied)throw new Error('Restore cancelled.');
+  const supplied=await password();if(!supplied)throw new Error('Restore cancelled.');
   let offset=24,counter=0;
   const secret=await key(supplied,new Uint8Array(await file.slice(8,24).arrayBuffer()));
   async function frame(){
