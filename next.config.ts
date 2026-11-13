@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
   compress: true,
   // Barrel-heavy packages: import only the icons/primitives actually used.
   experimental: {
-    optimizePackageImports: ["lucide-react", "radix-ui", "date-fns", "recharts", "motion"],
+    optimizePackageImports: ["lucide-react", "radix-ui", "motion"],
   },
   turbopack: {
     resolveAlias: {
