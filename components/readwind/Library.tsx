@@ -305,7 +305,7 @@ export function Library({
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search titles, notes, and inside books"
+            placeholder="Search books and notes"
           />
         </label>
         <button
@@ -496,7 +496,7 @@ export function Library({
           {l.settings.confirmBookDeletion===false&&<button className="delete-confirm-reset" onClick={()=>void l.saveSettings({...l.settings,confirmBookDeletion:true}).catch(()=>setDeleteError('Could not update deletion confirmations.'))}>Turn on deletion confirmations</button>}
           {!!selected.length&&<div className="bulk-bar" role="group" aria-label="Organize selected books"><span className="bulk-count">{selected.length} selected</span><button className="button" onClick={()=>void organizeSelected({readingStatus:'finished'})}>Mark finished</button><button className="button" onClick={()=>void organizeSelected({readingStatus:'to-read'})}>Mark to read</button><button className="button" onClick={()=>void askText({title:'Set collections',message:'Applies to the '+selected.length+' selected books.',field:{name:'tags',label:'Collections, separated by commas',placeholder:'Favourites, Classics'},confirmLabel:'Apply'}).then(value=>{if(value!==null)void organizeSelected({tags:[...new Set(value.split(',').map(t=>t.trim()).filter(Boolean))].slice(0,30)});})}>Set collections</button><button className="button ghost" onClick={()=>setSelected([])}>Clear selection</button></div>}
           {batchError&&<p role="alert">{batchError}</p>}
-          <div className="shelf-grid">
+          <div className={selected.length ? "shelf-grid selecting" : "shelf-grid"}>
             {l.imports.map((job) => (
               <ImportingBook key={job.id} job={job} thisDevice={job.deviceId === deviceId()} onDismiss={() => void l.clearImport(job.id)} />
             ))}
@@ -559,6 +559,7 @@ export function Library({
                       {audio?.supported && <button type="button" className="card-menu-item" onClick={e => { closeMenu(e); if (audio.book?.id === b.id) audio.toggle(); else audio.play(b); }}><Headphones size={14} />{audio.book?.id === b.id && audio.playing ? "Pause listening" : "Listen"}</button>}
                       <button type="button" className="card-menu-item" onClick={e => { closeMenu(e); setFinishBook(b); }}><CalendarClock size={14} />{b.finishBy ? "Change finish date" : "Set a finish date"}</button>
                       <button type="button" className="card-menu-item" onClick={e=>{closeMenu(e);void askText({title:'Collections',message:'Put “'+b.title+'” on one or more collections.',field:{name:'tags',label:'Collections, separated by commas',initial:b.tags?.join(', ') || '',placeholder:'Favourites, Classics'},confirmLabel:'Save'}).then(tags=>{if(tags!==null)void l.patchBook(b.id,{tags:[...new Set(tags.split(',').map(t=>t.trim()).filter(Boolean))].slice(0,30)});});}}>Collections</button>
+                      <button type="button" className="card-menu-item" onClick={e => { closeMenu(e); setSelected(ids => ids.includes(b.id) ? ids.filter(id => id !== b.id) : [...ids, b.id]); }}>{selected.includes(b.id) ? "Deselect" : "Select"}</button>
                       <button type="button" className="card-menu-item" aria-label={`Edit ${b.title}`} onClick={e => { closeMenu(e); setCoverBook(b); }}><Icon name="image" size={14} />Edit cover</button>
                       <button type="button" className="card-menu-item danger" aria-label={`Delete ${b.title}`} onClick={e => { closeMenu(e); setDeleteError('');if(l.settings.confirmBookDeletion===false)removeBook(b);else setDeletion({owner:l.paceOwner,book:b}); }}>Delete</button>
                     </div>

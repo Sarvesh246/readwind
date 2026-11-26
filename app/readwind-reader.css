@@ -1429,7 +1429,8 @@
   flex: none;
   align-self: center;
   width: min(100%, 980px);
-  padding: 0 8px;
+  /* Bottom padding keeps the tool pill from sitting flush on the panel's edge. */
+  padding: 0 8px 8px;
   background: var(--reader-desk);
   border-radius: 14px;
   z-index: 8;

@@ -7,7 +7,7 @@
 @import "@fontsource/atkinson-hyperlegible/400.css";
 .catalog-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 32px}
 .catalog-row{display:flex;align-items:center;gap:16px;padding:20px 0;border-bottom:1px solid var(--line);min-width:0}
-.catalog-cover{flex:0 0 56px;min-width:0;background:var(--surface);padding:0;border:0}
+.catalog-cover{flex:0 0 56px;min-width:0;height:84px;padding:0;border:0;border-radius:2px 5px 5px 2px;overflow:hidden;background:linear-gradient(160deg,color-mix(in srgb,var(--ink) 9%,var(--surface)),var(--surface));box-shadow:inset 3px 0 0 rgba(0,0,0,.16),0 1px 3px rgba(0,0,0,.18)}
 .catalog-cover img{display:block;width:56px;height:84px;object-fit:contain}
 .catalog-copy{flex:1;min-width:0}
 .catalog-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-align:left;font:500 17px/1.4 Literata,Georgia,serif;color:var(--ink);padding:0;overflow-wrap:anywhere}
@@ -739,10 +739,16 @@ legend {
   background: var(--ink);
 }
 .shelf-status > span {
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--muted-2);
+  /* One line, so a long estimate never strands a lone "read" under the cover. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
 }
 .drop-tile {
+  align-self: start;
   aspect-ratio: 2/3;
   border-radius: 8px;
   border: 1.5px dashed var(--dashed);
@@ -1411,6 +1417,10 @@ legend {
     margin-top: 4px;
   }
 .continue-actions > .button {
+    /* When the pair wraps on a narrow card, each button fills its line instead of
+       leaving two ragged pills of different widths. */
+    flex: 1 1 auto;
+    justify-content: center;
     font-size: 12px;
     min-height: 44px;
     padding: 0 18px;
@@ -2521,12 +2531,17 @@ select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .ocr-languages { padding: 16px; }
 .ocr-languages > legend { float: left; width: 100%; text-align: left; margin: 0 0 12px; font: 600 14px Inter, system-ui, sans-serif; }
 .ocr-languages > legend + div { clear: both; }
-/* Touch: both overlay controls are always visible, so keep them small and together on the right
-   instead of covering the first letters of the cover title. */
+/* Touch: there is no hover, so the actions button is always shown. It sits in the cover's
+   bottom corner (150cqw is the 2:3 cover's height) where it never covers the title, and the
+   author line leaves room for it. Selecting lives in the menu; checkboxes only appear once a
+   selection has started. */
 @media (hover: none){
-.card-select, .card-menu > summary { width: 32px; height: 32px; top: 6px; opacity: 0.88; }
-.card-select { left: auto; right: 44px; }
-.card-menu > summary { right: 6px; }
+.shelf-cell { container-type: inline-size; }
+.card-menu > summary { top: calc(150cqw - 38px); right: 6px; width: 32px; height: 32px; font-size: 18px; opacity: 0.9; }
+.shelf-cell .shelf-cover > span { padding-right: 30px; }
+.card-menu-panel { top: auto; bottom: calc(100% - 150cqw + 42px); }
+.card-select { display: none; width: 32px; height: 32px; top: 6px; left: auto; right: 6px; opacity: 1; }
+.shelf-grid.selecting .card-select { display: grid; }
 .card-select input { width: 20px; height: 20px; }
 }
 /* No sticky focus rings: programmatic focus targets never show one, and after pointer use only

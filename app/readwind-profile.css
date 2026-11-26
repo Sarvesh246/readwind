@@ -78,6 +78,10 @@
 .profile-stack { flex-direction: column; align-items: flex-start; gap: 10px; }
 .profile-stack > .button { margin-top: 4px; }
 .profile-row > .button { flex: none; }
+/* The download row's title and button share one line like the restore row; the book picker
+   folds out underneath. The inner row borrows .profile-row layout without its padding. */
+.profile-stack > .profile-row.profile-row-head { align-self: stretch; padding: 0; }
+.profile-stack > .profile-row-head + .profile-inline-details { margin-top: 2px; }
 .profile-block { display: flex; flex-direction: column; gap: 12px; padding: 20px; }
 .profile-block small { font-size: 13px; line-height: 1.5; color: var(--muted); }
 .profile-block > .button { align-self: flex-start; }

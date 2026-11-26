@@ -309,7 +309,7 @@ export function Discover({
               id="catalog-search"
               type="search"
               autoComplete="off"
-              placeholder="Search books, authors, or subjects"
+              placeholder="Title, author, or subject"
               value={query}
               maxLength={300}
               onChange={(e) => setQuery(e.target.value)}

@@ -324,10 +324,13 @@ export function Profile({
             <p className="profile-lede">Keep a private, password-protected copy of your books and notes, or bring one back.</p>
             <div className="profile-card">
               <div className="profile-row profile-stack">
-                <span className="row-text">
-                  <strong>Download a backup</strong>
-                  <small>{selectedExport.length ? `${selectedExport.length} of ${l.books.length} books selected` : "Includes your whole library by default."}</small>
-                </span>
+                <div className="profile-row profile-row-head">
+                  <span className="row-text">
+                    <strong>Download a backup</strong>
+                    <small>{selectedExport.length ? `${selectedExport.length} of ${l.books.length} books selected` : "Includes your whole library by default."}</small>
+                  </span>
+                  <button className="button" onClick={() => void backup()}>Download backup</button>
+                </div>
                 <details className="profile-inline-details">
                   <summary>Choose which books to include</summary>
                   <div className="profile-button-row">
@@ -347,7 +350,6 @@ export function Profile({
                     ))}
                   </div>
                 </details>
-                <button className="button" onClick={() => void backup()}>Download backup</button>
               </div>
               <div className="profile-row">
                 <span className="row-text">
