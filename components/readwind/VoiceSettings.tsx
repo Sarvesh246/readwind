@@ -1,8 +1,10 @@
 "use client";
+import "@/app/readwind-settings.css";
 import { useState } from "react";
 import {
   Check,
   Download,
+  Headphones,
   Loader2,
   Play,
   Sparkles,
@@ -67,21 +69,14 @@ export function VoiceSettings() {
         key={v.id}
         className="voice-row voice-row-piper"
         aria-current={active}
+        data-downloaded={onDevice}
       >
         <div className="voice-row-main">
-          <button
-            className="voice-choose"
-            disabled={!onDevice}
-            onClick={() => a.selectNaturalVoice(v.id)}
-          >
-            <strong>
-              {v.name}
-              {v.grade && <span className="voice-best">Most natural</span>}
-            </strong>
-            <span>
-              {v.accent} · {v.gender} · {v.feel}
-            </span>
-          </button>
+          <div className="voice-name">
+            <strong>{v.name}</strong>
+            <span>{v.accent} · {v.gender}</span>
+            <span>{v.feel}{v.grade ? " · High quality" : ""}</span>
+          </div>
           <div className="voice-actions">
             {onDevice && (
               <button
@@ -172,164 +167,84 @@ export function VoiceSettings() {
   return (
     <Modal
       title="Read-aloud voice"
-      className="voice-modal"
+      className="settings-modal voice-modal"
       onClose={() => a.openVoicePanel(false)}
     >
-      {!chosen && (
-        <p className="voice-intro">
-          Choose how books are read to you. You can change this any time from
-          the player.
-        </p>
-      )}
-      <div className="engine-cards" role="radiogroup" aria-label="Voice type">
-        <div
-          className="engine-card"
-          aria-checked={naturalOn}
-          role="radio"
-          tabIndex={-1}
-        >
-          <div className="engine-card-head">
-            <Sparkles size={18} aria-hidden="true" />
-            <strong>Piper voices</strong>
-            {naturalOn && <span className="engine-badge">In use</span>}
+      <div className="settings-body voice-body">
+        <section className="voice-section" aria-labelledby="device-voice-title">
+          <div className="voice-section-heading">
+            <Headphones size={18} aria-hidden="true" />
+            <h3 id="device-voice-title">Device voice</h3>
+            {chosen === "system" && <span className="voice-in-use"><Check size={14} aria-hidden="true" /> In use</span>}
+            {chosen !== "system" && (
+              <button className="button small" aria-label="Use device voice" onClick={() => a.chooseEngine("system")}>Use</button>
+            )}
           </div>
-          <p>
-            Natural voices generated on your device. Download the ones you like
-            once (about 63 MB each) and they work offline.
-          </p>
+          <p>Use the voices provided by your device. On iPhone, find more under Settings → Accessibility → Spoken Content → Voices.</p>
+          {chosen === "system" && systemVoices.length > 0 && (
+            <details className="voice-device-picker">
+              <summary>{a.voice?.name || "Choose a device voice"}</summary>
+              <ul className="voice-list" aria-label="Device voices">
+                {systemVoices.map((v) => (
+                  <li key={v.uri} className="voice-row" aria-current={a.voice?.uri === v.uri}>
+                    <button className="voice-choose" aria-pressed={a.voice?.uri === v.uri} onClick={() => a.setVoice(v.uri)}>
+                      <strong>{v.name}</strong>
+                      <span>{v.lang}{v.local ? " · on this device" : " · online"}</span>
+                    </button>
+                    {a.voice?.uri === v.uri && <Check size={16} className="voice-check" aria-hidden="true" />}
+                    <button className="icon-button" onClick={() => a.preview(v.uri, sample)} aria-label={`Preview ${v.name}`}>
+                      <Play size={15} aria-hidden="true" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </section>
+        <section className="voice-section" aria-labelledby="piper-voices-title">
+          <div className="voice-section-heading">
+            <Sparkles size={18} aria-hidden="true" />
+            <h3 id="piper-voices-title">Piper voices</h3>
+            {naturalOn && <span className="voice-in-use"><Check size={14} aria-hidden="true" /> In use</span>}
+          </div>
           {!naturalVoiceSupported() ? (
-            <p className="engine-note">
-              This device can’t run Piper voices. The device voice below works
-              everywhere.
-            </p>
+            <p>Piper voices are unavailable on this device.</p>
           ) : (
             <>
+              <p>Download a natural voice once to listen offline.</p>
               <div className="voice-filters">
-                <div
-                  className="segmented"
-                  role="group"
-                  aria-label="Voice gender"
-                >
-                  {(["All", "Female", "Male"] as const).map((g) => (
-                    <button
-                      key={g}
-                      aria-pressed={gender === g}
-                      onClick={() => setGender(g)}
-                    >
-                      {g === "All" ? "Any" : g}
-                    </button>
-                  ))}
-                </div>
-                <div className="segmented" role="group" aria-label="Accent">
-                  {(["All", "American", "British"] as const).map((x) => (
-                    <button
-                      key={x}
-                      aria-pressed={accent === x}
-                      onClick={() => setAccent(x)}
-                    >
-                      {x === "All" ? "Any" : x}
-                    </button>
-                  ))}
-                </div>
+                <label>
+                  Voice gender
+                  <select value={gender} onChange={event => setGender(event.target.value as typeof gender)}>
+                    <option value="All">Any gender</option>
+                    <option>Female</option>
+                    <option>Male</option>
+                  </select>
+                </label>
+                <label>
+                  Accent
+                  <select value={accent} onChange={event => setAccent(event.target.value as typeof accent)}>
+                    <option value="All">Any accent</option>
+                    <option>American</option>
+                    <option>British</option>
+                  </select>
+                </label>
               </div>
-              <ul className="voice-list" aria-label="Piper voices">
+              {previewing && <p className="engine-note" role="status">Preparing the voice preview…</p>}
+              {previewError && <p className="engine-note is-error" role="alert">{previewError}</p>}
+              <ul className="voice-list voice-catalog" aria-label="Piper voices">
                 {voices.map(voiceRow)}
-                {!voices.length && (
-                  <li className="muted voice-empty">
-                    No voices match. Try “Any”.
-                  </li>
-                )}
+                {!voices.length && <li className="voice-empty">No voices match these filters.</li>}
               </ul>
-              {previewing && (
-                <p className="engine-note">
-                  The first preview takes a few seconds while the voice wakes
-                  up.
-                </p>
-              )}
-              {previewError && (
-                <p className="engine-note is-error">{previewError}</p>
-              )}
-              <p className="engine-note">
-                Best on Wi-Fi. Your browser may remove downloaded files when
-                storage is low; Readwind will tell you if that happens.
-              </p>
               {hasNatural && (
-                <button
-                  className="text-button voice-remove"
-                  onClick={() => a.removeNatural()}
-                >
-                  <Trash2 size={14} aria-hidden="true" /> Remove all downloaded
-                  voices ({storedMb} MB)
+                <button className="text-button voice-remove" onClick={() => a.removeNatural()}>
+                  <Trash2 size={14} aria-hidden="true" /> Remove all downloaded voices ({storedMb} MB)
                 </button>
               )}
             </>
           )}
-        </div>
-        <div
-          className="engine-card"
-          aria-checked={
-            chosen === "system" || (chosen === "natural" && !hasNatural)
-          }
-          role="radio"
-          tabIndex={-1}
-        >
-          <div className="engine-card-head">
-            <strong>Device voice</strong>
-            {chosen === "system" && (
-              <span className="engine-badge">In use</span>
-            )}
-          </div>
-          <p>
-            Use voices available on this device, including enhanced voices when
-            the browser provides them. On iPhone, download voices in Settings →
-            Accessibility → Spoken Content → Voices.
-          </p>
-          {chosen !== "system" && (
-            <button className="button" onClick={() => a.chooseEngine("system")}>
-              Use device voice
-            </button>
-          )}
-        </div>
-      </div>
-
-      {chosen === "system" && systemVoices.length > 0 && (
-        <section className="voice-picker" aria-label="Device voices">
-          <ul className="voice-list">
-            {systemVoices.map((v) => (
-              <li
-                key={v.uri}
-                className="voice-row"
-                aria-current={a.voice?.uri === v.uri}
-              >
-                <button
-                  className="voice-choose"
-                  onClick={() => a.setVoice(v.uri)}
-                >
-                  <strong>{v.name}</strong>
-                  <span>
-                    {v.lang}
-                    {v.local ? " · on this device" : " · online"}
-                  </span>
-                </button>
-                {a.voice?.uri === v.uri && (
-                  <Check
-                    size={16}
-                    className="voice-check"
-                    aria-label="Selected"
-                  />
-                )}
-                <button
-                  className="icon-button"
-                  onClick={() => a.preview(v.uri, sample)}
-                  aria-label={`Preview ${v.name}`}
-                >
-                  <Play size={15} />
-                </button>
-              </li>
-            ))}
-          </ul>
         </section>
-      )}
+      </div>
     </Modal>
   );
 }

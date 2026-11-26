@@ -24,7 +24,10 @@ export function ReadAloudVoiceRow() {
         <strong>Read-aloud voice</strong>
         <small>{current}</small>
       </div>
-      <button className="button small" onClick={() => a.openVoicePanel(true)}>
+      <button className="button small" onClick={event => {
+        event.currentTarget.focus({ preventScroll: true });
+        a.openVoicePanel(true);
+      }}>
         <Headphones size={15} aria-hidden="true" /> Choose
       </button>
     </div>

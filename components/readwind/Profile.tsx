@@ -9,6 +9,9 @@ import { dailyTotals, dayKey, qualifyingDays, statsOf, streakOf } from "@/lib/re
 import { Icon } from "./Icon";
 import { Flame } from "./Flame";
 import { AppearanceControl, ThemeToggleButton } from "./Theme";
+import { Headphones } from "lucide-react";
+import { Comfort } from "./Comfort";
+import { useAudiobook, voiceLabel } from "./Audiobook";
 import { SyncDifferences } from "./SyncDifferences";
 
 const AccountStorage = lazy(() => import("./AccountStorage").then((m) => ({ default: m.AccountStorage })));
@@ -108,6 +111,8 @@ export function Profile({
 }) {
   const [signingOut, setSigningOut] = useState(false),
     [selectedExport, setSelectedExport] = useState<string[]>([]);
+  const [comfortOpen, setComfortOpen] = useState(false);
+  const audio = useAudiobook();
   const today = dayKey();
   const streak = useMemo(() => streakOf(qualifyingDays(dailyTotals(l.readingLog, today)).keys(), today), [l.readingLog, today]);
   const stats = useMemo(() => statsOf(l.readingLog, today), [l.readingLog, today]);
@@ -297,6 +302,24 @@ export function Profile({
               <div className="profile-block">
                 <AppearanceControl />
               </div>
+              <button className="profile-link" onClick={() => setComfortOpen(true)}>
+                <span className="aa profile-link-icon" aria-hidden="true">Aa</span>
+                <span className="row-text">
+                  <strong>Reading comfort</strong>
+                  <small>Paper, type and page layout</small>
+                </span>
+                <Icon name="next" size={18} />
+              </button>
+              {audio?.supported && (
+                <button className="profile-link" onClick={() => audio.openVoicePanel(true)}>
+                  <Headphones size={20} className="profile-link-icon" aria-hidden="true" />
+                  <span className="row-text">
+                    <strong>Read-aloud voice</strong>
+                    <small>{voiceLabel(audio)}</small>
+                  </span>
+                  <Icon name="next" size={18} />
+                </button>
+              )}
               {!guest && (
                 <label className="profile-row profile-switch">
                   <span className="row-text">
@@ -335,9 +358,10 @@ export function Profile({
                   <summary>Choose which books to include</summary>
                   <div className="profile-button-row">
                     <button type="button" className="button small" onClick={() => setSelectedExport(l.books.map((b) => b.id))}>Select all</button>
-                    <button type="button" className="button small" onClick={() => setSelectedExport([])}>Include everything</button>
+                    <button type="button" className="button small" onClick={() => setSelectedExport([])}>Reset to whole library</button>
                   </div>
                   <div className="backup-list">
+                    {!l.books.length && <p className="profile-empty">There are no books to select.</p>}
                     {l.books.map((b) => (
                       <label key={b.id} className="check-row">
                         <input
@@ -361,7 +385,7 @@ export function Profile({
                   <input
                     type="file"
                     accept="application/json,.json,.readwind"
-                    hidden
+                    className="sr-only"
                     onChange={(e) => {
                       if (e.target.files?.[0]) void restore(e.target.files[0]);
                       e.target.value = "";
@@ -388,6 +412,7 @@ export function Profile({
           )}
         </div>
       </div>
+      {comfortOpen && <Comfort settings={l.settings} onChange={settings => void l.saveSettings(settings)} onClose={() => setComfortOpen(false)} />}
     </main>
   );
 }

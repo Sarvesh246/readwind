@@ -1,5 +1,7 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useSyncExternalStore } from "react";
+import { DropdownMenu } from "radix-ui";
+import { ActionMenu } from "./ActionMenu";
 import type { Book, Settings } from "@/lib/readwind/types";
 import { Icon } from "./Icon";
 import { Headphones } from "lucide-react";
@@ -26,28 +28,30 @@ type Props = {
   onCloseBook: () => void;
 };
 
+// Mirror the toolbar breakpoints so its hidden commands remain reachable in More.
+const narrowToolbar = "(max-width: 899px)";
+const compactLandscape = "(orientation: landscape) and (max-height: 550px)";
+const landscapeWithoutContents = `${compactLandscape} and (width > 600px)`;
+const toolbarQueries = [narrowToolbar, compactLandscape, landscapeWithoutContents];
+
+function subscribeToToolbar(callback: () => void) {
+  const queries = toolbarQueries.map(query => window.matchMedia(query));
+  queries.forEach(query => query.addEventListener("change", callback));
+  return () => queries.forEach(query => query.removeEventListener("change", callback));
+}
+
+function toolbarSnapshot() {
+  if (window.matchMedia(landscapeWithoutContents).matches) return "compact";
+  if (window.matchMedia(compactLandscape).matches) return "compact-with-contents";
+  return window.matchMedia(narrowToolbar).matches ? "narrow" : "wide";
+}
+
 /** Keep reading controls in consistent groups; secondary commands stay in More. */
 export function ReaderHeader(props: Props) {
   const { book, settings } = props;
-  const more = useRef<HTMLDetailsElement>(null);
-  useEffect(() => {
-    const closeOutside = (event: PointerEvent) => {
-      if (!more.current?.contains(event.target as Node) && more.current)
-        more.current.open = false;
-    };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && more.current?.open) {
-        more.current.open = false;
-        more.current.querySelector("summary")?.focus();
-      }
-    };
-    document.addEventListener("pointerdown", closeOutside);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOutside);
-      document.removeEventListener("keydown", escape);
-    };
-  }, []);
+  const toolbar = useSyncExternalStore(subscribeToToolbar, toolbarSnapshot, () => "wide" as const);
+  const showHiddenTools = toolbar !== "wide";
+  const showNotebook = toolbar === "compact" || toolbar === "compact-with-contents";
   return (
     <header
       className={`reader-header polished-reader-header ${props.hidden ? "chrome-hidden" : ""}`}
@@ -183,53 +187,53 @@ export function ReaderHeader(props: Props) {
         >
           <Icon name="full" size={18} />
         </button>
-        <details className="reader-more" ref={more}>
-          <summary
-            aria-label="More reading options"
-            title="More reading options"
-          >
-            <span aria-hidden="true">•••</span>
-          </summary>
-          <div
-            className="reader-more-menu"
-            onClick={(event) => {
-              if (
-                (event.target as HTMLElement).closest("button") &&
-                more.current
-              )
-                more.current.open = false;
-            }}
-          >
-            <p>Reading options</p>
-            <button onClick={props.onComfort}>
-              <span className="aa">Aa</span>Type & comfort
-            </button>
-            <button onClick={props.onNotebook}>
-              <Icon name="notebook" size={18} />
+        <ActionMenu label="More reading options" triggerClassName="reader-tool reader-more-trigger">
+          {toolbar === "compact" && (
+            <DropdownMenu.Item className="action-menu-item" onSelect={props.onContents}>
+              <Icon name="contents" size={17} />
+              Contents
+            </DropdownMenu.Item>
+          )}
+          {showHiddenTools && (
+            <DropdownMenu.Item className="action-menu-item" onSelect={props.onSearch}>
+              <Icon name="search" size={17} />
+              Search in book
+            </DropdownMenu.Item>
+          )}
+          {showNotebook && (
+            <DropdownMenu.Item className="action-menu-item" onSelect={props.onNotebook}>
+              <Icon name="notebook" size={17} />
               Notebook
-            </button>
-            <button onClick={props.onCover}>
-              <Icon name="image" size={18} />
-              Edit book
-            </button>
-            <button onClick={props.onCloseBook}>
-              <Icon name="book" size={18} />
-              {props.closed ? "Open book" : "Close book"}
-            </button>
-            {book.sourcePdfBlobId && (
-              <>
-                <button onClick={props.onOriginal}>
-                  <Icon name="file" size={18} />
-                  Switch to original layout
-                </button>
-                <button onClick={props.onOriginalPage}>
-                  <Icon name="single" size={18} />
-                  View original page
-                </button>
-              </>
-            )}
-          </div>
-        </details>
+            </DropdownMenu.Item>
+          )}
+          {showHiddenTools && (
+            <DropdownMenu.Item className="action-menu-item" onSelect={props.onFullScreen}>
+              <Icon name="full" size={17} />
+              Full screen
+            </DropdownMenu.Item>
+          )}
+          {book.sourcePdfBlobId && (
+            <>
+              <DropdownMenu.Item className="action-menu-item" onSelect={props.onOriginal}>
+                <Icon name="file" size={17} />
+                Switch to original layout
+              </DropdownMenu.Item>
+              <DropdownMenu.Item className="action-menu-item" onSelect={props.onOriginalPage}>
+                <Icon name="single" size={17} />
+                View original page
+              </DropdownMenu.Item>
+            </>
+          )}
+          {(showHiddenTools || book.sourcePdfBlobId) && <DropdownMenu.Separator className="action-menu-divider" />}
+          <DropdownMenu.Item className="action-menu-item" onSelect={props.onCover}>
+            <Icon name="image" size={17} />
+            Edit book
+          </DropdownMenu.Item>
+          <DropdownMenu.Item className="action-menu-item" onSelect={props.onCloseBook}>
+            <Icon name="book" size={17} />
+            {props.closed ? "Open book" : "Close book"}
+          </DropdownMenu.Item>
+        </ActionMenu>
       </nav>
     </header>
   );

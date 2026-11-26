@@ -21,7 +21,9 @@ import { BookEditor } from "./CoverPicker";
 import { GoalChip, FinishByEditor, finishLine } from "./Goals";
 import { ListenButton, useAudiobook } from "./Audiobook";
 import { dayNumber } from "@/lib/readwind/reading-log";
-import { CalendarClock, Headphones } from "lucide-react";
+import { CalendarClock, Check, Headphones, ListChecks, Tags, Trash2 } from "lucide-react";
+import { DropdownMenu } from "radix-ui";
+import { ActionMenu } from "./ActionMenu";
 import { VoiceHeaderButton } from "./ReadAloudVoiceRow";
 export function Cover({
   book,
@@ -146,13 +148,6 @@ export function Library({
   const [finishBook, setFinishBook] = useState<ShelfBook | null>(null);
   const audio = useAudiobook();
   const [selected,setSelected]=useState<string[]>([]);
-  const closeMenu=(e:{currentTarget:Element})=>{e.currentTarget.closest('details')?.removeAttribute('open');};
-  useEffect(()=>{
-    const close=(e:Event)=>{document.querySelectorAll<HTMLDetailsElement>('details.card-menu[open]').forEach(d=>{if(!d.contains(e.target as Node))d.removeAttribute('open');});};
-    const esc=(e:KeyboardEvent)=>{if(e.key==='Escape')document.querySelectorAll('details.card-menu[open]').forEach(d=>d.removeAttribute('open'));};
-    document.addEventListener('pointerdown',close);document.addEventListener('keydown',esc);
-    return()=>{document.removeEventListener('pointerdown',close);document.removeEventListener('keydown',esc);};
-  },[]);
   const [batchError,setBatchError]=useState('');
   const organizeSelected=async(patch:Partial<Pick<Book,'readingStatus'|'tags'>>)=>{try{for(const b of l.books.filter(b=>selected.includes(b.id)))await l.patchBook(b.id,patch);setSelected([]);}catch(error){setBatchError((error as Error).message);}};
   const readDays = useMemo(() => qualifyingDays(dailyTotals(l.readingLog, dayKey())), [l.readingLog]);
@@ -548,22 +543,62 @@ export function Library({
                     )}
                   </button>
                   <label className="card-select" title="Select book"><input type="checkbox" aria-label={`Select ${b.title}`} checked={selected.includes(b.id)} onChange={e=>setSelected(ids=>e.target.checked?[...ids,b.id]:ids.filter(id=>id!==b.id))}/></label>
-                  <details className="card-menu">
-                    <summary aria-label={`Actions for ${b.title}`}><span aria-hidden="true">⋯</span></summary>
-                    <div className="card-menu-panel" role="group" aria-label={`Actions for ${b.title}`}>
-                      <span className="card-menu-label">Status</span>
-                      {([['', 'Automatic'], ['to-read', 'To read'], ['reading', 'Reading'], ['finished', 'Finished']] as const).map(([value, label]) => (
-                        <button key={value} type="button" className="card-menu-item" aria-pressed={(b.readingStatus || '') === value} onClick={e => { closeMenu(e); void l.patchBook(b.id, { readingStatus: (value || undefined) as Book['readingStatus'] }); }}>{label}</button>
+                  <ActionMenu label={`Actions for ${b.title}`} triggerClassName="card-menu-trigger">
+                    <DropdownMenu.Label className="action-menu-label">Reading status</DropdownMenu.Label>
+                    <DropdownMenu.RadioGroup
+                      aria-label="Reading status"
+                      value={b.readingStatus || ""}
+                      onValueChange={value => void l.patchBook(b.id, { readingStatus: (value || undefined) as Book["readingStatus"] })}
+                    >
+                      {([["", "Automatic"], ["to-read", "To read"], ["reading", "Reading"], ["finished", "Finished"]] as const).map(([value, label]) => (
+                        <DropdownMenu.RadioItem key={value} value={value} className="action-menu-item">
+                          {label}
+                          <DropdownMenu.ItemIndicator className="action-menu-check"><Check size={16} aria-hidden="true" /></DropdownMenu.ItemIndicator>
+                        </DropdownMenu.RadioItem>
                       ))}
-                      <hr />
-                      {audio?.supported && <button type="button" className="card-menu-item" onClick={e => { closeMenu(e); if (audio.book?.id === b.id) audio.toggle(); else audio.play(b); }}><Headphones size={14} />{audio.book?.id === b.id && audio.playing ? "Pause listening" : "Listen"}</button>}
-                      <button type="button" className="card-menu-item" onClick={e => { closeMenu(e); setFinishBook(b); }}><CalendarClock size={14} />{b.finishBy ? "Change finish date" : "Set a finish date"}</button>
-                      <button type="button" className="card-menu-item" onClick={e=>{closeMenu(e);void askText({title:'Collections',message:'Put “'+b.title+'” on one or more collections.',field:{name:'tags',label:'Collections, separated by commas',initial:b.tags?.join(', ') || '',placeholder:'Favourites, Classics'},confirmLabel:'Save'}).then(tags=>{if(tags!==null)void l.patchBook(b.id,{tags:[...new Set(tags.split(',').map(t=>t.trim()).filter(Boolean))].slice(0,30)});});}}>Collections</button>
-                      <button type="button" className="card-menu-item" onClick={e => { closeMenu(e); setSelected(ids => ids.includes(b.id) ? ids.filter(id => id !== b.id) : [...ids, b.id]); }}>{selected.includes(b.id) ? "Deselect" : "Select"}</button>
-                      <button type="button" className="card-menu-item" aria-label={`Edit ${b.title}`} onClick={e => { closeMenu(e); setCoverBook(b); }}><Icon name="image" size={14} />Edit cover</button>
-                      <button type="button" className="card-menu-item danger" aria-label={`Delete ${b.title}`} onClick={e => { closeMenu(e); setDeleteError('');if(l.settings.confirmBookDeletion===false)removeBook(b);else setDeletion({owner:l.paceOwner,book:b}); }}>Delete</button>
-                    </div>
-                  </details>
+                    </DropdownMenu.RadioGroup>
+                    <DropdownMenu.Separator className="action-menu-divider" />
+                    {audio?.supported && (
+                      <DropdownMenu.Item className="action-menu-item" onSelect={() => audio.book?.id === b.id ? audio.toggle() : audio.play(b)}>
+                        <Headphones size={17} aria-hidden="true" />
+                        {audio.book?.id === b.id && audio.playing ? "Pause listening" : "Listen"}
+                      </DropdownMenu.Item>
+                    )}
+                    <DropdownMenu.Item className="action-menu-item" onSelect={() => setFinishBook(b)}>
+                      <CalendarClock size={17} aria-hidden="true" />
+                      {b.finishBy ? "Change finish date" : "Set a finish date"}
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item className="action-menu-item" onSelect={() => {
+                      void askText({
+                        title: "Collections",
+                        message: `Put “${b.title}” in one or more collections.`,
+                        field: { name: "tags", label: "Collections, separated by commas", initial: b.tags?.join(", ") || "", placeholder: "Favourites, Classics" },
+                        confirmLabel: "Save",
+                      }).then(tags => {
+                        if (tags !== null) void l.patchBook(b.id, { tags: [...new Set(tags.split(",").map(tag => tag.trim()).filter(Boolean))].slice(0, 30) });
+                      });
+                    }}>
+                      <Tags size={17} aria-hidden="true" />
+                      Edit collections
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item className="action-menu-item" onSelect={() => setSelected(ids => ids.includes(b.id) ? ids.filter(id => id !== b.id) : [...ids, b.id])}>
+                      <ListChecks size={17} aria-hidden="true" />
+                      {selected.includes(b.id) ? "Deselect book" : "Select book"}
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item className="action-menu-item" aria-label={`Edit ${b.title}`} onSelect={() => setCoverBook(b)}>
+                      <Icon name="image" size={17} />
+                      Edit book
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Separator className="action-menu-divider" />
+                    <DropdownMenu.Item className="action-menu-item danger" aria-label={`Delete ${b.title}`} onSelect={() => {
+                      setDeleteError("");
+                      if (l.settings.confirmBookDeletion === false) removeBook(b);
+                      else setDeletion({ owner: l.paceOwner, book: b });
+                    }}>
+                      <Trash2 size={17} aria-hidden="true" />
+                      Delete book
+                    </DropdownMenu.Item>
+                  </ActionMenu>
                 </motion.div>
               );
             })}

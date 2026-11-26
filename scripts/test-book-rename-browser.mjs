@@ -97,8 +97,9 @@ try {
           .getByRole("button", { name: "Back to library", exact: true })
           .first()
           .click();
+        await page.getByRole("button", { name: "Actions for Original imported book", exact: true }).click();
         await page
-          .getByRole("button", {
+          .getByRole("menuitem", {
             name: "Edit Original imported book",
             exact: true,
           })
@@ -154,7 +155,7 @@ try {
           .getByLabel("More reading options", { exact: true })
           .click();
         await page
-          .getByRole("button", { name: "Edit book", exact: true })
+          .getByRole("menuitem", { name: "Edit book", exact: true })
           .click();
         await page
           .getByLabel("Book title", { exact: true })

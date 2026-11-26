@@ -1638,7 +1638,6 @@ legend {
 .reader button:focus-visible, .original-reader button:focus-visible { outline: 2px solid var(--reader-accent); outline-offset: 2px; }
 /* Reflow reader: quieter chrome, clearly grouped tools, and one reading dock. */
 .reader .book-footer > .icon-button:hover:not(:disabled) { background: var(--reader-page); }
-.reader-more:not([open]) .reader-more-menu { display: none; }
 .reader > .toast { bottom: 84px; font-size: 13px; padding: 12px 18px; border-radius: 10px; }
 /* Import redesign: cover choices, reading mode cards, resilient chapter rows. */
 .cover-picker {
@@ -2453,74 +2452,87 @@ select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .account-actions-grid { grid-template-columns: 1fr 1fr; }
 .account-actions-grid .button:last-child { grid-column: 1 / -1; }
 }
-/* ───────── Compact shelf cards: overlay select + actions menu ───────── */
-.shelf-cell { position: relative; }
-.card-select, .card-menu > summary {
+/* Shelf actions and reader overflow share a collision-aware menu. */
+.shelf-cell { position: relative; container-type: inline-size; }
+.card-menu-trigger, .card-select {
   position: absolute;
-  top: 8px;
+  right: 6px;
   z-index: 3;
   display: grid;
   place-items: center;
   width: 36px;
   height: 36px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border-radius: 50%;
+  color: var(--ui-ink);
+  background: var(--surface);
   border: 1px solid var(--line-strong);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
-  color: var(--ink);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 16%);
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s, background-color 0.15s;
 }
-.card-select { left: 8px; }
+.card-menu-trigger {
+  top: calc(150cqw - 42px);
+  opacity: 0;
+  transition: opacity 150ms ease, background-color 150ms ease;
+}
+.card-menu-trigger::before { content: ""; position: absolute; inset: -4px; }
+.shelf-cell:is(:hover, :focus-within) .card-menu-trigger,
+.card-menu-trigger[data-state="open"] { opacity: 1; }
+.card-menu-trigger:is(:hover, [data-state="open"]) { background: var(--surface-2); }
+.shelf-cell:is(:hover, :focus-within, :has(.card-menu-trigger[data-state="open"])) .shelf-cover > span { padding-right: 34px; }
+.card-select { display: none; top: 6px; }
+.shelf-grid.selecting .card-select { display: grid; }
 .card-select input { width: 22px; height: 22px; }
-.card-menu > summary { right: 8px; list-style: none; font-size: 20px; line-height: 1; letter-spacing: 1px; }
-.card-menu > summary::-webkit-details-marker { display: none; }
-.shelf-cell:hover .card-select, .shelf-cell:hover .card-menu > summary,
-.shelf-cell:focus-within .card-select, .shelf-cell:focus-within .card-menu > summary,
-.card-select:has(input:checked), .card-menu[open] > summary { opacity: 1; }
 .card-select:has(input:checked) { background: var(--accent); border-color: var(--accent); }
 .card-select:has(input:checked) input { background-color: transparent; border-color: transparent; }
-@media (hover: none){
-.card-select, .card-menu > summary { opacity: 0.94; }
-}
 .shelf-cell:has(input:checked) .shelf-cover { outline: 2px solid var(--accent); outline-offset: 2px; }
-.card-menu { position: static; }
-.card-menu-panel {
-  position: absolute;
-  top: 50px;
-  right: 8px;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: min(200px, calc(100% - 16px));
-  min-width: 168px;
-  padding: 6px;
-  border: 1px solid var(--line-strong);
-  border-radius: 16px;
-  background: var(--modal-bg);
-  box-shadow: var(--modal-shadow);
+@media (hover: none) {
+  .card-menu-trigger { opacity: 1; }
+  .shelf-cell .shelf-cover > span { padding-right: 34px; }
 }
-.card-menu-label { padding: 6px 10px 2px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-2); }
-.card-menu-panel hr { width: 100%; margin: 4px 0; border: 0; border-top: 1px solid var(--line); }
-.card-menu-item {
+.action-menu {
+  position: relative;
+  z-index: 30;
+  width: min(15rem, var(--radix-dropdown-menu-content-available-width));
+  max-height: var(--radix-dropdown-menu-content-available-height);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+  overscroll-behavior: contain;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--modal-bg);
+  color: var(--ui-ink);
+  box-shadow: var(--modal-shadow);
+  outline: none;
+}
+.action-menu-label {
+  padding: 7px 10px 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.action-menu-divider { height: 1px; margin: 4px 5px; background: var(--line); }
+.action-menu-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 0 10px;
-  border-radius: 10px;
-  color: var(--ink);
+  gap: 10px;
+  min-height: 36px;
+  padding: 5px 10px;
+  border-radius: 8px;
   font-size: 14px;
-  text-align: left;
+  line-height: 1.3;
+  cursor: pointer;
+  outline: none;
 }
-.card-menu-item:hover { background: var(--hover-strong); }
-.card-menu-item[aria-pressed="true"] { background: var(--accent-soft); font-weight: 600; }
-.card-menu-item[aria-pressed="true"]::after { content: "✓"; margin-left: auto; color: var(--accent); }
-.card-menu-item.danger { color: var(--danger); }
+.action-menu-item > svg { flex: none; color: var(--muted); }
+.action-menu-item[data-state="checked"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.action-menu-check { display: grid; margin-left: auto; }
+.action-menu-item.danger, .action-menu-item.danger > svg { color: var(--danger); }
+.action-menu-item[data-highlighted] { background: var(--hover-strong); }
+@media (pointer: coarse) {
+  .action-menu-item { min-height: 44px; }
+}
 /* Long lists in settings stay contained */
 .backup-tools { display: flex; gap: 8px; padding: 10px 12px 0; }
 .backup-tools .button { min-height: 36px; padding: 0 14px; font-size: 13px; }
@@ -2531,19 +2543,6 @@ select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .ocr-languages { padding: 16px; }
 .ocr-languages > legend { float: left; width: 100%; text-align: left; margin: 0 0 12px; font: 600 14px Inter, system-ui, sans-serif; }
 .ocr-languages > legend + div { clear: both; }
-/* Touch: there is no hover, so the actions button is always shown. It sits in the cover's
-   bottom corner (150cqw is the 2:3 cover's height) where it never covers the title, and the
-   author line leaves room for it. Selecting lives in the menu; checkboxes only appear once a
-   selection has started. */
-@media (hover: none){
-.shelf-cell { container-type: inline-size; }
-.card-menu > summary { top: calc(150cqw - 38px); right: 6px; width: 32px; height: 32px; font-size: 18px; opacity: 0.9; }
-.shelf-cell .shelf-cover > span { padding-right: 30px; }
-.card-menu-panel { top: auto; bottom: calc(100% - 150cqw + 42px); }
-.card-select { display: none; width: 32px; height: 32px; top: 6px; left: auto; right: 6px; opacity: 1; }
-.shelf-grid.selecting .card-select { display: grid; }
-.card-select input { width: 20px; height: 20px; }
-}
 /* No sticky focus rings: programmatic focus targets never show one, and after pointer use only
    text-entry fields keep theirs. Keyboard users (Tab/arrow keys) still get every ring. */
 [tabindex="-1"]:focus, [tabindex="-1"]:focus-visible { outline: none !important; box-shadow: none; }
@@ -2666,63 +2665,12 @@ body:has(.now-playing) .library-main, body:has(.now-playing) .notebook { padding
 .goal-ring-fill, .now-playing-progress, .reader-player-line, .reader-player { transition: none; }
 .goal-ring.is-met .goal-ring-fill, .listen-tool[aria-pressed="true"]::after { animation: none; }
 }
-/* ───────── Read-aloud voice settings ───────── */
-.readwind-modal.voice-modal { width: min(480px, calc(100vw - 24px)); }
-.voice-intro { margin: 0 0 14px; color: var(--muted); font-size: 14.5px; line-height: 1.5; }
-.engine-cards { display: flex; flex-direction: column; gap: 10px; }
-.engine-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 16px; border: 1px solid var(--line); border-radius: 18px; }
-.engine-card[aria-checked="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
-.engine-card-head { display: flex; align-items: center; gap: 8px; width: 100%; }
-.engine-card-head strong { font: 600 16px Inter, sans-serif; }
-.engine-badge { margin-left: auto; padding: 3px 9px; border-radius: 999px; background: var(--ink); color: var(--surface); font: 600 11px Inter, sans-serif; letter-spacing: 0.02em; }
-.engine-card > p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
-.engine-card .button { align-self: stretch; justify-content: center; height: auto; min-height: 46px; padding-block: 10px; margin: 4px 0 2px; text-align: center; white-space: normal; max-width: 100%; }
-.engine-note { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
-.engine-note.is-error { color: var(--danger); }
-.engine-chosen { display: inline-flex; align-items: center; gap: 6px; font: 600 13.5px Inter, sans-serif; color: var(--accent); }
-.engine-progress { position: relative; width: 100%; padding-top: 10px; }
-.engine-progress > div { position: absolute; top: 0; left: 0; right: 0; height: 4px; border-radius: 999px; background: var(--accent); transform-origin: left; transition: transform 0.3s; }
-.engine-progress::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px; border-radius: 999px; background: var(--line); }
-.engine-progress span { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; }
-/* Piper voice rows: choose on the left, download / preview / use / remove on the right. */
-.voice-row.voice-row-piper { flex-direction: column; align-items: stretch; gap: 0; padding: 2px 0; }
-.voice-row-main { display: flex; align-items: center; gap: 6px; }
-.voice-row-piper .voice-choose { min-width: 0; }
-.voice-row-piper .voice-choose:disabled { cursor: default; color: var(--ink); opacity: 1; }
-.voice-row-piper .voice-choose span:not(.voice-best) { max-width: 100%; line-height: 1.35; }
-.voice-actions { display: flex; flex: none; align-items: center; gap: 2px; padding-right: 6px; }
-.voice-actions .button.small { min-height: 36px; padding: 0 12px; font-size: 13px; gap: 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.voice-progress { display: flex; align-items: center; gap: 6px; padding: 0 6px 8px 12px; }
-.voice-progress .engine-progress { flex: 1; }
-.voice-row-piper > .engine-note { padding: 0 12px 8px; }
-.engine-card .voice-list { width: 100%; max-height: none; overflow: visible; margin-top: 2px; }
-.engine-card .voice-filters { width: 100%; margin-top: 4px; }
-.engine-error-detail { display: block; margin-top: 2px; opacity: 0.8; word-break: break-word; }
-.voice-row[aria-current="true"] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.voice-row .icon-button:disabled { opacity: 0.4; cursor: default; }
-/* "Reading voice · Change" row in the player */
+/* “Reading voice · Change” row in the player */
 .player-voice:focus-visible, .voice-header-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-@media (max-width: 639px){
-.voice-actions .button.small { padding: 0 10px; }
-.voice-actions { padding-right: 2px; }
-}
-.voice-picker { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
-.voice-filters { display: flex; flex-wrap: wrap; gap: 8px; }
-.voice-filters .segmented button { padding: 0 12px; }
-.voice-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; max-height: min(46vh, 380px); overflow: auto; }
-.voice-row .voice-choose strong { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; }
-.voice-best { white-space: nowrap; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 600 11px Inter, sans-serif; }
-.voice-check { flex: none; color: var(--accent); }
-.voice-empty { padding: 12px; font-size: 14px; }
-.voice-remove { display: inline-flex; align-items: center; gap: 6px; margin-top: 16px; color: var(--muted); }
 .spin { animation: rw-spin 0.9s linear infinite; }
 @keyframes rw-spin { to { transform: rotate(360deg); } }
-@media (max-width: 639px){
-.voice-filters .segmented { width: 100%; }
-.voice-filters .segmented button { flex: 1; }
-}
-@media (prefers-reduced-motion: reduce){
-.spin { animation-duration: 2.4s; }
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation-duration: 2.4s; }
 }
 /* ---------- Profile page ---------- */
 .profile-card:not(.profile-identity):not(.profile-glance) > * + * { border-top: 1px solid var(--line); }
@@ -2758,3 +2706,16 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="
 .dialog-problem { color:var(--danger); font-size:12px; font-weight:400; }
 .dialog-form .button:disabled { opacity:.5; cursor:not-allowed; }
 .card-snippet { display:block; margin-top:6px; font-size:12px; line-height:1.4; color:var(--muted); font-style:italic; overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
+
+.profile-inline-details > summary, .voice-device-picker > summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px;
+  padding: 0 12px; border-radius: 10px; background: var(--chip); list-style: none;
+  cursor: pointer; font-size: 14px; font-weight: 500; color: var(--ui-ink);
+}
+.profile-inline-details > summary:hover, .voice-device-picker > summary:hover { background: var(--hover-strong); }
+.profile-inline-details > summary::-webkit-details-marker, .voice-device-picker > summary::-webkit-details-marker { display: none; }
+.profile-inline-details > summary::after, .voice-device-picker > summary::after {
+  content: ""; width: 8px; height: 8px; flex: none; margin-right: 3px;
+  border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: translateY(-2px) rotate(45deg);
+}
+.profile-inline-details[open] > summary::after, .voice-device-picker[open] > summary::after { transform: translateY(2px) rotate(225deg); }

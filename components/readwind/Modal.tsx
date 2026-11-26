@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useRef } from "react";
-import { motion } from "motion/react";
+import { useLayoutEffect, useRef } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { Icon } from "./Icon";
 export function Modal({
   title,
@@ -16,7 +16,8 @@ export function Modal({
   dismissible?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
+  const reduceMotion = useReducedMotion();
+  useLayoutEffect(() => {
     const el = ref.current!;
     el.showModal();
     return () => el.close();
@@ -36,7 +37,7 @@ export function Modal({
     >
       <motion.div
         className="modal-content"
-        initial={{ opacity: 0, scale: 0.94, y: 16 }}
+        initial={reduceMotion ? false : { opacity: 0, scale: 0.98, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 340, damping: 26 }}
       >

@@ -2,6 +2,8 @@ import {chromium} from '@playwright/test';
 import {spawn} from 'node:child_process';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import {build} from 'esbuild';
 import {createPdfFixture} from '../tests/fixtures/pdf.mjs';
 const port=3107,origin=process.env.BASE_URL || `http://reader.localhost:${port}`;
 let server;
@@ -46,7 +48,7 @@ try{
  await fresh.getByRole('button',{name:'Back to library',exact:true}).click();
  await fresh.getByRole('button',{name:'Your account',exact:true}).click();
  await fresh.getByRole('button',{name:'Sign out',exact:true}).click();
- await fresh.getByText(/Sign-out paused:/).waitFor();
+ await fresh.getByText(/Some changes haven.t finished syncing yet/).waitFor();
  const pending=await fresh.evaluate(()=>new Promise((resolve,reject)=>{const request=indexedDB.open('folio-audit-isolated-account');request.onerror=()=>reject(request.error);request.onsuccess=()=>{const db=request.result;const count=db.transaction('pending').objectStore('pending').count();count.onsuccess=()=>{db.close();resolve(count.result);};};}));assert(pending>0,'offline sign-out retains pending work');
  assert.equal(errors.length,0,errors.join('\n'));await context.close();
  // An older runtime cache must never shadow this build's Piper assets.
@@ -79,13 +81,21 @@ try{
  const shelfContext=await browser.newContext();const shelf=await shelfContext.newPage();
  await shelfContext.route('**/api/config',r=>r.fulfill({json:{authUrl:null}}));
  await shelf.goto(origin);await shelf.getByRole('heading',{name:'Your shelf'}).waitFor();
- await shelf.evaluate(async template=>{
+ // Raw IndexedDB writes bypass the Dexie middleware that builds the shelf mirror.
+ const {outputFiles} = await build({
+  entryPoints:[fileURLToPath(new URL('../lib/readwind/shelf.ts',import.meta.url))],
+  bundle:true,format:'esm',platform:'node',write:false,
+ });
+ const {toShelf} = await import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].contents).toString('base64'));
+ const sections=Array.from({length:5},(_,n)=>book.sections.map(section=>({...section,id:section.id+'-'+n}))).flat();
+ const template={...book,sections};
+ await shelf.evaluate(async ({template,shelfRow})=>{
   const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('folio-preview');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
-  await new Promise((resolve,reject)=>{const tx=db.transaction(['books','annotations','progress'],'readwrite');
-   for(let i=0;i<100;i++){const id='profile-'+i,title='Profile '+String(i).padStart(3,'0');const sections=Array.from({length:5},(_,n)=>template.sections.map(s=>({...s,id:s.id+'-'+n}))).flat();tx.objectStore('books').put({...template,id,title,sections});tx.objectStore('progress').put({bookId:id,at:{section:0,block:0,offset:0},wordsRead:0,revision:0,deviceId:'profile',updatedAt:i});for(let n=0;n<100;n++)tx.objectStore('annotations').put({id:id+'-note-'+n,bookId:id,kind:'highlight',range:{start:{section:0,block:0,offset:0},end:{section:0,block:0,offset:0}},color:'yellow',quote:'Searchable passage',note:'Profile note '+n,createdAt:1,updatedAt:1});}
+  await new Promise((resolve,reject)=>{const tx=db.transaction(['books','shelf','annotations','progress'],'readwrite');
+   for(let i=0;i<100;i++){const id='profile-'+i,title='Profile '+String(i).padStart(3,'0');tx.objectStore('books').put({...template,id,title});tx.objectStore('shelf').put({...shelfRow,id,title});tx.objectStore('progress').put({bookId:id,at:{section:0,block:0,offset:0},wordsRead:0,revision:0,deviceId:'profile',updatedAt:i});for(let n=0;n<100;n++)tx.objectStore('annotations').put({id:id+'-note-'+n,bookId:id,kind:'highlight',range:{start:{section:0,block:0,offset:0},end:{section:0,block:0,offset:0}},color:'yellow',quote:'Searchable passage',note:'Profile note '+n,createdAt:1,updatedAt:1});}
    tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);
   });db.close();
- },book);
+ },{template,shelfRow:toShelf(template)});
  await shelf.reload();await shelf.waitForFunction(()=>document.querySelectorAll('.shelf-cell').length===100);
  const began=Date.now();await shelf.getByRole('searchbox').fill('Profile 099');await shelf.waitForFunction(()=>document.querySelectorAll('.shelf-cell').length===1);const filterMs=Date.now()-began;
  await shelf.getByRole('searchbox').fill('');await shelf.waitForFunction(()=>document.querySelectorAll('.shelf-cell').length===100);await shelf.getByRole('group',{name:'Sort',exact:true}).getByRole('button',{name:'Progress',exact:true}).click();
